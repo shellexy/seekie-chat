@@ -44,3 +44,11 @@
 .usage-details{position:fixed;z-index:90;width:280px;max-width:calc(100vw - 16px);padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--text);box-shadow:0 8px 30px #0002;font-size:12px}
 .usage-details dl{display:grid;grid-template-columns:auto 1fr;gap:9px 12px;margin:0}.usage-details dt{color:var(--muted)}.usage-details dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.usage-details p{margin:12px 0 0;color:var(--muted);font-size:10px;line-height:1.6}
 @media(max-width:900px){.message-label{flex-wrap:wrap}.message-model{max-width:100%}}
+
+/* Compact answer metadata; the full model and timestamp stay available in the hover/focus popup. */
+.model-selector > svg,.reasoning-selector > svg{display:none}
+.reasoning-selector select{max-width:115px}
+.message-toolbar button.answer-model-meta{margin-left:auto;max-width:180px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:transparent;border:0;padding:5px 3px;font-size:10px;font-weight:400;color:var(--muted)}
+.message-toolbar button.answer-model-meta:hover,.message-toolbar button.answer-model-meta[aria-expanded=true]{background:var(--hover);color:var(--accent)}
+.message-toolbar button.usage{margin-left:0}
+.answer-model-popover{position:fixed;z-index:90;max-width:calc(100vw - 16px);padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);box-shadow:0 8px 30px #0002;font-size:12px;white-space:nowrap}

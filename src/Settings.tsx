@@ -26,17 +26,24 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
     const presetModel: Model | undefined = t.name === 'DeepSeek·anthropic' ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
-      nativeSearch: true, reasoning: 'effort', efforts: ['low', 'medium', 'high'], temperature: true
+      nativeSearch: true, reasoning: 'effort', efforts: ['low', 'medium', 'high', 'max'], temperature: true
     } : undefined;
     change({ connections: [...draft.connections, c], ...(presetModel ? { models: [...draft.models, presetModel], defaultModel: draft.defaultModel || presetModel.id } : {}) });
     setSelected(c.id); setFound([]); setHeadersEditing(false);
   }
   function addModel(model = '') {
     if (!connection) return;
-    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: connection.protocol === 'gemini', tools: true, nativeSearch: connection.protocol === 'gemini', reasoning: 'effort', efforts: connection.protocol === 'gemini' ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high'], temperature: true };
+    const supportsMax = /^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim());
+    const efforts = connection.protocol === 'gemini' ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high', ...(supportsMax ? ['max'] : [])];
+    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: connection.protocol === 'gemini', tools: true, nativeSearch: connection.protocol === 'gemini', reasoning: 'effort', efforts, temperature: true };
     change({ models: [...draft.models, m], defaultModel: draft.defaultModel || m.id });
   }
-  function updateModel(id: string, values: Partial<Model>) { change({ models: draft.models.map(m => m.id === id ? { ...m, ...values } : m) }); }
+  function updateModel(id: string, values: Partial<Model>) { change({ models: draft.models.map(m => {
+    if (m.id !== id) return m;
+    const next = { ...m, ...values };
+    if (typeof values.model === 'string' && /^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim()) && !next.efforts.includes('max')) next.efforts = [...next.efforts, 'max'];
+    return next;
+  }) }); }
   async function save() {
     try {
       setSaving(true);
