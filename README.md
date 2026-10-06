@@ -23,12 +23,14 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 开始聊天
 
-1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic 或自定义兼容连接。
+1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek·anthropic 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1`，不要包含 `/responses`、`/messages` 等端点。
 3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。
 4. 根据模型文档填写上下文窗口、最大输出、图片、工具、原生搜索及思考能力。
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
+
+DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 
@@ -57,6 +59,8 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 同一个会话一次只运行一个聊天或压缩任务。任务中可以切换查看其他分支，输出始终写入发起任务的分支。
 
 ## 搜索与思考
+
+聊天顶栏以单行显示标题、模型和分支。输入框贴近底部，不显示回答免责声明；拖动输入框顶部的短横条可调整高度，聚焦横条后也可用上下方向键调整，Home 恢复最小高度，End 展开至最大高度。高度调整在当前运行期间保留，并限制在窗口高度的 45% 以内（最多 420px）。
 
 输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
 

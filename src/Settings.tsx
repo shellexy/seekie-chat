@@ -8,6 +8,7 @@ const templates = [
   { name: 'OpenAI · Responses', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
   { name: 'OpenAI · Chat Completions', protocol: 'chat', baseUrl: 'https://api.openai.com/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
+  { name: 'DeepSeek·anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
 export default function Settings({ settings, onSave, onClose, toast }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void }) {
@@ -18,10 +19,20 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
   const connection = draft.connections.find(c => c.id === selected);
   function change(values: Partial<SettingsType>) { setDraft(d => ({ ...d, ...values })); }
   function updateConnection(values: Partial<Connection>) { setDraft(d => ({ ...d, connections: d.connections.map(c => c.id === selected ? { ...c, ...values } : c) })); }
-  function addConnection(index: number) { const t = templates[index]; const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '' }; change({ connections: [...draft.connections, c] }); setSelected(c.id); setFound([]); setHeadersEditing(false); }
+  function addConnection(index: number) {
+    const t = templates[index];
+    const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', defaultReasoning: t.name === '自定义兼容服务' ? 'effort' : 'none' };
+    const presetModel: Model | undefined = t.name === 'DeepSeek·anthropic' ? {
+      id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
+      contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
+      nativeSearch: true, reasoning: 'none', efforts: ['low', 'medium', 'high'], temperature: true
+    } : undefined;
+    change({ connections: [...draft.connections, c], ...(presetModel ? { models: [...draft.models, presetModel], defaultModel: draft.defaultModel || presetModel.id } : {}) });
+    setSelected(c.id); setFound([]); setHeadersEditing(false);
+  }
   function addModel(model = '') {
     if (!connection) return;
-    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, nativeSearch: false, reasoning: 'none', efforts: ['low', 'medium', 'high'], temperature: true };
+    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 128000, maxOutput: 8192, vision: false, tools: true, nativeSearch: false, reasoning: connection.defaultReasoning ?? (connection.name === '自定义兼容服务' ? 'effort' : 'none'), efforts: ['low', 'medium', 'high'], temperature: true };
     change({ models: [...draft.models, m], defaultModel: draft.defaultModel || m.id });
   }
   function updateModel(id: string, values: Partial<Model>) { change({ models: draft.models.map(m => m.id === id ? { ...m, ...values } : m) }); }

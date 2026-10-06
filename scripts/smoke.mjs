@@ -60,6 +60,32 @@ async function launch() {
 }
 try {
   let page = await launch();
+  console.log('stage: connection presets');
+  await page.locator('.settings-entry').click();
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek·anthropic', exact: true }).click();
+  assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek·anthropic');
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
+  assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
+  assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'deepseek-flash');
+  assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash');
+  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
+  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '256000');
+  for (const name of ['图片输入', '工具调用', '原生搜索']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
+  await page.locator('.preset-row').getByRole('button', { name: '自定义兼容服务', exact: true }).click();
+  await page.getByLabel('连接名称', { exact: true }).fill('重命名的兼容服务');
+  await page.getByRole('button', { name: '手动添加', exact: true }).click();
+  assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
+  await page.getByLabel('模型 ID', { exact: true }).fill('custom-fixture');
+  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  await page.locator('.settings-page').waitFor({ state: 'hidden' });
+  const presets = await page.evaluate(() => window.deepchan.load());
+  assert.equal(presets.settings.models.find(m => m.model === 'deepseek-flash').nativeSearch, true);
+  // Verify that the connection's defaults survive save/reopen and renaming.
+  await page.locator('.settings-entry').click();
+  await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
+  await page.getByRole('button', { name: '手动添加', exact: true }).click();
+  assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);
+  await page.getByTitle('返回聊天', { exact: true }).click();
   await page.evaluate(async baseUrl => {
     const state = await window.deepchan.load();
     const connections = ['chat','responses','anthropic'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
@@ -79,6 +105,25 @@ try {
   assert.equal(await toolbar.getByRole('button', { name: '联网搜索' }).getAttribute('aria-pressed'), 'true');
   const layout = await toolbar.evaluate(el => { const text = document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect(); const send = el.querySelector('.send-button').getBoundingClientRect(); return { textBottom: text.bottom, controlTop: el.getBoundingClientRect().top, sendLeft: send.left, controls: [...el.querySelectorAll('select')].map(s => s.getBoundingClientRect().right) }; });
   assert.ok(layout.controlTop >= layout.textBottom); assert.ok(layout.controls.every(right => right < layout.sendLeft));
+  assert.equal(await page.getByText('AI 的回答可能有误，请核实重要信息。', { exact: true }).count(), 0);
+  const header = await page.locator('.chat-header').evaluate(el => {
+    const title = el.querySelector('.header-title > span').getBoundingClientRect();
+    const model = el.querySelector('.header-title small').getBoundingClientRect();
+    return { height: el.getBoundingClientRect().height, titleCenter: (title.top + title.bottom) / 2, modelCenter: (model.top + model.bottom) / 2 };
+  });
+  assert.equal(header.height, 48); assert.ok(Math.abs(header.titleCenter - header.modelCenter) < 2);
+  const grip = page.getByRole('separator', { name: '调整输入框高度' });
+  const initialHeight = (await input.boundingBox()).height, gripBox = await grip.boundingBox();
+  await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2);
+  await page.mouse.down();
+  await waitFor(page, () => document.querySelector('.composer-resize').hasPointerCapture(1));
+  await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2 - 100, { steps: 5 }); await page.mouse.up();
+  await waitFor(page, height => document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect().height >= height + 95, initialHeight);
+  await grip.focus(); await page.keyboard.press('End');
+  assert.ok((await input.boundingBox()).height <= Math.min(420, page.viewportSize()?.height * 0.45 || 420) + 1);
+  await page.keyboard.press('Home'); await waitFor(page, () => document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect().height === 47);
+  const composerBox = await page.locator('.composer').boundingBox();
+  assert.ok(await page.evaluate(bottom => window.innerHeight - bottom < 12, composerBox.y + composerBox.height));
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
@@ -160,7 +205,7 @@ try {
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '完成的标题应在重启后恢复');
   assert.equal(saved.conversations.find(c => c.branches.length > 1).branches.length, 5);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 3 protocols, auto title, branch isolation, regeneration, manual edits, compression, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 3 protocols, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.
