@@ -5,10 +5,10 @@ import { uid } from './domain';
 import type { Connection, Model, Settings as SettingsType } from './types';
 const saved = '••••••••';
 const templates = [
+  { name: 'DeepSeek·anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   { name: 'OpenAI · Responses', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
   { name: 'OpenAI · Chat Completions', protocol: 'chat', baseUrl: 'https://api.openai.com/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
-  { name: 'DeepSeek·anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
 export default function Settings({ settings, onSave, onClose, toast }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void }) {
@@ -21,11 +21,11 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
   function updateConnection(values: Partial<Connection>) { setDraft(d => ({ ...d, connections: d.connections.map(c => c.id === selected ? { ...c, ...values } : c) })); }
   function addConnection(index: number) {
     const t = templates[index];
-    const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', defaultReasoning: t.name === '自定义兼容服务' ? 'effort' : 'none' };
+    const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', defaultReasoning: t.name === '自定义兼容服务' || t.name === 'DeepSeek·anthropic' ? 'effort' : 'none' };
     const presetModel: Model | undefined = t.name === 'DeepSeek·anthropic' ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
-      nativeSearch: true, reasoning: 'none', efforts: ['low', 'medium', 'high'], temperature: true
+      nativeSearch: true, reasoning: 'effort', efforts: ['low', 'medium', 'high'], temperature: true
     } : undefined;
     change({ connections: [...draft.connections, c], ...(presetModel ? { models: [...draft.models, presetModel], defaultModel: draft.defaultModel || presetModel.id } : {}) });
     setSelected(c.id); setFound([]); setHeadersEditing(false);

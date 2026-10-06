@@ -51,7 +51,7 @@
 2. OpenAI Responses API。
 3. Anthropic Messages API。
 
-支持官方服务预设及自定义兼容服务。自定义兼容服务新增模型时，思考参数默认选择思考等级（effort）。DeepSeek·anthropic 预设使用 Anthropic Messages 和 `https://api.deepseek.com/anthropic`，自动添加 `deepseek-flash`，上下文 1,000,000 token、最大输出 256,000 token，启用图片输入、工具调用、原生搜索。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
+支持官方服务预设及自定义兼容服务。自定义兼容服务新增模型时，思考参数默认选择思考等级（effort）。DeepSeek·anthropic 预设使用 Anthropic Messages 和 `https://api.deepseek.com/anthropic`，自动添加 `deepseek-flash`，上下文 1,000,000 token、最大输出 256,000 token，启用图片输入、工具调用、原生搜索，思考参数默认选择思考等级（effort）。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
 
 Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；提供测试连接并显示脱敏错误。模型列表支持服务端获取和手动添加，获取失败不阻止手动配置。
 

@@ -30,7 +30,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
 
-DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改。
+DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 

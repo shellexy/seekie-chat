@@ -62,6 +62,11 @@ try {
   let page = await launch();
   console.log('stage: connection presets');
   await page.locator('.settings-entry').click();
+  assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
+  for (const theme of ['light', 'dark', 'system']) {
+    assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
+  }
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek·anthropic', exact: true }).click();
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek·anthropic');
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
@@ -70,6 +75,7 @@ try {
   assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash');
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '256000');
+  assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   for (const name of ['图片输入', '工具调用', '原生搜索']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
   await page.locator('.preset-row').getByRole('button', { name: '自定义兼容服务', exact: true }).click();
   await page.getByLabel('连接名称', { exact: true }).fill('重命名的兼容服务');
