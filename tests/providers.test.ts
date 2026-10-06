@@ -4,8 +4,46 @@ import { MockAgent, setGlobalDispatcher } from 'undici';
 import { buildInput, endpoint, generate, sse } from '../electron/providers';
 import { addMessage, createConversation, initialState } from '../src/domain';
 import type { Connection, Model } from '../src/types';
+import { UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
+test('usage aggregation counts cumulative frames once and keeps unknown cache distinct from zero across rounds', () => {
+  const counter = new UsageCounter();
+  counter.observe({ input: 100, output: 1, cachedInput: 20 });
+  counter.observe({ input: 100, output: 9, cachedInput: 20 }); counter.finishRound();
+  counter.observe({ input: 110, output: 6, cachedInput: 0 }); counter.finishRound();
+  assert.deepEqual(counter.total, { input: 210, output: 15, cachedInput: 20 });
+  counter.observe({ input: 120, output: 10 }); counter.finishRound();
+  assert.deepEqual(counter.total, { input: 330, output: 25 });
+  counter.observe({ input: 130, output: 4, cachedInput: 15 }); counter.finishRound();
+  assert.equal(counter.total.cachedInput, undefined, 'partial cache totals must not be presented as complete');
+});
+for (const variant of ['chat', 'deepseek', 'responses', 'anthropic', 'gemini'] as const) test(`${variant} reads cache counts and avoids double counting cumulative usage`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const protocol = variant === 'deepseek' ? 'chat' : variant;
+    const chatUsage = { prompt_tokens: 100, completion_tokens: 8, ...(variant === 'deepseek' ? { prompt_cache_hit_tokens: 40 } : { prompt_tokens_details: { cached_tokens: 40 } }) };
+    const events = protocol === 'chat' ? [
+      { choices: [{ delta: { content: '回答' } }], usage: { ...chatUsage, completion_tokens: 1 } },
+      { choices: [{ delta: {}, finish_reason: 'stop' }], usage: chatUsage }, { choices: [], usage: chatUsage }
+    ] : protocol === 'responses' ? [
+      { type: 'response.output_text.delta', delta: '回答' },
+      { type: 'response.completed', response: { output: [], usage: { input_tokens: 100, output_tokens: 8, input_tokens_details: { cached_tokens: 40 } } } }
+    ] : protocol === 'anthropic' ? [
+      { type: 'message_start', message: { usage: { input_tokens: 50, cache_read_input_tokens: 40, cache_creation_input_tokens: 10, output_tokens: 1 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '回答' } },
+      { type: 'message_delta', usage: { output_tokens: 3 } }, { type: 'message_delta', usage: { output_tokens: 8 } }, { type: 'message_stop' }
+    ] : [
+      { candidates: [{ content: { parts: [{ text: '回答' }] } }], usageMetadata: { promptTokenCount: 100, cachedContentTokenCount: 40, candidatesTokenCount: 1 } },
+      { candidates: [{ finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 100, cachedContentTokenCount: 40, candidatesTokenCount: 6, thoughtsTokenCount: 2 } }
+    ];
+    const path = protocol === 'chat' ? '/v1/chat/completions' : protocol === 'responses' ? '/v1/responses' : protocol === 'anthropic' ? '/v1/messages' : '/v1/models/fixture:streamGenerateContent?alt=sse';
+    agent.get('https://fixture.invalid').intercept({ path, method: 'POST' }).reply(200, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+    const state = initialState(), c = createConversation(state.settings), b = c.branches[0]; addMessage(c, b, 'user', '你好');
+    const result = await generate(connection(protocol), model, { ...b.config, search: 'off' }, c.messages, state.settings, new AbortController().signal);
+    assert.deepEqual(result.usage, { input: 100, output: 8, cachedInput: 40 });
+  } finally { await agent.close(); }
+});
 test('URL construction respects v1 and custom prefixes', () => {
   assert.equal(endpoint({ ...connection('chat'), baseUrl: 'https://api.example.com' }, 'models'), 'https://api.example.com/v1/models');
   assert.equal(endpoint(connection('chat'), 'responses'), 'https://fixture.invalid/v1/responses');

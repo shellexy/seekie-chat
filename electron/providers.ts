@@ -1,5 +1,6 @@
 import { fetch, ProxyAgent } from 'undici';
 import { generateGemini } from './gemini';
+import { UsageCounter } from './usage';
 import { resolveSearch } from '../src/domain';
 import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent, Usage } from '../src/types';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
@@ -81,7 +82,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请使用 Responses、Anthropic、Gemini 或 Exa');
   if (config.search === 'exa' && !settings.exaKey) throw new Error('请先配置 Exa API Key');
   if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, exa, sse });
-  let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const usage = { input: 0, output: 0 };
+  let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
   const input = buildInput(connection.protocol, messages);
   const addText = (s: string) => { text += s; hooks.text(s); };
   const addReason = (s: string) => { reasoning += s; hooks.reasoning(s); };
@@ -114,6 +115,16 @@ export async function generate(connection: Connection, model: Model, config: Cha
     const calls: { id: string; name: string; args: string }[] = [];
     const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls = new Map<number, any>();
     let finished = false;
+    const anthropicUsage: Record<string, number> = {};
+    const observeAnthropic = (snapshot: any) => {
+      Object.assign(anthropicUsage, snapshot);
+      counter.observe({
+        // Anthropic input_tokens excludes both cache reads and cache writes.
+        input: (anthropicUsage.input_tokens || 0) + (anthropicUsage.cache_read_input_tokens || 0) + (anthropicUsage.cache_creation_input_tokens || 0),
+        output: anthropicUsage.output_tokens,
+        cachedInput: anthropicUsage.cache_read_input_tokens
+      });
+    };
     try {
       if (!response.body) throw new Error('服务没有返回响应内容');
       for await (const ev of sse(response.body)) {
@@ -124,7 +135,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
           if (d?.reasoning_content) { chatReason += d.reasoning_content; addReason(d.reasoning_content); }
           for (const c of d?.tool_calls || []) { const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' } }; if (c.id) old.id = c.id; if (c.function?.name) old.function.name += c.function.name; if (c.function?.arguments) old.function.arguments += c.function.arguments; chatCalls.set(c.index, old); }
           if (choice?.finish_reason) finished = true;
-          if (ev.usage) { usage.input += ev.usage.prompt_tokens || 0; usage.output += ev.usage.completion_tokens || 0; }
+          if (ev.usage) counter.observe({ input: ev.usage.prompt_tokens, output: ev.usage.completion_tokens, cachedInput: ev.usage.prompt_tokens_details?.cached_tokens ?? ev.usage.prompt_cache_hit_tokens });
         } else if (connection.protocol === 'responses') {
           if (ev.type === 'response.output_text.delta') addText(ev.delta);
           if (ev.type === 'response.reasoning_summary_text.delta') addReason(ev.delta);
@@ -132,10 +143,10 @@ export async function generate(connection: Connection, model: Model, config: Cha
           if (ev.type === 'response.output_text.annotation.added' && ev.annotation?.url) addSources([{ title: ev.annotation.title || ev.annotation.url, url: ev.annotation.url }]);
           if (ev.type === 'response.web_search_call.in_progress') hooks.tool({ id: ev.item_id, name: 'web_search', input: '供应商原生搜索', output: '', status: 'running', started: Date.now() });
           if (ev.type === 'response.web_search_call.completed') hooks.tool({ id: ev.item_id, name: 'web_search', input: '供应商原生搜索', output: '搜索完成，来源见回答引用', status: 'done', started: Date.now() });
-          if (ev.type === 'response.completed') { finished = true; responseItems = ev.response.output || responseItems; usage.input += ev.response.usage?.input_tokens || 0; usage.output += ev.response.usage?.output_tokens || 0; }
+          if (ev.type === 'response.completed') { finished = true; responseItems = ev.response.output || responseItems; counter.observe({ input: ev.response.usage?.input_tokens, output: ev.response.usage?.output_tokens, cachedInput: ev.response.usage?.input_tokens_details?.cached_tokens }); }
           if (ev.type === 'response.incomplete') throw new Error('回答未完整生成：' + (ev.response?.incomplete_details?.reason || '输出限制'));
         } else {
-          if (ev.type === 'message_start') usage.input += ev.message.usage?.input_tokens || 0;
+          if (ev.type === 'message_start') observeAnthropic(ev.message.usage);
           if (ev.type === 'content_block_start') {
             const block = structuredClone(ev.content_block); blocks[ev.index] = block;
             if (block.type === 'text' && block.text) addText(block.text);
@@ -155,12 +166,13 @@ export async function generate(connection: Connection, model: Model, config: Cha
             if (d.type === 'citations_delta' && d.citation?.url) { b.citations = [...(b.citations || []), d.citation]; addSources([{ title: d.citation.title || d.citation.url, url: d.citation.url }]); }
           }
           if (ev.type === 'content_block_stop') { const b = blocks[ev.index]; if (b?._json !== undefined) { if (b._json) b.input = JSON.parse(b._json); delete b._json; } }
-          if (ev.type === 'message_delta') usage.output += ev.usage?.output_tokens || 0;
+          if (ev.type === 'message_delta') observeAnthropic(ev.usage);
           if (ev.type === 'message_stop') finished = true;
         }
       }
     } finally { await close(); }
     if (!finished) throw new Error('流式连接提前结束，已收到的内容已保留');
+    counter.finishRound();
     if (connection.protocol === 'chat') {
       const toolCalls = [...chatCalls.values()]; const assistant = { role: 'assistant', content: chatText || null, ...(chatReason ? { reasoning_content: chatReason } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
       input.push(assistant); entries.push(assistant);

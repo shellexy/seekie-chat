@@ -38,6 +38,8 @@ DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthro
 
 标题和历史压缩也会发起 API 请求，使用其各自配置的供应商并产生用量。界面显示的回答 token 用量来自服务返回；上下文预算使用估算。
 
+AI 回答的模型标签后显示本地日期时间（`YYYY-MM-DD·HH:mm`）。悬停、键盘聚焦或点击回答下方的 token 信息可查看输入、缓存命中输入、输出、速度和首字耗时；点击可保持展开，再次点击、按 Esc 或点击外部可关闭。输入总量包含缓存读取和缓存写入，其中“输入（缓存）”只统计缓存命中读取量。速度为各轮输出 token 总量除以生成总耗时，包含思考、网络和搜索工具调用，不含请求前的历史压缩；首字耗时从生成请求开始计至第一段回答正文返回。Gemini 输出包含服务报告的思考 token。指标随消息保存，旧消息的计时、未返回的缓存统计显示“未提供”；多轮工具请求中任一轮未提供缓存统计时，也显示“未提供”。
+
 ## Gemini 原生协议
 
 在“连接与模型”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。

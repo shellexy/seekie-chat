@@ -20,19 +20,20 @@ const server = createServer(async (req, res) => {
   const send = data => res.write(`data: ${JSON.stringify(data)}\n\n`);
   if (req.url === '/v1/chat/completions') {
     send({ choices: [{ delta: { reasoning_content: title || compression ? '' : '先检查需求，再选择实施步骤。' } }] });
+    await new Promise(r => setTimeout(r, 30));
     for (const part of text.match(/.{1,22}|\n/g)) { send({ choices: [{ delta: { content: part } }] }); await new Promise(r => setTimeout(r, 2)); }
-    send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60 } });
+    send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 30 } } });
   } else if (req.url === '/v1/responses') {
     send({ type: 'response.reasoning_summary_text.delta', delta: '推理摘要来自模拟服务。' });
     send({ type: 'response.web_search_call.in_progress', item_id: 'search-1' });
     send({ type: 'response.web_search_call.completed', item_id: 'search-1' });
     send({ type: 'response.output_text.delta', delta: text });
-    send({ type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [{ type: 'url_citation', title: 'Electron documentation', url: 'https://www.electronjs.org/docs' }] }] }], usage: { input_tokens: 120, output_tokens: 60 } } });
+    send({ type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [{ type: 'url_citation', title: 'Electron documentation', url: 'https://www.electronjs.org/docs' }] }] }], usage: { input_tokens: 120, output_tokens: 60, input_tokens_details: { cached_tokens: 30 } } } });
   } else if (req.url.startsWith('/v1beta/models/')) {
     send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'Gemini 模拟思考摘要。', thought: true }] } }] });
-    send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text, thoughtSignature: 'fixture-signature' }] }, finishReason: 'STOP', ...(data.tools?.some(t => t.googleSearch) ? { groundingMetadata: { webSearchQueries: ['Electron docs'], groundingChunks: [{ web: { title: 'Electron', uri: 'https://www.electronjs.org/docs' } }] } } : {}) }], usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60, thoughtsTokenCount: 12 } });
+    send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text, thoughtSignature: 'fixture-signature' }] }, finishReason: 'STOP', ...(data.tools?.some(t => t.googleSearch) ? { groundingMetadata: { webSearchQueries: ['Electron docs'], groundingChunks: [{ web: { title: 'Electron', uri: 'https://www.electronjs.org/docs' } }] } } : {}) }], usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60, thoughtsTokenCount: 12, cachedContentTokenCount: 30 } });
   } else {
-    send({ type: 'message_start', message: { usage: { input_tokens: 120 } } });
+    send({ type: 'message_start', message: { usage: { input_tokens: 80, cache_read_input_tokens: 30, cache_creation_input_tokens: 10 } } });
     send({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
     send({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } });
     send({ type: 'message_delta', usage: { output_tokens: 60 } }); send({ type: 'message_stop' });
@@ -52,6 +53,31 @@ async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
     await new Promise(resolve => setTimeout(resolve, 30));
   }
   throw new Error('等待桌面应用状态超时');
+}
+async function assertUsageDetails(page, output = 60) {
+  const answer = page.locator('.message.assistant').last();
+  const id = await answer.getAttribute('data-id');
+  const message = await page.evaluate(async id => (await window.deepchan.load()).conversations.flatMap(c => c.messages).find(m => m.id === id), id);
+  assert.equal(message.usage.input, 120); assert.equal(message.usage.output, output); assert.equal(message.usage.cachedInput, 30);
+  assert.ok(message.usage.elapsedMs > 0); assert.ok(message.usage.firstTokenMs >= 0 && message.usage.firstTokenMs <= message.usage.elapsedMs);
+  const time = answer.locator('time'); assert.match(await time.innerText(), /^\d{4}-\d{2}-\d{2}·\d{2}:\d{2}$/);
+  assert.equal(await time.getAttribute('datetime'), new Date(message.created).toISOString());
+  const trigger = answer.getByRole('button', { name: '查看 token 用量与速度' });
+  const tooltip = page.getByRole('tooltip');
+  await trigger.hover(); await tooltip.waitFor();
+  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','速度：','首字耗时：']);
+  const values = await tooltip.locator('dd').allTextContents();
+  assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
+  assert.equal(values[3], `${(output / (message.usage.elapsedMs / 1000)).toFixed(1)} tps`);
+  assert.equal(values[4], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  const box = await tooltip.boundingBox();
+  assert.ok(await page.evaluate(box => box.x >= 0 && box.y >= 0 && box.x + box.width <= innerWidth && box.y + box.height <= innerHeight, box), 'tooltip fits inside window');
+  await page.mouse.move(5, 5); await tooltip.waitFor({ state: 'hidden' });
+  await trigger.click(); await page.mouse.move(5, 5); await page.waitForTimeout(200); await tooltip.waitFor();
+  await page.screenshot({ path: join(directory, `usage-${output}.png`) });
+  await page.keyboard.press('Escape'); await tooltip.waitFor({ state: 'hidden' });
+  await trigger.click(); await tooltip.waitFor(); await page.getByLabel('消息输入').click(); await tooltip.waitFor({ state: 'hidden' });
+  await trigger.focus(); await tooltip.waitFor(); await page.keyboard.press('Escape'); await tooltip.waitFor({ state: 'hidden' });
 }
 let desktop;
 const logs = [];
@@ -178,6 +204,7 @@ try {
   assert.equal(await page.locator('.message.assistant .message-model').first().innerText(), '模拟 chat | 本地模拟 chat');
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
+  await assertUsageDetails(page);
   await page.evaluate(async () => {
     const original = await window.deepchan.load(); const id = original.selectedId;
     const promise = window.deepchan.title(id);
@@ -252,6 +279,7 @@ try {
     }
     assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     assert.equal(await page.locator('.message.assistant .message-model').last().innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
+    await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
     console.log('stage: protocol complete', protocol);
   }
   saved = await page.evaluate(() => window.deepchan.load());
@@ -264,6 +292,23 @@ try {
   await desktop.close(); desktop = null;
   page = await launch();
   saved = await page.evaluate(() => window.deepchan.load());
+  await assertUsageDetails(page, 72);
+  const legacyFixture = await page.evaluate(async () => {
+    const s = await window.deepchan.load(), selectedId = s.selectedId;
+    const c = structuredClone(s.conversations.find(c => c.id === selectedId));
+    c.id = crypto.randomUUID(); c.title = '旧消息统计测试';
+    for (const m of c.messages) if (m.usage) m.usage = { input: m.usage.input, output: m.usage.output };
+    s.conversations.unshift(c); s.selectedId = c.id;
+    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); return { id: c.id, selectedId };
+  });
+  await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
+  const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: '查看 token 用量与速度' });
+  await legacyTrigger.click();
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '未提供').length === 3);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['未提供','未提供']);
+  assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '未提供');
+  await page.keyboard.press('Escape');
+  await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);
   assert.equal(saved.conversations.reduce((n,c) => n+c.messages.length,0), messageCount);
   assert.equal(saved.settings.connections[0].apiKey, '••••••••');
   assert.equal(saved.settings.connections[0].headers['x-fixture-secret'], '••••••••');
@@ -290,7 +335,7 @@ try {
   const branched = saved.conversations.find(c => c.branches.length > 1);
   assert.equal(branched.branches[0].config.system, '当前分支定制提示词。');
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

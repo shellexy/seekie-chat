@@ -1,6 +1,7 @@
 import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent } from '../src/types';
 import type { Hooks, Result } from './providers';
 import type { request, buildInput } from './providers';
+import { UsageCounter } from './usage';
 type Dependencies = {
   request: typeof request; buildInput: typeof buildInput;
   exa: (args: string, settings: Settings, signal: AbortSignal) => Promise<Source[]>;
@@ -31,7 +32,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
   const path = `models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
   const input = deps.buildInput('gemini', messages), entries: any[] = [];
   let text = '', reasoning = '';
-  const sources: Source[] = [], usage = { input: 0, output: 0 };
+  const sources: Source[] = [], counter = new UsageCounter(), usage = counter.total;
   const addSources = (items: Source[]) => {
     for (const item of items) if (/^https?:\/\//.test(item.url) && !sources.some(s => s.url === item.url)) sources.push({ title: item.title, url: item.url });
     hooks.sources([...sources]);
@@ -56,7 +57,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     if (config.search === 'exa' && allowTools) body.tools = [{ functionDeclarations: [searchTool] }];
     const { response, close } = await deps.request(connection, path, body, signal);
     const parts: any[] = [];
-    let finishReason = '', roundInput = 0, roundOutput = 0;
+    let finishReason = '';
     const searchId = crypto.randomUUID(), searchStarted = Date.now();
     try {
       if (!response.body) throw new Error('服务没有返回响应内容');
@@ -84,12 +85,11 @@ export async function generateGemini(connection: Connection, model: Model, confi
         }
         // Gemini usage metadata is cumulative within one streamed response.
         if (ev.usageMetadata) {
-          roundInput = Math.max(roundInput, ev.usageMetadata.promptTokenCount || 0);
-          roundOutput = Math.max(roundOutput, (ev.usageMetadata.candidatesTokenCount || 0) + (ev.usageMetadata.thoughtsTokenCount || 0));
+          counter.observe({ input: ev.usageMetadata.promptTokenCount, output: (ev.usageMetadata.candidatesTokenCount || 0) + (ev.usageMetadata.thoughtsTokenCount || 0), cachedInput: ev.usageMetadata.cachedContentTokenCount });
         }
       }
     } finally { await close(); }
-    usage.input += roundInput; usage.output += roundOutput;
+    counter.finishRound();
     if (!finishReason) throw new Error('Gemini 流式连接提前结束，已收到的内容已保留');
     if (finishReason !== 'STOP') throw new Error('Gemini 回答未完整生成：' + finishReason);
     if (!parts.length) throw new Error('Gemini 未返回回答内容');

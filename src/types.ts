@@ -28,7 +28,13 @@ export interface ToolEvent {
   started: number; elapsed?: number;
 }
 export interface Source { title: string; url: string }
-export interface Usage { input: number; output: number; estimated?: boolean }
+export interface Usage {
+  input: number; output: number; estimated?: boolean;
+  // Cached reads are a subset of total input; absent means the service did not report them.
+  cachedInput?: number;
+  // Chat request duration, including reasoning, network and tool rounds; excludes history compression.
+  elapsedMs?: number; firstTokenMs?: number;
+}
 export interface Message {
   id: string; parentId: string | null; role: Role; text: string; reasoning: string;
   attachments: Attachment[]; tools: ToolEvent[]; sources: Source[];
