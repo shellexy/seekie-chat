@@ -1,4 +1,5 @@
 import { fetch, ProxyAgent } from 'undici';
+import { resolveSearch } from '../src/domain';
 import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent, Usage } from '../src/types';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void }
@@ -69,6 +70,7 @@ async function exa(args: string, settings: Settings, signal: AbortSignal) {
   return (data.results || []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url), text: String(r.text || '').slice(0, 2500) }));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop): Promise<Result> {
+  config = { ...config, search: resolveSearch({ ...settings, models: [model], connections: [connection] }, model.id, config.search) };
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
   if (messages.some(m => m.attachments.length) && !model.vision) throw new Error('当前模型未启用图片输入能力，请切换模型');
   if (config.search === 'exa' && !model.tools) throw new Error('Exa 搜索需要支持工具调用的模型');

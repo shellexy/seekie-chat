@@ -2,15 +2,15 @@ import { _electron as electron } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import electronPath from 'electron';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 const directory = mkdtempSync(join(tmpdir(), 'deepchan-smoke-'));
-const calls = [];
+const calls = []; let lastAuthorization = '';
 const server = createServer(async (req, res) => {
   let body = ''; for await (const chunk of req) body += chunk;
-  if (req.method === 'GET') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] })); return; }
+  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] })); return; }
   const data = JSON.parse(body); calls.push({ path: req.url, data });
   const title = (data.instructions || data.system || data.messages?.[0]?.content || '').includes('生成简短标题');
   const compression = (data.instructions || data.system || data.messages?.[0]?.content || '').includes('压缩为');
@@ -40,13 +40,23 @@ await new Promise(r => server.listen(0, '127.0.0.1', r));
 const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
 const env = { ...process.env, DEEPCHAN_DATA_DIR: directory }; delete env.ELECTRON_RUN_AS_NODE; delete env.DEEPCHAN_DEV_URL;
 let vite; if (process.argv.includes('--dev')) { vite = await createViteServer(); await vite.listen(); env.DEEPCHAN_DEV_URL = 'http://127.0.0.1:5173'; }
+// IPC predicates are asynchronous; poll in Node and await each result explicitly.
+// Playwright's waitForFunction treats a returned Promise as truthy before it resolves.
+async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await page.evaluate(predicate, arg)) return;
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }
+  throw new Error('等待桌面应用状态超时');
+}
 let desktop;
 const logs = [];
 async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
-  await page.getByText('deepchan', { exact: true }).waitFor(); return page;
+  await page.getByText('DeepChan-chat', { exact: true }).waitFor(); return page;
 }
 try {
   let page = await launch();
@@ -54,18 +64,26 @@ try {
     const state = await window.deepchan.load();
     const connections = ['chat','responses','anthropic'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
     state.settings.connections = connections;
-    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: 'none', efforts: [], temperature: false }));
+    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: c.protocol === 'chat' ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
   }, baseUrl);
   await page.getByRole('button', { name: /新建对话/ }).first().click();
   const input = page.getByRole('textbox', { name: '消息输入' });
+  await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
+  const toolbar = page.locator('.composer-bottom');
+  assert.equal(await toolbar.getByRole('combobox', { name: '聊天模型' }).count(), 1);
+  assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
+  assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
+  assert.equal(await toolbar.getByRole('button', { name: '联网搜索' }).getAttribute('aria-pressed'), 'true');
+  const layout = await toolbar.evaluate(el => { const text = document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect(); const send = el.querySelector('.send-button').getBoundingClientRect(); return { textBottom: text.bottom, controlTop: el.getBoundingClientRect().top, sendLeft: send.left, controls: [...el.querySelectorAll('select')].map(s => s.getBoundingClientRect().right) }; });
+  assert.ok(layout.controlTop >= layout.textBottom); assert.ok(layout.controls.every(right => right < layout.sendLeft));
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
+  assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
-  await page.waitForFunction(async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
-  await page.waitForTimeout(200);
+  await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
   await page.evaluate(async () => {
     const original = await window.deepchan.load(); const id = original.selectedId;
     const promise = window.deepchan.title(id);
@@ -102,25 +120,26 @@ try {
   assert.equal(calls.length, count);
   for (let i = 0; i < 2; i++) { await input.fill(`补充问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
   await page.getByRole('button', { name: '会话选项' }).click(); await page.getByRole('button', { name: '压缩较早历史' }).click();
-  await page.waitForFunction(async () => (await window.deepchan.load()).conversations[0].branches.some(b => b.summary));
+  await waitFor(page, async () => (await window.deepchan.load()).conversations[0].branches.some(b => b.summary));
   await page.screenshot({ path: join(directory, 'desktop.png') });
   for (const protocol of ['responses','anthropic']) {
     console.log('stage: protocol', protocol);
     const expectedCount = await page.evaluate(async () => (await window.deepchan.load()).conversations.length + 1);
     await page.getByRole('button', { name: /新建对话/ }).first().click();
-    await page.waitForFunction(async expected => (await window.deepchan.load()).conversations.length === expected, expectedCount);
+    await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, expectedCount);
     const modelId = await page.evaluate(async protocol => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 ' + protocol).id, protocol);
     await page.getByRole('combobox', { name: '聊天模型' }).selectOption(modelId);
     if (protocol === 'responses') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
     await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
     await page.locator('.message.assistant .message-content').waitFor();
-    await page.waitForFunction(async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
+    await waitFor(page, async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
     console.log('stage: protocol complete', protocol);
   }
   saved = await page.evaluate(() => window.deepchan.load());
   assert.equal(saved.conversations.length, 3);
   assert.equal(logs.length, 0, logs.join('\n'));
+  assert.ok(saved.conversations.every(c => c.titleState === 'done'), '关闭前所有标题已完成');
   const db = readFileSync(join(directory,'chat.sqlite'));
   assert.ok(!db.includes(Buffer.from('fixture-secret'))); assert.ok(!db.includes(Buffer.from('header-secret')));
   const messageCount = saved.conversations.reduce((n,c) => n+c.messages.length,0);
@@ -128,11 +147,20 @@ try {
   page = await launch();
   saved = await page.evaluate(() => window.deepchan.load());
   assert.equal(saved.conversations.reduce((n,c) => n+c.messages.length,0), messageCount);
-  assert.equal(saved.settings.connections[0].apiKey, '');
+  assert.equal(saved.settings.connections[0].apiKey, '••••••••');
+  assert.equal(saved.settings.connections[0].headers['x-fixture-secret'], '••••••••');
+  const credentialsPath = join(directory, 'credentials.json');
+  const credentials = JSON.parse(readFileSync(credentialsPath, 'utf8'));
+  assert.equal(credentials.secrets[saved.settings.connections[0].id], 'fixture-secret');
+  assert.equal(statSync(credentialsPath).mode & 0o777, 0o600);
+  await page.evaluate(async () => { const s = await window.deepchan.load(); await window.deepchan.test(s.settings.connections[0]); });
+  assert.equal(lastAuthorization, 'Bearer fixture-secret');
+  const nativeRequest = calls.find(c => c.path === '/v1/responses');
+  assert.ok(nativeRequest.data.tools.some(t => t.type === 'web_search'), '默认启用原生搜索');
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '完成的标题应在重启后恢复');
   assert.equal(saved.conversations.find(c => c.branches.length > 1).branches.length, 5);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 3 protocols, auto title, branch isolation, regeneration, manual edits, compression, SQLite secret exclusion and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 3 protocols, auto title, branch isolation, regeneration, manual edits, compression, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

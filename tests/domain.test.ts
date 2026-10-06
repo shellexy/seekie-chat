@@ -37,3 +37,18 @@ test('unfinished answers cannot be forked and cycles are rejected', () => {
   const { c, a } = fixture(); a.status = 'streaming'; assert.throws(() => fork(c, a.id), /已完成/);
   a.parentId = a.id; assert.throws(() => pathTo(c, a.id), /循环/);
 });
+test('new chats enable automatic search and select only available providers', async () => {
+  const { resolveSearch } = await import('../src/domain');
+  const state = initialState();
+  state.settings.connections = [{ id: 'c', name: 'fixture', protocol: 'responses', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  state.settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'fixture', contextWindow: 10000, maxOutput: 4096, vision: false, tools: true, nativeSearch: true, reasoning: 'none', efforts: [], temperature: false }];
+  state.settings.defaultModel = 'm';
+  assert.equal(createConversation(state.settings).branches[0].config.search, 'auto');
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'native');
+  state.settings.connections[0].protocol = 'chat';
+  state.settings.exaKey = 'fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'exa');
+  state.settings.exaKey = '';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'off');
+  assert.equal(resolveSearch(state.settings, 'm', 'off'), 'off');
+});

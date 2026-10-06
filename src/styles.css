@@ -15,3 +15,16 @@
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; scroll-behavior: auto !important; transition: none !important; } }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal { color: #905380; } .hljs-string, .hljs-attr { color: #477153; } .hljs-number, .hljs-built_in { color: #a27037; } .hljs-title, .hljs-function { color: #3c7195; } .hljs-comment { color: #8a918a; font-style: italic; } .hljs-variable, .hljs-params { color: var(--text); }
 .background-usage { font-size: 11px; color: var(--muted); line-height: 1.8; } .background-usage p { padding: 7px 0; margin: 0; }
+/* The composer toolbar sits below the text field, alongside the send button. */
+.brand { font-size: 18px; letter-spacing: -.55px; gap: 7px; white-space: nowrap; }
+.composer-bottom { gap: 6px; }
+.composer-meta { display: flex; align-items: center; justify-content: flex-start; gap: 9px; margin: 0; padding: 0; min-width: 0; }
+.model-selector select { max-width: 145px; font-size: 11px; }
+.reasoning-selector { display: flex; align-items: center; gap: 3px; color: var(--muted); min-width: 0; }
+.reasoning-selector select { max-width: 115px; border: 0; padding: 4px 0; background: transparent; font-size: 11px; }
+.reasoning-selector select:disabled { color: var(--muted); }
+.search-toggle { border: 0; padding: 5px; background: transparent; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.search-toggle.enabled { color: var(--accent); background: var(--accent-bg); }
+.search-toggle.unavailable { color: #9a783f; background: #9a783f0d; }
+.composer-option { white-space: nowrap; }
+@media (max-width: 950px) { .composer-meta { gap: 4px; } .model-selector select { max-width: 100px; } .reasoning-selector select { max-width: 90px; } .model-selector > svg, .reasoning-selector > svg { display: none; } .composer-bottom { gap: 4px; } .search-toggle { font-size: 10px; } }

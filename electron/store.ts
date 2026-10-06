@@ -1,6 +1,6 @@
 import initSqlJs, { type Database } from 'sql.js';
 import { safeStorage } from 'electron';
-import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState } from '../src/domain';
 import type { AppState, Attachment } from '../src/types';
@@ -11,19 +11,27 @@ export class Store {
   secure = false;
   constructor(public directory: string) {}
   async init() {
-    mkdirSync(join(this.directory, 'attachments'), { recursive: true });
+    mkdirSync(join(this.directory, 'attachments'), { recursive: true, mode: 0o700 });
     const SQL = await initSqlJs({ locateFile: () => join(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm') });
     const file = join(this.directory, 'chat.sqlite');
     this.db = existsSync(file) ? new SQL.Database(readFileSync(file)) : new SQL.Database();
     this.db.run('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
     if (this.secure) for (const row of this.db.exec('SELECT id,payload FROM secrets')[0]?.values || []) { try { this.secrets.set(String(row[0]), safeStorage.decryptString(Buffer.from(String(row[1]), 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
+    const credentials = join(this.directory, 'credentials.json');
+    if (existsSync(credentials)) {
+      let file: { version: number; secrets: Record<string, string> };
+      try { file = JSON.parse(readFileSync(credentials, 'utf8')); } catch { throw new Error('credentials.json 无法读取或格式错误，已停止启动以避免覆盖'); }
+      if (file.version !== 1 || !file.secrets || typeof file.secrets !== 'object' || Array.isArray(file.secrets) || Object.values(file.secrets).some(v => typeof v !== 'string')) throw new Error('credentials.json 格式无效，已停止读取以避免覆盖');
+      chmodSync(credentials, 0o600);
+      for (const [id, value] of Object.entries(file.secrets)) this.secrets.set(id, value as string);
+    }
   }
   load(): AppState {
     const rows = this.db.exec('SELECT payload FROM state WHERE id=1');
     const state: AppState = rows.length ? JSON.parse(String(rows[0].values[0][0])) : initialState();
     state.settings.secureStorage = this.secure;
-    if (!this.secure) state.settings.secretPolicy = 'session';
+    if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
     for (const c of state.settings.connections) { c.apiKey = this.secrets.get(c.id) || ''; c.headers = JSON.parse(this.secrets.get('headers:' + c.id) || '{}'); }
     state.settings.exaKey = this.secrets.get('exa') || '';
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
@@ -38,7 +46,7 @@ export class Store {
     }
     if (state.settings.exaKey === SECRET_MARKER) state.settings.exaKey = this.secrets.get('exa') || '';
     state.settings.secureStorage = this.secure;
-    if (!this.secure) state.settings.secretPolicy = 'session';
+    if (state.settings.secretPolicy === 'encrypted' && !this.secure) throw new Error('系统安全存储不可用，请选择保存到数据目录');
   }
   public(state: AppState): AppState {
     const copy = structuredClone(state);
@@ -48,6 +56,7 @@ export class Store {
   }
   save(state: AppState) {
     this.resolveSecrets(state);
+    state.settings.credentialStorageVersion = 1;
     const copy = structuredClone(state);
     this.secrets.clear(); this.db.run('DELETE FROM secrets');
     for (const c of copy.settings.connections) { this.saveSecret(c.id, c.apiKey, copy.settings.secretPolicy); this.saveSecret('headers:' + c.id, JSON.stringify(c.headers), copy.settings.secretPolicy); c.apiKey = ''; c.headers = {}; }
@@ -60,6 +69,11 @@ export class Store {
     }
     this.db.run('INSERT OR REPLACE INTO state (id,payload) VALUES (1,?)', [JSON.stringify(copy)]);
     const file = join(this.directory, 'chat.sqlite'); writeFileSync(file + '.tmp', this.db.export(), { mode: 0o600 }); renameSync(file + '.tmp', file);
+    const credentials = join(this.directory, 'credentials.json');
+    if (copy.settings.secretPolicy === 'file') {
+      writeFileSync(credentials + '.tmp', JSON.stringify({ version: 1, secrets: Object.fromEntries(this.secrets) }, null, 2), { mode: 0o600 });
+      chmodSync(credentials + '.tmp', 0o600); renameSync(credentials + '.tmp', credentials);
+    } else if (existsSync(credentials)) unlinkSync(credentials);
     for (const file of readdirSync(join(this.directory, 'attachments'))) if (!keep.has(file)) unlinkSync(join(this.directory, 'attachments', file));
   }
   private saveSecret(id: string, value: string, policy: string) {

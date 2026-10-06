@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, validateState, SECRET_MARKER } from './store';
+import { migrateDataDirectory } from './data-paths';
 import { generate, listModels } from './providers';
 import { contextMessages, estimateTokens, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
@@ -53,6 +54,9 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   branch.summary = { text: result.text, nodeIds: prefix.map(m => m.id), modelId, created: Date.now() }; emit(true);
 }
 async function generateTitle(conversation: Conversation, config: ChatConfig, path: Message[]) {
+  const live = state.conversations.find(c => c.id === conversation.id);
+  if (!live) return;
+  conversation = live;
   if (conversation.manualTitle || conversation.titleState !== 'idle' || titles.has(conversation.id)) return;
   conversation.titleState = 'pending'; const controller = new AbortController(); titles.set(conversation.id, controller); emit();
   try {
@@ -63,7 +67,7 @@ async function generateTitle(conversation: Conversation, config: ChatConfig, pat
     if (current) current.backgroundUsage = [...(current.backgroundUsage || []), { kind: 'title', modelId, usage: result.usage, created: Date.now() }];
     if (current?.manualTitle) current.titleState = 'done';
     if (current && !current.manualTitle) { const title = result.text.trim().split('\n')[0]?.replace(/^[#\s"“”]+|["“”]+$/g, '').slice(0, 70); if (title) { current.title = title; current.titleState = 'done'; } else current.titleState = 'idle'; }
-  } catch (error) { const current = state.conversations.find(c => c.id === conversation.id); if (current) current.titleState = 'idle'; if (!controller.signal.aborted) notify('标题生成失败：' + redact(error)); }
+  } catch (error) { const current = state.conversations.find(c => c.id === conversation.id); if (current?.titleState === 'pending') current.titleState = current.manualTitle ? 'done' : 'idle'; if (!controller.signal.aborted) notify('标题生成失败：' + redact(error)); }
   finally { titles.delete(conversation.id); try { store.save(state); } catch (error) { notify(redact(error)); } emit(true); }
 }
 async function runChat(request: RunRequest) {
@@ -116,12 +120,13 @@ function register() {
       if (!next) { titles.get(old.id)?.abort(); continue; }
       next.backgroundUsage = old.backgroundUsage;
       next.messages = next.messages.map(m => { const existing = old.messages.find(x => x.id === m.id); return existing && (tasks.has(old.id) || existing.status !== 'streaming') ? existing : m; });
-      if (!next.manualTitle && old.titleState !== 'idle') { next.title = old.title; next.titleState = old.titleState; }
+      if (next.manualTitle) next.titleState = 'done';
+      else if (titles.has(old.id) || old.titleState !== 'idle') { next.title = old.title; next.titleState = titles.has(old.id) ? 'pending' : old.titleState; }
     }
     // Preserve object identity for tasks holding conversation/branch references.
     for (const next of incoming.conversations) {
       const old = state.conversations.find(c => c.id === next.id);
-      if (old && tasks.has(next.id)) {
+      if (old && (tasks.has(next.id) || titles.has(next.id))) {
         next.backgroundUsage = old.backgroundUsage;
       next.messages = next.messages.map(m => { const existing = old.messages.find(x => x.id === m.id); return m.id === tasks.get(next.id)?.messageId && existing ? existing : m; });
         next.branches = next.branches.map(b => { const existing = old.branches.find(x => x.id === b.id); if (existing) { Object.assign(existing, b); return existing; } return b; });
@@ -155,22 +160,22 @@ function register() {
     for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = '';
     copy.settings.secretPolicy = 'session'; copy.selectedId = copy.conversations[0]?.id || null;
     const content = format === 'json' ? JSON.stringify({ version: 1, state: copy }, null, 2) : copy.conversations.map(c => `# ${c.title}\n\n${c.branches.map(b => `## ${b.name}\n\n${pathTo(c, b.leafId).map(m => `### ${m.role === 'user' ? '用户' : '助手'}${m.edited ? '（手动编辑）' : ''}\n\n${m.text}${m.attachments.map(a => `\n\n![${a.name}](${a.data})`).join('')}`).join('\n\n')}`).join('\n\n')}`).join('\n\n');
-    const file = await dialog.showSaveDialog(win!, { defaultPath: `deepchan-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
+    const file = await dialog.showSaveDialog(win!, { defaultPath: `DeepChan-chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
     writeFileSync(file.filePath, content, { mode: 0o600 }); return true;
   });
   handle('import', async () => {
     if (tasks.size) throw new Error('请先等待所有生成和压缩任务完成');
-    const file = await dialog.showOpenDialog(win!, { filters: [{ name: 'Deepchan 备份', extensions: ['json'] }], properties: ['openFile'] }); if (file.canceled) return null;
+    const file = await dialog.showOpenDialog(win!, { filters: [{ name: 'DeepChan-chat 备份', extensions: ['json'] }], properties: ['openFile'] }); if (file.canceled) return null;
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
-    state = backup.state; for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.secretPolicy = 'session'; state.settings.secureStorage = store.secure;
+    state = backup.state; for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; }
     store.save(state); emit(true); return store.public(state);
   });
 }
 async function openWindow() {
-  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 560, title: 'Deepchan', backgroundColor: '#ffffff', autoHideMenuBar: true,
+  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', backgroundColor: '#ffffff', autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== win?.webContents.getURL()) event.preventDefault(); });
@@ -182,12 +187,15 @@ async function openWindow() {
     if (choice === 0) event.preventDefault(); else { for (const task of tasks.values()) task.controller.abort(); for (const task of titles.values()) task.abort(); for (const c of state.conversations) for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; store.save(state); }
   });
 }
-app.setName('Deepchan');
-if (process.env.DEEPCHAN_DATA_DIR) app.setPath('userData', join(process.env.DEEPCHAN_DATA_DIR, 'profile'));
+app.setName('DeepChan-chat');
+app.setPath('userData', process.env.DEEPCHAN_DATA_DIR ? join(process.env.DEEPCHAN_DATA_DIR, 'profile') : join(app.getPath('appData'), 'DeepChan-chat'));
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { win?.show(); win?.focus(); });
-  app.whenReady().then(async () => { store = new Store(process.env.DEEPCHAN_DATA_DIR || join(app.getPath('userData'), 'data')); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('Deepchan 启动失败', error.message); app.quit(); });
+  app.whenReady().then(async () => {
+    const directory = process.env.DEEPCHAN_DATA_DIR || join(app.getPath('userData'), 'data');
+    if (!process.env.DEEPCHAN_DATA_DIR) migrateDataDirectory(join(app.getPath('appData'), 'Deepchan', 'data'), directory);
+    store = new Store(directory); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('DeepChan-chat 启动失败', error.message); app.quit(); });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => { clearTimeout(persistTimer); if (state && store) store.save(state); });
 }

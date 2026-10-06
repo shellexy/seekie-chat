@@ -1,5 +1,5 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic';
-export type SearchMode = 'off' | 'native' | 'exa';
+export type SearchMode = 'auto' | 'off' | 'native' | 'exa';
 export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;
@@ -18,7 +18,7 @@ export interface Settings {
   connections: Connection[]; models: Model[]; defaultModel: string; titleModel: string;
   compressionModel: string; theme: 'light' | 'dark' | 'system'; fontSize: number;
   exaKey: string; exaResults: number; autoCompress: boolean; compressionThreshold: number;
-  secureStorage: boolean; secretPolicy: 'session' | 'encrypted';
+  secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;
 }
 export interface Attachment { id: string; name: string; mime: string; size: number; data: string }
 export interface ToolEvent {

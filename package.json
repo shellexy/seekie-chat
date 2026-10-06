@@ -2,6 +2,7 @@
   "name": "deepchan-chat",
   "version": "0.1.0",
   "private": true,
+  "productName": "DeepChan-chat",
   "description": "Linux desktop LLM chat with conversation branches",
   "type": "module",
   "main": "dist-electron/main.cjs",

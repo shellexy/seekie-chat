@@ -1,4 +1,4 @@
-# Deepchan
+# DeepChan-chat
 
 Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色主题，聊天数据保存在本机。
 
@@ -48,7 +48,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 - Responses/Anthropic 原生搜索、Exa 工具检索、工具事件与真实来源展示。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
-- 密钥及自定义请求头仅当前运行保存，或在系统安全存储可用时加密保存。
+- API Key、Exa Key 及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
 - 结构化备份恢复及 Markdown 导出，默认不包含密钥与自定义请求头。
 - 每个连接支持显式 HTTP/HTTPS 代理。
 
@@ -58,8 +58,9 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 搜索与思考
 
-在输入框上方的“会话选项”中选择搜索模式：
+输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
 
+- **自动联网（默认）**：优先使用模型原生搜索，其次使用已配置的 Exa。没有可用方式时显示“联网待配置”，不会发送不支持的搜索参数。
 - **关闭**：不启用工具搜索。
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
@@ -71,8 +72,9 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 默认保存在 Electron `userData` 下的 `data/`，常见路径为：
 
 ```text
-~/.config/Deepchan/data/chat.sqlite
-~/.config/Deepchan/data/attachments/
+~/.config/DeepChan-chat/data/chat.sqlite
+~/.config/DeepChan-chat/data/attachments/
+~/.config/DeepChan-chat/data/credentials.json
 ```
 
 实际路径受 Linux 的 XDG 配置及 Electron 行为影响。可以指定隔离的数据目录：
@@ -81,7 +83,9 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 ```
 
-使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite 文件和附件设置为仅当前用户读写。聊天正文没有加密；系统加密能力只用于密钥和自定义请求头。日志及错误会尽量脱敏认证信息。
+使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、Exa Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
+
+从旧版升级时，如果新目录尚无数据库，会自动复制 `~/.config/Deepchan/data/` 的会话及附件到新目录，保留旧目录。旧版仅在内存中保存、没有落盘的密钥需重新填写一次；此后默认持久保存。
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。
 
@@ -100,7 +104,7 @@ npm run test:desktop
 xvfb-run -a npm run test:desktop
 ```
 
-桌面回归测试使用临时目录、本地模拟 API 和模拟密钥，不访问真实供应商、不产生 API 费用。覆盖三种协议、自动标题、分支上下文隔离、回答版本、手动编辑、压缩、密钥落盘排除及重启恢复。
+桌面回归测试使用临时目录、本地模拟 API 和模拟密钥，不访问真实供应商、不产生 API 费用。覆盖三种协议、自动标题、分支上下文隔离、回答版本、手动编辑、压缩、凭据文件权限、密钥重启恢复及默认联网行为。
 
 当前验证使用模拟服务；真实供应商以及 Exa 的在线兼容性需要使用自己的账户验证。实际是否支持搜索、推理摘要、参数及模型列表取决于服务。
 

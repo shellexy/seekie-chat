@@ -1,8 +1,16 @@
 import type { AppState, Branch, ChatConfig, Conversation, Message, Settings } from './types';
 export const uid = () => crypto.randomUUID();
-export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: '你是一位严谨、友善的助手。使用用户的语言回答。', search: 'off', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: 4096 });
+export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: '你是一位严谨、友善的助手。使用用户的语言回答。', search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)) });
+export function resolveSearch(settings: Settings, modelId: string, mode: ChatConfig['search']): 'off' | 'native' | 'exa' {
+  if (mode !== 'auto') return mode;
+  const model = settings.models.find(m => m.id === modelId);
+  const connection = settings.connections.find(c => c.id === model?.connectionId);
+  if (model?.nativeSearch && connection && connection.protocol !== 'chat') return 'native';
+  if (model?.tools && settings.exaKey) return 'exa';
+  return 'off';
+}
 export function initialState(): AppState {
-  return { settings: { connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'session' }, conversations: [], selectedId: null };
+  return { settings: { connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

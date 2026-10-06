@@ -14,4 +14,4 @@ async function close(code = 0) { if (closing) return; closing = true; child.kill
 child.on('exit', code => close(code ?? 0));
 process.on('SIGINT', () => close());
 process.on('SIGTERM', () => close());
-console.log('Deepchan: http://127.0.0.1:5173 — Electron 已启动，主进程修改后请重启。');
+console.log('DeepChan-chat: http://127.0.0.1:5173 — Electron 已启动，主进程修改后请重启。');
