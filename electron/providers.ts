@@ -1,4 +1,5 @@
 import { fetch, ProxyAgent } from 'undici';
+import { generateGemini } from './gemini';
 import { resolveSearch } from '../src/domain';
 import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent, Usage } from '../src/types';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
@@ -8,11 +9,13 @@ export function endpoint(connection: Connection, path: string) {
   const base = connection.baseUrl.replace(/\/+$/, '');
   const url = new URL(base);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('API 地址必须使用 HTTP 或 HTTPS');
-  return `${base}${/\/v1$/.test(base) || url.pathname !== '/' ? '' : '/v1'}/${path}`;
+  const version = connection.protocol === 'gemini' ? '/v1beta' : '/v1';
+  return `${base}${url.pathname !== '/' ? '' : version}/${path}`;
 }
 export function authHeaders(connection: Connection) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...connection.headers };
   if (connection.protocol === 'anthropic') { headers['anthropic-version'] = '2023-06-01'; if (connection.apiKey) headers['x-api-key'] = connection.apiKey; }
+  else if (connection.protocol === 'gemini') { if (connection.apiKey) headers['x-goog-api-key'] = connection.apiKey; }
   else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
   return headers;
 }
@@ -54,6 +57,7 @@ function compatibleRaw(m: Message, protocol: string): any[] | undefined {
 export function buildInput(protocol: string, messages: Message[]): any[] {
   return messages.flatMap(m => {
     const raw = compatibleRaw(m, protocol); if (m.role === 'assistant' && raw?.length) return raw;
+    if (protocol === 'gemini') return [{ role: m.role === 'assistant' ? 'model' : 'user', parts: [...m.attachments.map(a => ({ inlineData: { mimeType: a.mime, data: a.data.split(',')[1] } })), { text: m.text || (m.attachments.length ? '请查看图片。' : '（空消息）') }] }];
     if (protocol === 'anthropic') return [{ role: m.role, content: [...m.attachments.map(a => ({ type: 'image', source: { type: 'base64', media_type: a.mime, data: a.data.split(',')[1] } })), { type: 'text', text: m.text || (m.attachments.length ? '请查看图片。' : '（空消息）') }] }];
     if (protocol === 'responses') return [{ role: m.role, content: [...m.attachments.map(a => ({ type: 'input_image', image_url: a.data })), { type: m.role === 'user' ? 'input_text' : 'output_text', text: m.text || '请查看图片。' }] }];
     return [{ role: m.role, content: m.attachments.length ? [{ type: 'text', text: m.text || '请查看图片。' }, ...m.attachments.map(a => ({ type: 'image_url', image_url: { url: a.data } }))] : m.text }];
@@ -74,8 +78,9 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
   if (messages.some(m => m.attachments.length) && !model.vision) throw new Error('当前模型未启用图片输入能力，请切换模型');
   if (config.search === 'exa' && !model.tools) throw new Error('Exa 搜索需要支持工具调用的模型');
-  if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请使用 Responses、Anthropic 或 Exa');
+  if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请使用 Responses、Anthropic、Gemini 或 Exa');
   if (config.search === 'exa' && !settings.exaKey) throw new Error('请先配置 Exa API Key');
+  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, exa, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const usage = { input: 0, output: 0 };
   const input = buildInput(connection.protocol, messages);
   const addText = (s: string) => { text += s; hooks.text(s); };
@@ -190,6 +195,18 @@ export async function generate(connection: Connection, model: Model, config: Cha
   throw new Error('工具调用未能在限定轮数内完成');
 }
 export async function listModels(connection: Connection): Promise<string[]> {
-  const { response, close } = await request(connection, 'models', undefined, new AbortController().signal);
-  try { const json: any = await response.json(); return (json.data || json.models || []).map((m: any) => m.id || m.name).filter(Boolean); } finally { await close(); }
+  const ids: string[] = [], seenPages = new Set<string>(); let pageToken = '';
+  do {
+    const path = connection.protocol === 'gemini' ? `models?pageSize=1000${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}` : 'models';
+    const { response, close } = await request(connection, path, undefined, new AbortController().signal);
+    let json: any;
+    try { json = await response.json(); } finally { await close(); }
+    if (connection.protocol !== 'gemini') return (json.data || json.models || []).map((m: any) => m.id || m.name).filter(Boolean);
+    ids.push(...(json.models || []).filter((m: any) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m: any) => String(m.name || '').replace(/^models\//, '')).filter(Boolean));
+    pageToken = json.nextPageToken || '';
+    if (pageToken && seenPages.has(pageToken)) throw new Error('Gemini 模型列表分页重复，请稍后重试');
+    if (pageToken) seenPages.add(pageToken);
+    if (seenPages.size > 100) throw new Error('Gemini 模型列表页数超过限制');
+  } while (pageToken);
+  return [...new Set(ids)];
 }

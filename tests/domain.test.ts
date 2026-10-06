@@ -52,3 +52,22 @@ test('new chats enable automatic search and select only available providers', as
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'off');
   assert.equal(resolveSearch(state.settings, 'm', 'off'), 'off');
 });
+
+test('prompt presets are copied into new chats and branches rather than live-linked', () => {
+  const settings = initialState().settings;
+  settings.defaultPromptPresetId = 'coding';
+  const c = createConversation(settings), b = c.branches[0], prompt = settings.promptPresets.find(p => p.id === 'coding')!;
+  assert.equal(b.config.system, prompt.content);
+  const a = addMessage(c, b, 'assistant', '回答'); a.status = 'complete';
+  const child = fork(c, a.id); prompt.content = '后来修改的角色'; settings.promptPresets = [];
+  assert.equal(child.config.system, b.config.system); assert.notEqual(b.config.system, prompt.content);
+  child.config.system = '分支自己的提示词'; assert.notEqual(child.config.system, b.config.system);
+});
+test('old settings receive a prompt library without changing existing conversation prompts', async () => {
+  const { normalizePromptSettings } = await import('../src/domain');
+  const settings = initialState().settings, c = createConversation(settings); c.branches[0].config.system = '用户自己的旧提示词';
+  delete (settings as any).promptPresets; delete (settings as any).defaultPromptPresetId;
+  normalizePromptSettings(settings); assert.equal(settings.promptPresets.length, 4); assert.equal(c.branches[0].config.system, '用户自己的旧提示词');
+  settings.promptPresets = []; settings.defaultPromptPresetId = ''; normalizePromptSettings(settings);
+  assert.equal(settings.promptPresets.length, 0);
+});

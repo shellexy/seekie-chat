@@ -1,4 +1,4 @@
-export type Protocol = 'chat' | 'responses' | 'anthropic';
+export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
 export type SearchMode = 'auto' | 'off' | 'native' | 'exa';
 export type Role = 'user' | 'assistant';
 export interface Connection {
@@ -15,7 +15,9 @@ export interface Model {
 export interface ChatConfig {
   modelId: string; system: string; search: SearchMode; effort: string; budget: number;
 }
+export interface PromptPreset { id: string; name: string; content: string }
 export interface Settings {
+  promptPresets: PromptPreset[]; defaultPromptPresetId: string;
   connections: Connection[]; models: Model[]; defaultModel: string; titleModel: string;
   compressionModel: string; theme: 'light' | 'dark' | 'system'; fontSize: number;
   exaKey: string; exaResults: number; autoCompress: boolean; compressionThreshold: number;

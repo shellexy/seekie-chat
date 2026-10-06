@@ -1,6 +1,20 @@
-import type { AppState, Branch, ChatConfig, Conversation, Message, Settings } from './types';
+import type { AppState, Branch, ChatConfig, Conversation, Message, PromptPreset, Settings } from './types';
+export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
+export function defaultPromptPresets(): PromptPreset[] {
+  return [
+    { id: 'general', name: '通用助手', content: DEFAULT_SYSTEM_PROMPT },
+    { id: 'coding', name: '编程助手', content: '你是一位严谨的编程助手。先理解目标和现有代码，给出可运行、易维护的方案。说明关键取舍和验证方法；缺少信息时明确指出，不编造执行结果。使用用户的语言回答。' },
+    { id: 'writing', name: '写作助手', content: '你是一位写作和编辑助手。根据读者、目的和语气组织内容，使用清晰自然的语言。保留用户原意，避免空泛表达；不编造事实和引用。使用用户的语言回答。' },
+    { id: 'translator', name: '翻译助手', content: '你是一位专业翻译助手。准确保留原文含义、语气和格式，术语保持一致。按照用户指定的目标语言翻译；未指定时先确认。需要解释时将说明与译文分开。' }
+  ];
+}
+export function normalizePromptSettings(settings: Settings) {
+  // Only missing libraries get defaults; an intentionally empty library stays empty.
+  if (!Array.isArray(settings.promptPresets)) settings.promptPresets = defaultPromptPresets();
+  if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
+}
 export const uid = () => crypto.randomUUID();
-export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: '你是一位严谨、友善的助手。使用用户的语言回答。', search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)) });
+export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)) });
 export function resolveSearch(settings: Settings, modelId: string, mode: ChatConfig['search']): 'off' | 'native' | 'exa' {
   if (mode !== 'auto') return mode;
   const model = settings.models.find(m => m.id === modelId);
@@ -10,7 +24,7 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   return 'off';
 }
 export function initialState(): AppState {
-  return { settings: { connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

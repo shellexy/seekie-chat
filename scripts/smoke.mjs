@@ -10,10 +10,10 @@ const directory = mkdtempSync(join(tmpdir(), 'deepchan-smoke-'));
 const calls = []; let lastAuthorization = '';
 const server = createServer(async (req, res) => {
   let body = ''; for await (const chunk of req) body += chunk;
-  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] })); return; }
+  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: [{ id: 'fixture-model' }] })); return; }
   const data = JSON.parse(body); calls.push({ path: req.url, data });
-  const title = (data.instructions || data.system || data.messages?.[0]?.content || '').includes('生成简短标题');
-  const compression = (data.instructions || data.system || data.messages?.[0]?.content || '').includes('压缩为');
+  const title = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('生成简短标题');
+  const compression = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('压缩为');
   const text = title ? '桌面聊天客户端设计' : compression ? '目标：实现 Linux 聊天客户端。保留分支上下文，使用 Electron。' : `这是本地模拟 API 的回答 ${calls.filter(c => !JSON.stringify(c.data).includes('生成简短标题')).length}。\n\n## 实现思路\n\n先完成三栏布局，再连接模型。每个分支只发送自己的上下文。\n\n- **Electron** 提供桌面窗口\n- SQLite 保存对话与分支\n\n\`\`\`ts\nconst branch = createBranch(answer);\n\`\`\``;
   if (title) await new Promise(r => setTimeout(r, 250));
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
@@ -28,6 +28,9 @@ const server = createServer(async (req, res) => {
     send({ type: 'response.web_search_call.completed', item_id: 'search-1' });
     send({ type: 'response.output_text.delta', delta: text });
     send({ type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [{ type: 'url_citation', title: 'Electron documentation', url: 'https://www.electronjs.org/docs' }] }] }], usage: { input_tokens: 120, output_tokens: 60 } } });
+  } else if (req.url.startsWith('/v1beta/models/')) {
+    send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'Gemini 模拟思考摘要。', thought: true }] } }] });
+    send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text, thoughtSignature: 'fixture-signature' }] }, finishReason: 'STOP', ...(data.tools?.some(t => t.googleSearch) ? { groundingMetadata: { webSearchQueries: ['Electron docs'], groundingChunks: [{ web: { title: 'Electron', uri: 'https://www.electronjs.org/docs' } }] } } : {}) }], usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60, thoughtsTokenCount: 12 } });
   } else {
     send({ type: 'message_start', message: { usage: { input_tokens: 120 } } });
     send({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
@@ -83,6 +86,19 @@ try {
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   await page.getByLabel('模型 ID', { exact: true }).fill('custom-fixture');
+  await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');
+  assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://generativelanguage.googleapis.com/v1beta');
+  await page.getByLabel(/^Base URL/).fill(baseUrl.replace('/v1', '/v1beta'));
+  await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
+  await page.getByLabel(/^添加服务端模型/).selectOption('fixture-model');
+  assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'fixture-model');
+  await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
+  await page.getByRole('button', { name: '添加角色', exact: true }).click();
+  await page.getByLabel('角色名称', { exact: true }).last().fill('测试研究助手');
+  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('你是测试研究助手，优先使用证据回答。');
+  const roleId = await page.getByLabel(/^新对话默认角色/).locator('option').last().getAttribute('value');
+  await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   const presets = await page.evaluate(() => window.deepchan.load());
@@ -95,9 +111,9 @@ try {
   await page.getByTitle('返回聊天', { exact: true }).click();
   await page.evaluate(async baseUrl => {
     const state = await window.deepchan.load();
-    const connections = ['chat','responses','anthropic'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
+    const connections = ['chat','responses','anthropic','gemini'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl: protocol === 'gemini' ? baseUrl.replace('/v1', '/v1beta') : baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
     state.settings.connections = connections;
-    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: c.protocol === 'chat' ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
+    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
@@ -110,6 +126,9 @@ try {
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
   await toolbar.getByRole('button', { name: '会话选项' }).click();
+  assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
+  await page.getByRole('combobox', { name: '系统提示词预设', exact: true }).selectOption('coding');
+  await page.getByLabel('系统提示词', { exact: true }).fill('当前分支定制提示词。');
   await page.getByRole('button', { name: '关闭会话选项', exact: true }).click();
   await page.locator('.config-popover').waitFor({ state: 'hidden' });
   assert.equal(await toolbar.getByRole('button', { name: '联网搜索' }).getAttribute('aria-pressed'), 'true');
@@ -147,6 +166,17 @@ try {
     await promise; window.dispatchEvent(new Event('deepchan-reload'));
     if ((await window.deepchan.load()).conversations.find(c => c.id === id).title !== '用户手动标题') throw new Error('后台标题覆盖了手动标题');
   });
+  await page.locator('.settings-entry').click();
+  await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
+  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('角色库更新后的提示词。');
+  await page.getByRole('button', { name: '添加角色', exact: true }).click();
+  await page.getByLabel('角色名称', { exact: true }).last().fill('临时角色');
+  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('仅用于测试删除。');
+  await page.getByTitle('删除角色：临时角色', { exact: true }).click();
+  await page.screenshot({ path: join(directory, 'prompt-library.png') });
+  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  await page.locator('.settings-page').waitFor({ state: 'hidden' });
+  assert.equal(await page.evaluate(async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
   await input.fill('只讨论 Electron 的实现'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
@@ -177,22 +207,33 @@ try {
   await page.getByRole('button', { name: '会话选项' }).click(); await page.getByRole('button', { name: '压缩较早历史' }).click();
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].branches.some(b => b.summary));
   await page.screenshot({ path: join(directory, 'desktop.png') });
-  for (const protocol of ['responses','anthropic']) {
+  for (const protocol of ['responses','anthropic','gemini']) {
     console.log('stage: protocol', protocol);
     const expectedCount = await page.evaluate(async () => (await window.deepchan.load()).conversations.length + 1);
     await page.getByRole('button', { name: /新建对话/ }).first().click();
     await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, expectedCount);
     const modelId = await page.evaluate(async protocol => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 ' + protocol).id, protocol);
     await page.getByRole('combobox', { name: '聊天模型' }).selectOption(modelId);
-    if (protocol === 'responses') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
+    if (protocol === 'gemini') {
+      await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
+      await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.titleModel = ''; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+    }
+    if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
     await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
     await page.locator('.message.assistant .message-content').waitFor();
     await waitFor(page, async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
+    if (protocol === 'gemini') {
+      for (let i = 0; i < 2; i++) { await input.fill(`Gemini 后续问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
+      await page.getByRole('button', { name: '会话选项' }).click();
+      await page.screenshot({ path: join(directory, 'gemini-options.png') });
+      await page.getByRole('button', { name: '压缩较早历史' }).click();
+      await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
+    }
     console.log('stage: protocol complete', protocol);
   }
   saved = await page.evaluate(() => window.deepchan.load());
-  assert.equal(saved.conversations.length, 3);
+  assert.equal(saved.conversations.length, 4);
   assert.equal(logs.length, 0, logs.join('\n'));
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '关闭前所有标题已完成');
   const db = readFileSync(join(directory,'chat.sqlite'));
@@ -214,8 +255,20 @@ try {
   assert.ok(nativeRequest.data.tools.some(t => t.type === 'web_search'), '默认启用原生搜索');
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '完成的标题应在重启后恢复');
   assert.equal(saved.conversations.find(c => c.branches.length > 1).branches.length, 5);
+  const geminiRequest = calls.find(c => c.path.startsWith('/v1beta/models/') && c.data.tools);
+  assert.equal(geminiRequest.data.generationConfig.thinkingConfig.thinkingLevel, 'HIGH');
+  assert.ok(geminiRequest.data.tools.some(t => t.googleSearch));
+  assert.ok(geminiRequest.data.contents.some(c => c.parts.some(p => p.inlineData)));
+  assert.ok(saved.settings.promptPresets.some(p => p.name === '测试研究助手' && p.content === '角色库更新后的提示词。'), '编辑后的角色库应在重启后恢复');
+  assert.ok(!saved.settings.promptPresets.some(p => p.name === '临时角色'));
+  const geminiCalls = calls.filter(c => c.path.startsWith('/v1beta/models/'));
+  assert.ok(geminiCalls.some(c => c.data.systemInstruction.parts[0].text.includes('生成简短标题')), 'Gemini 应支持自动标题');
+  assert.ok(geminiCalls.some(c => c.data.systemInstruction.parts[0].text.includes('压缩为')), 'Gemini 应支持历史压缩');
+  assert.ok(geminiCalls.some(c => c.data.contents.some(m => m.role === 'model' && m.parts.some(p => p.thoughtSignature === 'fixture-signature'))), 'Gemini 多轮请求应保留思考签名');
+  const branched = saved.conversations.find(c => c.branches.length > 1);
+  assert.equal(branched.branches[0].config.system, '当前分支定制提示词。');
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 3 protocols, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

@@ -2,7 +2,7 @@ import initSqlJs, { type Database } from 'sql.js';
 import { safeStorage } from 'electron';
 import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import { initialState } from '../src/domain';
+import { initialState, normalizePromptSettings } from '../src/domain';
 import type { AppState, Attachment } from '../src/types';
 export const SECRET_MARKER = '••••••••';
 export class Store {
@@ -30,6 +30,7 @@ export class Store {
   load(): AppState {
     const rows = this.db.exec('SELECT payload FROM state WHERE id=1');
     const state: AppState = rows.length ? JSON.parse(String(rows[0].values[0][0])) : initialState();
+    normalizePromptSettings(state.settings);
     state.settings.secureStorage = this.secure;
     if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
     for (const c of state.settings.connections) { c.apiKey = this.secrets.get(c.id) || ''; c.headers = JSON.parse(this.secrets.get('headers:' + c.id) || '{}'); }
@@ -86,8 +87,15 @@ function attachments(state: AppState): Attachment[] { return state.conversations
 export function validateState(value: unknown): asserts value is AppState {
   const s = value as AppState;
   if (!s || !s.settings || !Array.isArray(s.settings.connections) || !Array.isArray(s.settings.models) || !Array.isArray(s.conversations)) throw new Error('备份或设置格式无效');
+  normalizePromptSettings(s.settings);
+  const presetIds = new Set<string>();
+  for (const preset of s.settings.promptPresets) {
+    if (!preset || typeof preset.id !== 'string' || !preset.id || presetIds.has(preset.id) || typeof preset.name !== 'string' || !preset.name.trim() || typeof preset.content !== 'string' || !preset.content.trim()) throw new Error('系统提示词预设无效');
+    presetIds.add(preset.id);
+  }
+  if (s.settings.defaultPromptPresetId && !presetIds.has(s.settings.defaultPromptPresetId)) throw new Error('默认系统提示词预设不存在');
   if (s.conversations.length > 10000) throw new Error('会话数量超过限制');
-  for (const c of s.settings.connections) { if (!validId(c.id) || !['chat', 'responses', 'anthropic'].includes(c.protocol) || typeof c.apiKey !== 'string' || !Number.isFinite(c.timeout) || c.timeout < 10 || c.timeout > 600) throw new Error('连接配置无效'); const u = new URL(c.baseUrl); if (!['https:', 'http:'].includes(u.protocol)) throw new Error('连接地址无效'); if (c.proxy && !/^https?:\/\//.test(c.proxy)) throw new Error('当前版本的代理需使用 HTTP/HTTPS 地址'); }
+  for (const c of s.settings.connections) { if (!validId(c.id) || !['chat', 'responses', 'anthropic', 'gemini'].includes(c.protocol) || typeof c.apiKey !== 'string' || !Number.isFinite(c.timeout) || c.timeout < 10 || c.timeout > 600) throw new Error('连接配置无效'); const u = new URL(c.baseUrl); if (!['https:', 'http:'].includes(u.protocol)) throw new Error('连接地址无效'); if (c.proxy && !/^https?:\/\//.test(c.proxy)) throw new Error('当前版本的代理需使用 HTTP/HTTPS 地址'); }
   for (const c of s.conversations) {
     if (!validId(c.id) || !Array.isArray(c.messages) || !Array.isArray(c.branches) || !c.branches.length) throw new Error('会话结构无效');
     const ids = new Set<string>();
