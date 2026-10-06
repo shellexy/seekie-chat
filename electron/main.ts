@@ -175,7 +175,7 @@ function register() {
   });
 }
 async function openWindow() {
-  win = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', backgroundColor: '#ffffff', autoHideMenuBar: true,
+  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', backgroundColor: '#ffffff', autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== win?.webContents.getURL()) event.preventDefault(); });

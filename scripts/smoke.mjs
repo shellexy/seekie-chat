@@ -60,6 +60,7 @@ async function launch() {
 }
 try {
   let page = await launch();
+  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
   await page.locator('.settings-entry').click();
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
@@ -108,6 +109,9 @@ try {
   assert.equal(await toolbar.getByRole('combobox', { name: '聊天模型' }).count(), 1);
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
+  await toolbar.getByRole('button', { name: '会话选项' }).click();
+  await page.getByRole('button', { name: '关闭会话选项', exact: true }).click();
+  await page.locator('.config-popover').waitFor({ state: 'hidden' });
   assert.equal(await toolbar.getByRole('button', { name: '联网搜索' }).getAttribute('aria-pressed'), 'true');
   const layout = await toolbar.evaluate(el => { const text = document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect(); const send = el.querySelector('.send-button').getBoundingClientRect(); return { textBottom: text.bottom, controlTop: el.getBoundingClientRect().top, sendLeft: send.left, controls: [...el.querySelectorAll('select')].map(s => s.getBoundingClientRect().right) }; });
   assert.ok(layout.controlTop >= layout.textBottom); assert.ok(layout.controls.every(right => right < layout.sendLeft));
