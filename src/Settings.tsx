@@ -22,7 +22,7 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
   function updateConnection(values: Partial<Connection>) { setDraft(d => ({ ...d, connections: d.connections.map(c => c.id === selected ? { ...c, ...values } : c) })); }
   function addConnection(index: number) {
     const t = templates[index];
-    const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', defaultReasoning: t.name === '自定义兼容服务' || t.name === 'DeepSeek·anthropic' ? 'effort' : 'none' };
+    const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '' };
     const presetModel: Model | undefined = t.name === 'DeepSeek·anthropic' ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
@@ -33,7 +33,7 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
   }
   function addModel(model = '') {
     if (!connection) return;
-    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 128000, maxOutput: 8192, vision: connection.protocol === 'gemini', tools: true, nativeSearch: connection.protocol === 'gemini', reasoning: connection.defaultReasoning ?? (connection.name === '自定义兼容服务' ? 'effort' : 'none'), efforts: connection.protocol === 'gemini' ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high'], temperature: true };
+    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: connection.protocol === 'gemini', tools: true, nativeSearch: connection.protocol === 'gemini', reasoning: 'effort', efforts: connection.protocol === 'gemini' ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high'], temperature: true };
     change({ models: [...draft.models, m], defaultModel: draft.defaultModel || m.id });
   }
   function updateModel(id: string, values: Partial<Model>) { change({ models: draft.models.map(m => m.id === id ? { ...m, ...values } : m) }); }

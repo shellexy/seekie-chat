@@ -32,6 +32,8 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改。
 
+手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，上下文窗口为 1,000,000 token，最大输出为 65,536 token。可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
+
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 
 标题和历史压缩也会发起 API 请求，使用其各自配置的供应商并产生用量。界面显示的回答 token 用量来自服务返回；上下文预算使用估算。
@@ -40,7 +42,7 @@ DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthro
 
 在“连接与模型”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。
 
-Gemini 模型支持图片、Google Search 原生搜索和 Exa 工具调用。新增 Gemini 模型默认勾选这三项能力，仍可按实际模型修改。思考参数默认不发送：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
+Gemini 模型支持图片、Google Search 原生搜索和 Exa 工具调用。新增 Gemini 模型默认勾选这三项能力，仍可按实际模型修改。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
 
 ## 系统提示词库 / 角色预设
 
@@ -72,6 +74,8 @@ Gemini 模型支持图片、Google Search 原生搜索和 Exa 工具调用。新
 
 ## 搜索与思考
 
+浮动提示显示在窗口正中间。聊天模型下拉框、顶栏和 AI 回答的模型标签以“模型名称 | 连接名称”显示，方便区分同名模型。
+
 聊天顶栏以单行显示标题、模型和分支。输入框贴近底部，不显示回答免责声明；拖动输入框顶部的短横条可调整高度，聚焦横条后也可用上下方向键调整，Home 恢复最小高度，End 展开至最大高度。高度调整在当前运行期间保留，并限制在窗口高度的 45% 以内（最多 420px）。
 
 输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
@@ -100,8 +104,6 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 ```
 
 使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、Exa Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
-
-从旧版升级时，如果新目录尚无数据库，会自动复制 `~/.config/Deepchan/data/` 的会话及附件到新目录，保留旧目录。旧版仅在内存中保存、没有落盘的密钥需重新填写一次；此后默认持久保存。
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。
 

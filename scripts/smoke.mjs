@@ -85,7 +85,15 @@ try {
   await page.getByLabel('连接名称', { exact: true }).fill('重命名的兼容服务');
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
+  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
+  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.getByLabel('模型 ID', { exact: true }).fill('custom-fixture');
+  await page.locator('.preset-row').getByRole('button', { name: 'OpenAI · Responses', exact: true }).click();
+  await page.getByRole('button', { name: '手动添加', exact: true }).click();
+  assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
+  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
+  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
+  await page.getByLabel('模型 ID', { exact: true }).fill('responses-fixture');
   await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://generativelanguage.googleapis.com/v1beta');
@@ -93,6 +101,9 @@ try {
   await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
   await page.getByLabel(/^添加服务端模型/).selectOption('fixture-model');
   assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'fixture-model');
+  assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
+  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
+  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
   await page.getByLabel('角色名称', { exact: true }).last().fill('测试研究助手');
@@ -101,6 +112,9 @@ try {
   await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
+  const toastLayout = await page.locator('.toast').evaluate(el => { const r = el.getBoundingClientRect(); return { xOffset: (r.left + r.right) / 2 - window.innerWidth / 2, yOffset: (r.top + r.bottom) / 2 - window.innerHeight / 2 }; });
+  assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
+  await page.screenshot({ path: join(directory, 'center-toast.png') });
   const presets = await page.evaluate(() => window.deepchan.load());
   assert.equal(presets.settings.models.find(m => m.model === 'deepseek-flash').nativeSearch, true);
   // Verify that the connection's defaults survive save/reopen and renaming.
@@ -123,6 +137,11 @@ try {
   await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
   const toolbar = page.locator('.composer-bottom');
   assert.equal(await toolbar.getByRole('combobox', { name: '聊天模型' }).count(), 1);
+  const modelSelector = toolbar.getByRole('combobox', { name: '聊天模型' });
+  assert.deepEqual(await modelSelector.locator('option').allTextContents(), ['选择模型', '模拟 chat | 本地模拟 chat', '模拟 responses | 本地模拟 responses', '模拟 anthropic | 本地模拟 anthropic', '模拟 gemini | 本地模拟 gemini']);
+  assert.equal(await modelSelector.getAttribute('title'), '模拟 chat | 本地模拟 chat');
+  assert.equal(await page.locator('.header-title small').innerText(), '模拟 chat | 本地模拟 chat');
+  assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
   await toolbar.getByRole('button', { name: '会话选项' }).click();
@@ -156,6 +175,7 @@ try {
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
+  assert.equal(await page.locator('.message.assistant .message-model').first().innerText(), '模拟 chat | 本地模拟 chat');
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
   await page.evaluate(async () => {
@@ -230,6 +250,8 @@ try {
       await page.getByRole('button', { name: '压缩较早历史' }).click();
       await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
     }
+    assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
+    assert.equal(await page.locator('.message.assistant .message-model').last().innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     console.log('stage: protocol complete', protocol);
   }
   saved = await page.evaluate(() => window.deepchan.load());

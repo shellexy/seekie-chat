@@ -4,7 +4,6 @@ export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;
   headers: Record<string, string>; timeout: number; proxy: string;
-  defaultReasoning?: Model['reasoning'];
 }
 export interface Model {
   id: string; connectionId: string; name: string; model: string;
