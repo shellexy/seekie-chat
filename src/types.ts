@@ -40,6 +40,8 @@ export interface Settings {
   exaKey: string; ollamaKey: string; tavilyKey: string; firecrawlKey: string; anysearchKey: string;
   // DeepSeek Search/Fetch 按次计费，留空时复用主机名为 api.deepseek.com 的连接密钥。
   deepseekKey: string;
+  // 开启后 DeepSeek Search 返回网页正文（content）；关闭时只拿 summary，网页正文交给 Fetch。
+  deepseekNeedContent: boolean;
   exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;
 }

@@ -779,7 +779,7 @@ test('deepseek search uses its own endpoint and prefers summary over snippet', a
   assert.equal(firstBody.tools[0].function.name, 'deepseek_search', 'DeepSeek 搜索的工具名');
   assert.equal(searchBody.query, 'deepseek search API');
   assert.equal(searchBody.count, 3, 'count 只影响条数，不影响单次价格');
-  assert.equal(searchBody.need_content, undefined, '默认不请求网页正文，正文交给 Fetch');
+  assert.equal(searchBody.need_content, false, '默认只要 summary，正文交给 Fetch');
   assert.match(JSON.stringify(searchHeaders), /Bearer deepseek-fixture/i);
   assert.match(toolResult, /DeepSeek 长摘要/, '应优先把 summary 送进上下文而不是 snippet');
   assert.doesNotMatch(toolResult, /短摘要/);
@@ -811,5 +811,33 @@ test('deepseek search falls back to the connection key and reports an empty bala
   assert.equal(failed.length, 1, '402 应作为工具错误回灌');
   assert.match(failed[0].output, /余额不足/);
   assert.match(JSON.stringify(searchHeaders), /Bearer deepseek-connection-key/i, '应复用 DeepSeek 连接密钥');
+  await agent.close();
+});
+
+test('deepseek search returns page bodies when the setting asks for them', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  const turn = (body: any) => body.messages.at(-1)?.role === 'tool'
+    ? [{ choices: [{ delta: { content: '已阅读正文。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }]
+    : [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-ds', function: { name: 'deepseek_search', arguments: '{"query":"正文"}' } }] } }] },
+       { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
+  let searchBody: any, toolResult = '';
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => turn(JSON.parse(String(options.body))).map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  agent.get('https://api.deepseek.com').intercept({ path: '/v1/tools/search', method: 'POST' }).reply(200, options => {
+    searchBody = JSON.parse(String(options.body));
+    // need_content 开启时 content 才有内容，而解析链里 content 排在 summary 之前。
+    return { results: [{ title: 'DeepSeek result', url: 'https://example.com/result', snippet: '短摘要', summary: '长摘要', content: '网页正文全文' }] };
+  });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    toolResult = String(JSON.parse(String(options.body)).messages.at(-1).content);
+    return turn({ messages: [{ role: 'tool' }] }).map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.deepseekKey = 'deepseek-fixture';
+  state.settings.deepseekNeedContent = true;
+  const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'deepseek' }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(searchBody.need_content, true, '开关开启后应请求网页正文');
+  assert.equal(searchBody.count, 10, '未单独设置时使用默认结果数');
+  assert.match(toolResult, /网页正文全文/, '开启后正文优先于 summary');
   await agent.close();
 });

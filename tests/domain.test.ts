@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -433,4 +433,15 @@ test('deepseek search stays out of the automatic chain unless it is picked expli
   assert.equal(externalSearchAvailable('deepseek', settings), true);
   // 会话里直接选它也照常工作。
   assert.equal(resolveSearch(settings, 'm', 'deepseek'), 'deepseek');
+});
+
+test('tool output that happens to be JSON is indented for reading, and only for reading', () => {
+  const page = JSON.stringify({ url: 'https://example.com/a', title: '示例', content: '正文', truncated: false });
+  assert.equal(formatToolOutput(page), '{\n  "url": "https://example.com/a",\n  "title": "示例",\n  "content": "正文",\n  "truncated": false\n}');
+  assert.equal(formatToolOutput('[{"a":1}]'), '[\n  {\n    "a": 1\n  }\n]');
+  // 不是 JSON、或解析失败的内容一律原样返回，不能把模型的工具输出改坏。
+  assert.equal(formatToolOutput('读取完成'), '读取完成');
+  assert.equal(formatToolOutput('{"error":"截断的 JSON'), '{"error":"截断的 JSON');
+  assert.equal(formatToolOutput(''), '');
+  assert.equal(formatToolOutput('网页正文里有 { 和 } 但不是 JSON'), '网页正文里有 { 和 } 但不是 JSON');
 });

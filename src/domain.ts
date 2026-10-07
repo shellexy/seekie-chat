@@ -18,6 +18,7 @@ export function normalizeSettings(settings: Settings) {
   if (typeof settings.firecrawlKey !== 'string') settings.firecrawlKey = '';
   if (typeof settings.anysearchKey !== 'string') settings.anysearchKey = '';
   if (typeof settings.deepseekKey !== 'string') settings.deepseekKey = '';
+  if (typeof settings.deepseekNeedContent !== 'boolean') settings.deepseekNeedContent = false;
   // 旧数据没有收藏、最近使用和搜索偏好；缺省值取这次改动之前的行为，只有"新对话使用最近
   // 使用的模型"默认开启，因为它就是新对话该有的行为，没有任何最近使用记录时结果不变。
   if (!Array.isArray(settings.favoriteModels)) settings.favoriteModels = [];
@@ -151,7 +152,7 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   return settings.preferNativeSearch === false ? external() ?? native() ?? 'off' : native() ?? external() ?? 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, preferredExternalSearch: 'auto', defaultWebFetch: 'auto', lastWebFetch: 'auto', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', deepseekKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, preferredExternalSearch: 'auto', defaultWebFetch: 'auto', lastWebFetch: 'auto', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', deepseekKey: '', deepseekNeedContent: false, exaResults: 10, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();
@@ -270,6 +271,16 @@ export function applyBodies(message: Message, texts: string[]) {
 export function appendReasoningDuration(message: Message, elapsedMs: number) {
   const segment = message.segments?.at(-1);
   if (segment?.type === 'reasoning') segment.ms = (segment.ms ?? 0) + elapsedMs;
+}
+/**
+ * 工具结果多半是应用自己 JSON.stringify 出来的（web_fetch 的页面、搜索结果列表），
+ * 直接显示就是一整行。解析得开就按两空格缩进重新输出，解析失败或本来就不是 JSON 就原样返回。
+ * 只用于展示：存下来的 output 仍是要回灌给模型的内容，不能为了好看而改动它。
+ */
+export function formatToolOutput(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text;
+  try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { return text; }
 }
 export function messageDateTime(timestamp: number) {
   const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');

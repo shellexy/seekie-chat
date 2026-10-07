@@ -227,7 +227,7 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   try { parsed = JSON.parse(args); } catch { throw new Error('搜索参数格式无效'); }
   const query = parsed?.query;
   if (typeof query !== 'string' || !query.trim() || query.length > (mode === 'firecrawl' ? 500 : mode === 'deepseek' ? 128 : 2000)) throw new Error('搜索查询无效');
-  const count = Math.min(10, Math.max(1, Number(settings.exaResults) || 5));
+  const count = Math.min(10, Math.max(1, Number(settings.exaResults) || 10));
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let url: string, body: unknown;
   if (mode === 'exa') {
@@ -245,9 +245,9 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
     body = { query, limit: count, sources: [{ type: 'web' }], scrapeOptions: { formats: ['markdown'], onlyMainContent: true } };
   } else if (mode === 'deepseek') {
     // Search 是只读的按次计费接口：只有 200 且 results 非空才计费，count 只影响条数不影响单价。
-    // 不请求 need_content：正文抓取交给 Fetch，summary 已是文档标注"适用于给模型阅读"的字段。
+    // need_content 决定是否随结果返回网页正文；关闭时 content 恒为空串，正文交给 Fetch。
     url = 'https://api.deepseek.com/v1/tools/search'; headers.Authorization = `Bearer ${key}`;
-    body = { query, count };
+    body = { query, count, need_content: settings.deepseekNeedContent === true };
   } else {
     url = 'https://api.anysearch.com/v1/search'; if (key) headers.Authorization = `Bearer ${key}`;
     body = { query, max_results: count, format: 'markdown' };
