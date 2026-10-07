@@ -136,12 +136,21 @@ async function assertUsageDetails(page, output = 60) {
   else assert.doesNotMatch(metaBlock, /思考等级：/, '不用思考等级的模型不应显示思考等级');
   if (expected.role) { assert.match(metaBlock, new RegExp(`角色预设：${expected.role}`), '详情块应显示这条回答用的角色预设名'); assert.ok(metaBlock.indexOf('角色预设') > metaBlock.indexOf('思考等级') || !expected.effort, '角色预设名应排在思考等级之后'); }
   else assert.doesNotMatch(metaBlock, /角色预设：/, '自定义提示词不应显示角色预设名');
-  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','首字耗时：']);
+  if (expected.effort && expected.role) {
+    // 思考等级与角色预设名排在同一行。
+    const metaLines = await tooltip.locator('.answer-meta-block p').allTextContents();
+    assert.equal(metaLines.filter(line => line.includes('思考等级') && line.includes('角色预设')).length, 1, `思考等级与角色预设名应在同一行，实际分行：${JSON.stringify(metaLines)}`);
+  }
+  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','生成速度：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
   assert.equal(values[3], `${(message.usage.elapsedMs / 1000).toFixed(2)} s`);
   assert.equal(values[4], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
-  assert.equal(values[5], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  // 生成速度：生成耗时再减去首字耗时。
+  const generationMs = message.usage.generationMs ?? message.usage.elapsedMs;
+  const generationOnly = generationMs - message.usage.firstTokenMs;
+  assert.equal(values[5], generationOnly > 0 ? `${(output / (generationOnly / 1000)).toFixed(1)} tps` : '--', '生成速度应扣除首字耗时');
+  assert.equal(values[6], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
   const box = await tooltip.boundingBox();
   assert.ok(await page.evaluate(box => box.x >= 0 && box.y >= 0 && box.x + box.width <= innerWidth && box.y + box.height <= innerHeight, box), 'tooltip fits inside window');
   await page.mouse.move(5, 5); await tooltip.waitFor({ state: 'hidden' });
@@ -539,7 +548,7 @@ try {
   const roleLabel = page.locator('.header-title small.role-preset');
   assert.equal(await roleLabel.count(), 1, '顶栏应显示角色预设名');
   assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
-  assert.ok((await roleLabel.innerText()).startsWith('·'), `角色预设名前应有间隔点，实际：${await roleLabel.innerText()}`);
+  assert.equal((await roleLabel.innerText()).trim(), (await roleLabel.innerText()).trim().replace(/^·\s*/, ''), '角色预设名前不应有间隔点');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
   // 因为原生下拉弹层在无头环境里画不出来。
@@ -1010,8 +1019,8 @@ try {
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: /^查看回答详情：/ });
   await legacyTrigger.click();
-  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 4);
-  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--']);
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 5);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--']);
   assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
   await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);

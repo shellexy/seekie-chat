@@ -12,6 +12,9 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
   const totalDuration = usage?.elapsedMs === undefined ? '--' : `${(usage!.elapsedMs / 1000).toFixed(2)} s`;
   const speedDuration = usage ? usage.generationMs ?? usage.elapsedMs : undefined;
   const speed = usage && speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
+  // 生成速度：把首字等待也算进去的时间扣掉，只留正文真正生成的那一段吞吐。
+  const generationDuration = usage && usage.generationMs !== undefined && usage.firstTokenMs !== undefined ? usage.generationMs - usage.firstTokenMs : undefined;
+  const generationSpeed = usage && generationDuration !== undefined && generationDuration > 0 ? `${(usage.output / (generationDuration / 1000)).toFixed(1)} tps` : '--';
   return <>
     <button ref={popover.trigger} className="answer-meta" aria-label={`查看回答详情：${modelName}`} aria-expanded={popover.open} aria-describedby={popover.open ? popover.id : undefined}
       onPointerEnter={popover.show} onPointerLeave={popover.leave} onFocus={popover.show} onBlur={popover.leave} onClick={popover.toggle}>
@@ -21,8 +24,7 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
       <div className="answer-meta-block">
         <p><strong>{modelName}</strong></p>
         <p>{connectionName}</p>
-        {effort && <p>思考等级：{effort}</p>}
-        {rolePresetName && <p>角色预设：{rolePresetName}</p>}
+        {(effort || rolePresetName) && <p>{[effort && `思考等级：${effort}`, rolePresetName && `角色预设：${rolePresetName}`].filter(Boolean).join(' · ')}</p>}
         <p>{messageDateTime(timestamp)}</p>
       </div>
       {usage && <>
@@ -32,9 +34,10 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
           <dt>输出：</dt><dd>{count(usage.output)}</dd>
           <dt>总耗时：</dt><dd>{totalDuration}</dd>
           <dt>速度：</dt><dd>{speed}</dd>
+          <dt>生成速度：</dt><dd>{generationSpeed}</dd>
           <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
         </dl>
-        <p>总耗时包含整个生成请求及工具等待；缓存为输入中的命中量。速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
+        <p>总耗时包含整个生成请求及工具等待；缓存为输入中的命中量。速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。生成速度在此基础上再减去首字耗时，只留正文真正生成的那一段吞吐。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
       </>}
     </div>, document.body)}
   </>;

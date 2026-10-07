@@ -480,7 +480,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                             <small className="model-label" title={model ? modelLabel(model, state.settings.connections) : '选择模型'}>
                                 {model ? modelLabel(model, state.settings.connections) : '选择模型'}
                                 </small>
-                                {rolePreset && <small className="role-preset" title={`角色预设：${rolePreset}`}>·{rolePreset}</small>}
+                                {rolePreset && <small className="role-preset" title={`角色预设：${rolePreset}`}>{rolePreset}</small>}
                                 </div>
 </div>
       <div className="header-actions">
