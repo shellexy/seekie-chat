@@ -442,7 +442,7 @@ try {
   // Edit an assistant without another model request, then keep chatting on its new path.
   const count = calls.length;
   await page.locator('.message.assistant').last().getByTitle('编辑为新版本').click();
-  await page.locator('.edit-box textarea').fill('手动修改的回答，保留原版本。');
+  await page.locator('.edit-box textarea').last().fill('手动修改的回答，保留原版本。');
   await page.getByRole('button', { name: '保存新版本' }).click();
   assert.equal(calls.length, count);
   for (let i = 0; i < 2; i++) { await input.fill(`补充问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
@@ -529,7 +529,7 @@ try {
   const messageMenu = page.locator('.message-context-menu');
   await messageMenu.waitFor();
   const messageMenuText = await messageMenu.innerText();
-  assert.match(messageMenuText, /复制最终正文（Markdown）/); assert.match(messageMenuText, /重新生成并保留旧回答/); assert.match(messageMenuText, /查看请求详情/);
+  assert.match(messageMenuText, /复制正文（Markdown）/); assert.match(messageMenuText, /重新生成并保留旧回答/); assert.match(messageMenuText, /查看请求详情/);
   await page.screenshot({ path: join(directory, 'message-context-menu.png') });
   await page.keyboard.press('Escape'); await messageMenu.waitFor({ state: 'hidden' });
   assert.match(await page.locator('.message.user .message-time').last().innerText(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
@@ -702,22 +702,23 @@ try {
   await failedVersion.getByTitle('下一个版本').click();
   await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedAnswer = text; } } }));
-  await completeVersion.getByTitle('复制最终正文').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  // The answer has two body blocks (a tool call and reasoning sit between them); copying takes both.
+  await completeVersion.getByTitle('复制正文').click(); await waitFor(page, () => (window.__copiedAnswer || '').replace(/\s+/g, '') === '第一段正文。最后一段正文。');
   // Copy flavours: Markdown stays the toolbar behaviour, plain text drops the markers, rich text
   // also fills text/html. The stub only exposes writeText, so the plain fallback is observable.
-  await completeVersion.getByTitle('复制最终正文').click({ button: 'right' });
+  await completeVersion.getByTitle('复制正文').click({ button: 'right' });
   const copyMenu = page.locator('.message-context-menu'); await copyMenu.waitFor();
   const copyItems = await copyMenu.innerText();
-  assert.match(copyItems, /复制最终正文（Markdown）/); assert.match(copyItems, /复制最终正文（纯文本）/); assert.match(copyItems, /复制最终正文（富文本）/);
+  assert.match(copyItems, /复制正文（Markdown）/); assert.match(copyItems, /复制正文（纯文本）/); assert.match(copyItems, /复制正文（富文本）/);
   assert.doesNotMatch(copyItems, /复制选中/, '未选中文字时不应出现选区复制');
-  await copyMenu.getByRole('menuitem', { name: '复制最终正文（纯文本）' }).click();
-  await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  await copyMenu.getByRole('menuitem', { name: '复制正文（纯文本）' }).click();
+  await waitFor(page, () => (window.__copiedAnswer || '').replace(/\s+/g, '') === '第一段正文。最后一段正文。');
   // With a selection the menu offers the selection first, in both flavours.
   await completeVersion.locator('.message-content').first().evaluate(node => {
     const range = document.createRange(); range.selectNodeContents(node);
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
   });
-  await completeVersion.getByTitle('复制最终正文').click({ button: 'right' });
+  await completeVersion.getByTitle('复制正文').click({ button: 'right' });
   const selectionMenu = page.locator('.message-context-menu'); await selectionMenu.waitFor();
   assert.match(await selectionMenu.innerText(), /复制选中（纯文本）/);
   await page.screenshot({ path: join(directory, 'copy-menu-selection.png') });
@@ -725,8 +726,12 @@ try {
   await waitFor(page, () => (window.__copiedAnswer || '').includes('正文'));
   await page.evaluate(() => window.getSelection()?.removeAllRanges());
   await completeVersion.getByTitle('编辑为新版本').click();
-  const answerEditor = page.locator('.edit-box textarea'); await answerEditor.waitFor();
-  assert.equal(await answerEditor.inputValue(), '最后一段正文。', '编辑只载入最后一段正文');
+  const answerEditor = page.locator('.edit-box textarea');
+  await page.locator('.edit-box .edit-bodies').waitFor();
+  assert.deepEqual(await answerEditor.evaluateAll(nodes => nodes.map(node => node.value)), ['第一段正文。', '最后一段正文。'], '编辑应载入每一个正文段');
+  assert.deepEqual(await answerEditor.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))), ['第 1 段正文', '第 2 段正文']);
+  await page.screenshot({ path: join(directory, 'answer-editor.png') });
+  const editorArea = page.locator('.edit-box .edit-bodies');
   const editLayout = await page.evaluate(() => {
     const scroller = document.querySelector('.message-scroll'), edit = document.querySelector('.edit-box'), actions = edit?.querySelector('.button-row');
     if (!scroller || !edit || !actions) throw new Error('编辑控件布局缺失');
@@ -740,16 +745,16 @@ try {
   assert.ok(editLayout.actionsBottom <= editLayout.scrollBottom, '取消和保存按钮应留在可视区域内');
   assert.ok(Math.abs(editLayout.networkHeight - editLayout.optionsHeight) < 1, '联网按钮与会话选项按钮应等高');
   assert.ok(Math.abs(editLayout.networkIconSize - editLayout.optionsIconSize) < 1, '联网图标与会话选项图标应等大');
-  const editorHeight = (await answerEditor.boundingBox()).height;
+  const editorHeight = (await editorArea.boundingBox()).height;
   assert.ok(editorHeight >= 300, '回答编辑框仍应有足够高度');
   assert.ok(editorHeight <= (await page.evaluate(() => innerHeight)) - 300, '回答编辑框应保持在视口可用高度内');
-  await answerEditor.fill('改写后的最后正文。'); await page.getByRole('button', { name: '保存新版本' }).click();
+  await answerEditor.last().fill('改写后的最后正文。'); await page.getByRole('button', { name: '保存新版本' }).click();
   const editedSegments = await page.evaluate(async ({ conversationId, userId }) => {
     const conversation = (await window.deepchan.load()).conversations.find(c => c.id === conversationId);
     const edited = conversation.messages.find(message => message.edited && message.parentId === userId);
     return { text: edited.text, segments: edited.segments, toolCount: edited.tools.length };
   }, versionFixture);
-  assert.equal(editedSegments.text, '第一段正文。改写后的最后正文。');
+  assert.equal(editedSegments.text, '第一段正文。\n\n改写后的最后正文。', '编辑后每段正文仍然分开保存');
   assert.deepEqual(editedSegments.segments.map(segment => segment.type === 'tool' ? 'tool' : `${segment.type}:${segment.text}`), ['text:第一段正文。', 'reasoning:第一次思考。', 'tool', 'text:改写后的最后正文。', 'reasoning:第二次思考。']);
   assert.equal(editedSegments.toolCount, 1);
 

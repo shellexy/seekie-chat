@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Copy, FileJson, GitBranch, Paperclip, Pencil
 import Markdown from './Markdown';
 import AnswerMetaDetails from './AnswerMetaDetails';
 import { useAttachmentPayload } from './attachment_cache';
-import { lastAssistantBody, messageDateTime, sameMessage } from './domain';
+import { messageDateTime, sameMessage } from './domain';
 import type { Attachment, Message } from './types';
 
 function ReasoningDetails({ message, text, active, duration }: { message: Message; text: string; active: boolean; duration?: number }) {
@@ -38,27 +38,31 @@ function AssistantContent({ message, taskKind }: { message: Message; taskKind?: 
   </>;
 }
 
-function MessageRow({ message, taskKind, searchHighlighted, editing, editText, siblings, versionIndex, forkCount, modelName, connectionName, busy, pending,
+function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, siblings, versionIndex, forkCount, modelName, connectionName, busy, pending,
   onStartEdit, onCancelEdit, onEditTextChange, onSubmitEdit, onCopy, onRegenerate, onBranch, onVersion, onDebug, onOpenAttachment, onContextMenu, onOpenExternal, onNotice
 }: {
-  message: Message; taskKind?: string; searchHighlighted: boolean; editing: boolean; editText: string; siblings: Message[]; versionIndex: number; forkCount: number;
+  message: Message; taskKind?: string; searchHighlighted: boolean; editing: boolean; editTexts: string[]; siblings: Message[]; versionIndex: number; forkCount: number;
   modelName: string; connectionName: string; busy: boolean; pending: boolean;
-  onStartEdit: (message: Message) => void; onCancelEdit: () => void; onEditTextChange: (text: string) => void; onSubmitEdit: (message: Message) => void;
+  onStartEdit: (message: Message) => void; onCancelEdit: () => void; onEditTextChange: (index: number, text: string) => void; onSubmitEdit: (message: Message) => void;
   onCopy: (message: Message) => void; onRegenerate: (message: Message) => void; onBranch: (message: Message) => void; onVersion: (message: Message) => void;
   onDebug: (message: Message) => void; onOpenAttachment: (attachment: Attachment) => void; onContextMenu: (message: Message, point: { x: number; y: number }) => void;
   onOpenExternal: (url: string) => void; onNotice: (text: string) => void;
 }) {
-  const role = message.role, body = lastAssistantBody(message);
+  const role = message.role;
   return <article className={`message ${role} ${searchHighlighted ? 'search-highlight-active' : ''}`} id={`message-${message.id}`} data-id={message.id}
     onContextMenu={event => { event.preventDefault(); onContextMenu(message, { x: event.clientX, y: event.clientY }); }}>
-    {editing ? <div className="edit-box"><textarea value={editText} onChange={e => onEditTextChange(e.target.value)} rows={5}/><div className="button-row"><button onClick={onCancelEdit}>取消</button><button className="primary" onClick={() => onSubmitEdit(message)}>{role === 'user' ? '保存并生成' : '保存新版本'}</button></div><small>原版本及后续消息会保留。</small></div> : <>
+    {editing ? <div className="edit-box">
+      <div className="edit-bodies">{editTexts.map((text, index) => <textarea key={index} aria-label={`第 ${index + 1} 段正文`} value={text} onChange={e => onEditTextChange(index, e.target.value)} rows={3}/>)}</div>
+      <div className="button-row"><button onClick={onCancelEdit}>取消</button><button className="primary" onClick={() => onSubmitEdit(message)}>{role === 'user' ? '保存并生成' : '保存新版本'}</button></div>
+      <small>{role === 'user' ? '原版本及后续消息会保留。' : '每段正文单独编辑并自动适应高度；清空某一段即可删除它。原版本及后续消息会保留。'}</small>
+    </div> : <>
       <div className="message-attachments">{message.attachments.map(attachment => <AttachmentPreview key={attachment.id} attachment={attachment} onOpen={onOpenAttachment}/>)}</div>
       {role === 'assistant' ? <AssistantContent message={message} taskKind={taskKind}/> : message.text ? <div className="message-content"><Markdown text={message.text}/></div> : null}
       {!!message.sources.length && <div className="sources"><span>来源</span>{message.sources.map((source, index) => <button title={source.url} key={source.url} onClick={() => onOpenExternal(source.url)}>{index + 1} · {source.title}</button>)}</div>}
       {message.error && <div className="message-error">{message.error}</div>}
       <div className="message-toolbar">
         {role === 'user' && <span className="message-time">{messageDateTime(message.created)}</span>}
-        <button className="icon-button" title={role === 'assistant' ? '复制最终正文' : '复制消息'} onClick={() => onCopy(message)}><Copy size={14}/></button>
+        <button className="icon-button" title={role === 'assistant' ? '复制正文' : '复制消息'} onClick={() => onCopy(message)}><Copy size={14}/></button>
         <button className="icon-button" title="编辑为新版本" disabled={busy || pending} onClick={() => onStartEdit(message)}><Pencil size={14}/></button>
         {role === 'assistant' && <>
           <button className="icon-button" title="重新生成并保留旧回答" disabled={busy || pending} onClick={() => onRegenerate(message)}><RotateCcw size={14}/></button>
@@ -87,7 +91,7 @@ function AttachmentPreview({ attachment, onOpen }: { attachment: Attachment; onO
 // Everything the row renders, compared by value: message content, and the few interaction flags.
 function propsEqual(previous: Parameters<typeof MessageRow>[0], next: Parameters<typeof MessageRow>[0]) {
   const sameNeighbour = (offset: number) => (previous.siblings[previous.versionIndex + offset]?.status ?? '') === (next.siblings[next.versionIndex + offset]?.status ?? '');
-  return previous.editing === next.editing && previous.editText === next.editText && previous.searchHighlighted === next.searchHighlighted
+  return previous.editing === next.editing && previous.editTexts.join('\u0000') === next.editTexts.join('\u0000') && previous.searchHighlighted === next.searchHighlighted
     && previous.busy === next.busy && previous.pending === next.pending && previous.taskKind === next.taskKind
     && previous.modelName === next.modelName && previous.connectionName === next.connectionName
     && previous.versionIndex === next.versionIndex && previous.forkCount === next.forkCount && previous.siblings.length === next.siblings.length

@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, createConversation, editMessage, firstLine, fork, initialState, lastAssistantBody, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
+import { addMessage, applyBodies, assistantBody, createConversation, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
-import { copyFlavors, elementHtml, finalMessageBody, hasSelectionInside, readableText, selectedHtml, selectedPlainText } from './clipboard';
+import { copyFlavors, elementHtml, hasSelectionInside, messageBodies, readableText, selectedHtml, selectedPlainText } from './clipboard';
 import Composer from './Composer';
 import OutlinePanel from './OutlinePanel';
 import Sidebar from './Sidebar';
@@ -60,7 +60,7 @@ export default function App() {
   const [renamingBranch, setRenamingBranch] = useState<{ conversationId: string; branchId: string } | null>(null), [renameBranchValue, setRenameBranchValue] = useState('');
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [debugView, setDebugView] = useState<{ label: string; records: RequestRecord[] } | null>(null);
-  const [editing, setEditing] = useState<string | null>(null), [editText, setEditText] = useState('');
+  const [editing, setEditing] = useState<string | null>(null), [editTexts, setEditTexts] = useState<string[]>([]);
   const [activeMessage, setActiveMessage] = useState(''), [atBottom, setAtBottom] = useState(true), [summaryOpen, setSummaryOpen] = useState(false);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [composerHeight, setComposerHeight] = useState(56);
@@ -285,20 +285,13 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     setAtBottom(true); await begin(id, branchId, messageId);
   }
   async function submitEdit(source: Message) {
-    if (!conversation || busy || pending || !editText.trim()) return;
-    let branchId = '', messageId = ''; const id = conversation.id;
-    await commit(s => { const { c } = find(s); const result = editMessage(c, source.id, editText); branchId = result.branch.id; if (source.role === 'assistant') {
+    if (!conversation || busy || pending || !editTexts.some(text => text.trim())) return;
+    let branchId = '', messageId = ''; const id = conversation.id; const texts = editTexts;
+    await commit(s => { const { c } = find(s); const result = editMessage(c, source.id, source.role === 'assistant' ? texts.map(text => text.trim()).filter(Boolean).join('\n\n') : texts[0]); branchId = result.branch.id; if (source.role === 'assistant') {
       result.message.tools = structuredClone(source.tools); result.message.sources = structuredClone(source.sources);
-      const segments: AssistantSegment[] = source.segments?.length ? structuredClone(source.segments) : [
-        ...(source.reasoning ? [{ type: 'reasoning' as const, text: source.reasoning }] : []),
-        ...source.tools.map(tool => ({ type: 'tool' as const, toolId: tool.id })),
-        ...(source.text ? [{ type: 'text' as const, text: source.text }] : [])
-      ];
-      let lastText = -1; segments.forEach((segment, index) => { if (segment.type === 'text') lastText = index; });
-      if (lastText >= 0) segments[lastText] = { type: 'text', text: editText }; else segments.push({ type: 'text', text: editText });
-      result.message.segments = segments;
-      result.message.text = segments.filter((segment): segment is Extract<AssistantSegment, { type: 'text' }> => segment.type === 'text').map(segment => segment.text).join('');
-      result.message.reasoning = segments.filter((segment): segment is Extract<AssistantSegment, { type: 'reasoning' }> => segment.type === 'reasoning').map(segment => segment.text).join('');
+      result.message.segments = structuredClone(source.segments);
+      // One box per text block: each block is written back, and a box left empty removes its block.
+      applyBodies(result.message, texts);
     } else messageId = addMessage(c, result.branch, 'assistant', '').id; });
     setEditing(null); if (messageId) await begin(id, branchId, messageId);
   }
@@ -387,14 +380,14 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     const connection = live ? state.settings.connections.find(entry => entry.id === live.connectionId) : undefined;
     return connection?.name || message.connectionName || (live ? '未配置连接' : '已删除的连接');
   };
-  const copyToolbarBody = (message: Message) => { const text = message.role === 'assistant' ? lastAssistantBody(message) : message.text; void navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(e => toast(String(e))); };
-  const startEdit = (message: Message) => { setEditing(message.id); setEditText(message.role === 'assistant' ? lastAssistantBody(message) : message.text); };
+  const copyToolbarBody = (message: Message) => { const text = message.role === 'assistant' ? assistantBody(message) : message.text; void navigator.clipboard.writeText(text).then(() => toast('已复制')).catch(e => toast(String(e))); };
+  const startEdit = (message: Message) => { setEditing(message.id); setEditTexts(editableBodies(message)); };
   const openDebug = (message: Message) => { void api.debug(message.id).then(records => setDebugView({ label: messageModelLabel(message, state.settings.models), records })).catch(e => toast(String(e))); };
   const openMessageMenu = (message: Message, point: { x: number; y: number }) => setMessageMenu({ id: message.id, ...point, selection: hasSelectionInside(message.id) });
   const openExternal = (url: string) => { void api.openExternal(url).catch(e => toast(String(e))); };
   const copyMessageBody = (message: Message, flavor: 'markdown' | 'plain' | 'rich') => {
-    const node = finalMessageBody(message.id);
-    if (flavor === 'markdown' || !node) return navigator.clipboard.writeText(lastAssistantBody(message)).then(() => toast('已复制 Markdown')).catch(e => toast(String(e)));
+    const node = messageBodies(message.id);
+    if (flavor === 'markdown' || !node) return navigator.clipboard.writeText(assistantBody(message)).then(() => toast('已复制 Markdown')).catch(e => toast(String(e)));
     const plain = readableText(node);
     if (flavor === 'plain') return copyFlavors(plain).then(() => toast('已复制纯文本')).catch(e => toast(String(e)));
     return copyFlavors(plain, elementHtml(node)).then(() => toast('已复制富文本')).catch(e => toast(String(e)));
@@ -411,12 +404,12 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       <div className="menu-separator"/>
     </>}
     {target.role === 'assistant' ? <>
-      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'markdown'); }}><Copy size={14}/>复制最终正文（Markdown）</button>
-      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'plain'); }}><Copy size={14}/>复制最终正文（纯文本）</button>
-      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'rich'); }}><Copy size={14}/>复制最终正文（富文本）</button>
+      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'markdown'); }}><Copy size={14}/>复制正文（Markdown）</button>
+      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'plain'); }}><Copy size={14}/>复制正文（纯文本）</button>
+      <button role="menuitem" onClick={() => { setMessageMenu(null); void copyMessageBody(target, 'rich'); }}><Copy size={14}/>复制正文（富文本）</button>
       <div className="menu-separator"/>
     </> : <button role="menuitem" onClick={() => { setMessageMenu(null); navigator.clipboard.writeText(target.text).then(() => toast('已复制')).catch(e => toast(String(e))); }}><Copy size={14}/>复制消息</button>}
-    <button role="menuitem" disabled={busy || pending} onClick={() => { setMessageMenu(null); setEditing(target.id); setEditText(target.role === 'assistant' ? lastAssistantBody(target) : target.text); }}><Pencil size={14}/>编辑为新版本</button>
+    <button role="menuitem" disabled={busy || pending} onClick={() => { setMessageMenu(null); startEdit(target); }}><Pencil size={14}/>编辑为新版本</button>
     {target.role === 'assistant' && <>
       <button role="menuitem" disabled={busy || pending} onClick={() => { setMessageMenu(null); regenerate(target); }}><RotateCcw size={14}/>重新生成并保留旧回答</button>
       <button role="menuitem" disabled={target.status === 'streaming'} onClick={() => { setMessageMenu(null); void api.debug(target.id).then(records => setDebugView({ label: (state.settings.models.find(x => x.id === target.modelId)?.name || '未知模型'), records })).catch(e => toast(String(e))); }}><FileJson size={14}/>查看请求详情</button>
@@ -547,10 +540,10 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
 {messages.map((m, i) => {
       const siblings = conversation!.messages.filter(x => x.role === m.role && x.parentId === m.parentId), versionIndex = siblings.findIndex(x => x.id === m.id);
       return <MessageRow key={m.id} message={m} taskKind={task?.kind} searchHighlighted={searchHighlightMessage === m.id}
-        editing={editing === m.id} editText={editText} siblings={siblings} versionIndex={versionIndex}
+        editing={editing === m.id} editTexts={editTexts} siblings={siblings} versionIndex={versionIndex}
         forkCount={conversation!.branches.filter(b => b.originId === m.id).length}
         modelName={messageModelLabel(m, state.settings.models)} connectionName={connectionLabel(m)} busy={busy} pending={pending}
-        onStartEdit={startEdit} onCancelEdit={() => setEditing(null)} onEditTextChange={setEditText} onSubmitEdit={submitEdit}
+        onStartEdit={startEdit} onCancelEdit={() => setEditing(null)} onEditTextChange={(index, text) => setEditTexts(current => current.map((value, position) => position === index ? text : value))} onSubmitEdit={submitEdit}
         onCopy={copyToolbarBody} onRegenerate={regenerate} onBranch={createBranch} onVersion={version} onDebug={openDebug}
         onOpenAttachment={setPreviewAttachment} onContextMenu={openMessageMenu} onOpenExternal={openExternal} onNotice={toast}/>;
     })}</div>}</div>

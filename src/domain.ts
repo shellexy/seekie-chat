@@ -138,9 +138,45 @@ function sameUsage(a?: Usage, b?: Usage) {
 }
 // "最终正文" is the last text segment: the toolbar copy button, the answer editor and the copy
 // menu all act on it, so the definition lives in one place.
-export function lastAssistantBody(message: Message) {
-  const texts = message.segments?.filter(segment => segment.type === 'text') || [];
-  return texts.length ? texts[texts.length - 1].text : message.text;
+/**
+ * The whole visible answer: an answer may be interrupted by reasoning or tool calls and then continue
+ * writing, so every text block counts as body text. Blocks are separated by a blank line, which is
+ * what makes both the rendering and a copied answer read as paragraphs.
+ */
+export function assistantBody(message: Message) {
+  const texts = message.segments?.filter((segment): segment is Extract<AssistantSegment, { type: 'text' }> => segment.type === 'text') || [];
+  return texts.length ? texts.map(segment => segment.text).join('\n\n') : message.text;
+}
+/** What the editor shows: one box per text block for an answer, the single text for a question. */
+export function editableBodies(message: Message): string[] {
+  if (message.role !== 'assistant') return [message.text];
+  const texts = message.segments?.filter((segment): segment is Extract<AssistantSegment, { type: 'text' }> => segment.type === 'text') || [];
+  return texts.length ? texts.map(segment => segment.text) : [message.text];
+}
+/**
+ * Writes edited bodies back into a message. An emptied box removes its block, and the summary fields
+ * (`text`, `reasoning`) are recomputed so search, outline and copying stay consistent with the blocks.
+ */
+export function applyBodies(message: Message, texts: string[]) {
+  if (message.role !== 'assistant') { message.text = texts[0] ?? ''; return; }
+  const segments: AssistantSegment[] = message.segments?.length ? structuredClone(message.segments) : [
+    ...(message.reasoning ? [{ type: 'reasoning' as const, text: message.reasoning }] : []),
+    ...message.tools.map(tool => ({ type: 'tool' as const, toolId: tool.id })),
+    ...(message.text ? [{ type: 'text' as const, text: message.text }] : [])
+  ];
+  const edited = texts.map(text => text.trim()).filter(text => text.length > 0);
+  let index = 0;
+  const next: AssistantSegment[] = [];
+  for (const segment of segments) {
+    if (segment.type !== 'text') { next.push(segment); continue; }
+    const text = index < edited.length ? edited[index++] : '';
+    if (text) next.push({ type: 'text', text });
+  }
+  // A box that was added beyond the existing blocks still becomes a block of its own.
+  while (index < edited.length) next.push({ type: 'text', text: edited[index++] });
+  message.segments = next;
+  message.text = next.filter((segment): segment is Extract<AssistantSegment, { type: 'text' }> => segment.type === 'text').map(segment => segment.text).join('\n\n');
+  message.reasoning = next.filter((segment): segment is Extract<AssistantSegment, { type: 'reasoning' }> => segment.type === 'reasoning').map(segment => segment.text).join('');
 }
 export function appendReasoningDuration(message: Message, elapsedMs: number) {
   const segment = message.segments?.at(-1);

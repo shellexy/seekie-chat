@@ -918,6 +918,12 @@ summary {
   font-size: 12px;
   line-height: 1.7;
 }
+
+.edit-box {
+  background: var(--panel);
+  padding: 10px 4px 10px 4px;
+  border-radius: 11px;
+}
 .edit-box textarea {
   width: 100%;
   font-size: 14px;
@@ -929,7 +935,8 @@ summary {
 .edit-box small {
   display: block;
   color: var(--muted);
-  margin-top: 7px;
+  margin-top: -20px;
+  margin-left: 8px;
 }
 .composer-area {
   position: relative;
@@ -2762,12 +2769,23 @@ input[type="range"] {
   content: "";
   transform: rotate(-45deg);
 }
-.edit-box textarea {
-  display: block;
+/* The editor keeps the tall answer workspace, but each text block gets its own box that grows with
+   its content, so reasoning and tool calls between blocks stay visible as gaps. */
+.edit-box .edit-bodies {
+  display: flex;
   height: min(50vh, 480px);
   min-height: min(42vh, 280px);
   max-height: calc(100dvh - 300px);
-  overflow: auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px;
+  overflow-y: auto;
+}
+.edit-box textarea {
+  display: block;
+  flex: 0 0 auto;
+  field-sizing: content;
+  min-height: 84px;
   resize: vertical;
   line-height: 1.7;
 }

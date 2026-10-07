@@ -77,10 +77,18 @@ export function messageBodyNodes(messageId: string) {
   const article = document.getElementById(`message-${messageId}`);
   return article ? Array.from(article.querySelectorAll('.message-content')) : [];
 }
-export function finalMessageBody(messageId: string) {
-  // The last text segment is what "最终正文" means everywhere in the UI (the toolbar copy and the
-  // answer editor both use it).
-  return messageBodyNodes(messageId).at(-1) || null;
+/**
+ * Every body block of a message as one element, so the copy helpers can walk an answer that continues
+ * after reasoning or a tool call. A single block is returned as it is; several are wrapped in an
+ * in-memory container (styling comes from the block classes, so the walk behaves identically).
+ */
+export function messageBodies(messageId: string) {
+  const nodes = messageBodyNodes(messageId);
+  if (!nodes.length) return null;
+  if (nodes.length === 1) return nodes[0];
+  const wrapper = document.createElement('div');
+  for (const node of nodes) for (const child of Array.from(node.childNodes)) wrapper.append(child.cloneNode(true));
+  return wrapper;
 }
 export function hasSelectionInside(messageId: string) {
   const selection = window.getSelection();

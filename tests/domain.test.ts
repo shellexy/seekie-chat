@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, defaultModelEffort, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -255,4 +255,39 @@ test('a model starts at the effort its service recommends', () => {
   assert.equal(defaultModelEffort({ ...base, efforts: [] }), 'auto');
   assert.equal(defaultModelEffort({ ...base, efforts: ['low'], defaultEffort: 'max' }), 'low', '不在支持列表里的默认档位不得使用');
   assert.equal(defaultModelEffort(undefined), 'auto');
+});
+
+test('every text block of an answer is editable, not only the last one', () => {
+  const state = initialState(), c = createConversation(state.settings), b = c.branches[0];
+  const answer = addMessage(c, b, 'assistant', '第一段正文。');
+  answer.segments = [
+    { type: 'text', text: '第一段正文。' },
+    { type: 'reasoning', text: '中间想了想。', ms: 10 },
+    { type: 'text', text: '第二段正文。' }
+  ];
+  answer.reasoning = '中间想了想。';
+  answer.text = '第一段正文。第二段正文。';
+  assert.deepEqual(editableBodies(answer), ['第一段正文。', '第二段正文。']);
+  assert.equal(assistantBody(answer), '第一段正文。\n\n第二段正文。');
+  // A question keeps its single text, and an answer without segments falls back to its text.
+  const question = addMessage(c, b, 'user', '问题');
+  assert.deepEqual(editableBodies(question), ['问题']);
+  const legacy = addMessage(c, b, 'assistant', '旧回答');
+  assert.deepEqual(editableBodies(legacy), ['旧回答']);
+
+  // Editing writes each block back, keeps reasoning and tools, and recomputes the summaries.
+  applyBodies(answer, ['改写第一段。', '改写第二段。']);
+  assert.deepEqual(answer.segments, [
+    { type: 'text', text: '改写第一段。' },
+    { type: 'reasoning', text: '中间想了想。', ms: 10 },
+    { type: 'text', text: '改写第二段。' }
+  ]);
+  assert.equal(answer.text, '改写第一段。\n\n改写第二段。');
+  assert.equal(answer.reasoning, '中间想了想。');
+  // Emptying a box removes its block; a question edit replaces its text.
+  applyBodies(answer, ['只留这一段。', '   ']);
+  assert.deepEqual(answer.segments, [{ type: 'text', text: '只留这一段。' }, { type: 'reasoning', text: '中间想了想。', ms: 10 }]);
+  assert.equal(answer.text, '只留这一段。');
+  applyBodies(question, ['改后的问题']);
+  assert.equal(question.text, '改后的问题');
 });
