@@ -6,6 +6,14 @@ Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色�
 
 ![主界面](docs/screenshots/main-window.webp)
 
+![多段正文编辑](docs/screenshots/multi-body-edit.webp)
+
+> **多段正文编辑**
+>
+> 当一条回答被推理和工具调用隔成好几段正文（推理 → 正文 → 工具 → 正文 → 推理 → 正文），编辑会为每一段各开一个输入框，保存时按原位置写回，中间的推理与工具调用保持不动；清空某一段就等于删掉它。
+>
+> 编辑框刻意画成"一整块文本框、块间一条细线"，而不是几个并排的输入框——它表达的仍然是一段完整的回答。
+
 <sub>更多界面截图见 [docs/screenshots.md](docs/screenshots.md)。</sub>
 
 ## 本地运行
