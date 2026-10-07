@@ -250,15 +250,17 @@ export async function generate(connection: Connection, model: Model, config: Cha
         if (ev.error || ev.type === 'error' || ev.type === 'response.failed') throw new Error(ev.error?.message || ev.response?.error?.message || '模型生成失败');
         if (connection.protocol === 'chat') {
           const choice = ev.choices?.[0], d = choice?.delta;
-          if (d?.content) { chatText += d.content; addText(d.content); }
-          if (d?.reasoning_content) { chatReason += d.reasoning_content; addReason(d.reasoning_content); }
-          for (const c of d?.tool_calls || []) {
-            const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' }, pendingStarted: Date.now() };
-            if (c.id) old.id = c.id;
-            if (c.function?.name) old.function.name += c.function.name;
-            if (c.function?.arguments) old.function.arguments += c.function.arguments;
-            chatCalls.set(c.index, old);
-            if (old.id && (old.function.name || old.function.arguments)) hooks.tool({ id: old.id, name: old.function.name || 'tool', input: old.function.arguments, output: '', status: 'pending', started: old.pendingStarted });
+          for (const [key, value] of Object.entries(d || {})) {
+            if (key === 'content' && typeof value === 'string' && value) { chatText += value; addText(value); }
+            if (key === 'reasoning_content' && typeof value === 'string' && value) { chatReason += value; addReason(value); }
+            if (key === 'tool_calls' && Array.isArray(value)) for (const c of value) {
+              const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' }, pendingStarted: Date.now() };
+              if (c.id) old.id = c.id;
+              if (c.function?.name) old.function.name += c.function.name;
+              if (c.function?.arguments) old.function.arguments += c.function.arguments;
+              chatCalls.set(c.index, old);
+              if (old.id && (old.function.name || old.function.arguments)) hooks.tool({ id: old.id, name: old.function.name || 'tool', input: old.function.arguments, output: '', status: 'pending', started: old.pendingStarted });
+            }
           }
           if (choice?.finish_reason) finished = true;
           if (ev.usage) counter.observe({ input: ev.usage.prompt_tokens, output: ev.usage.completion_tokens, cachedInput: ev.usage.prompt_tokens_details?.cached_tokens ?? ev.usage.prompt_cache_hit_tokens });
@@ -319,7 +321,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
               if (b.name === 'web_search') {
                 const input = JSON.stringify(b.input || {}, null, 2);
                 anthropicSearchInputs.set(b.id, input);
-                hooks.tool({ id: b.id, name: b.name, input, output: '', status: 'pending', started: Date.now() });
+                hooks.tool({ id: b.id, name: b.name, input, output: '', status: b.type === 'server_tool_use' ? 'running' : 'pending', started: b.type === 'server_tool_use' ? anthropicServerSearchStarted.get(b.id) || Date.now() : Date.now() });
               }
             }
           }

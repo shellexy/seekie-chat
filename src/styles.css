@@ -196,8 +196,10 @@
 .chat-search-footer>div{display:flex;gap:2px}
 .chat-search-footer button{width:26px;height:26px;padding:3px}
 .message.search-highlight-active{border-radius:9px;background:var(--accent-bg);padding-inline:12px}
-.search-toggle{width:34px;height:34px;padding:6px}
+.search-toggle{width:34px;height:34px;padding:6px;color:var(--muted);background:transparent}
+.search-toggle.enabled{color:var(--muted);background:transparent}
+.search-toggle.enabled:hover{color:var(--text);background:var(--hover)}
 .search-toggle .network-icon{position:relative;display:inline-flex;align-items:center;justify-content:center}
 .search-toggle .network-icon.off::after{position:absolute;left:-2px;top:8px;width:22px;height:2px;border-radius:2px;background:currentColor;box-shadow:0 0 0 2px var(--bg);content:'';transform:rotate(-45deg)}
-.edit-box textarea{height:min(65vh,640px);min-height:min(65vh,400px);max-height:75vh;resize:vertical;line-height:1.7}
+.edit-box textarea{display:block;height:min(50vh,480px);min-height:min(42vh,280px);max-height:calc(100dvh - 300px);overflow:auto;resize:vertical;line-height:1.7}
 @media(max-width:560px){.chat-search-popover{right:-72px;width:min(360px,calc(100vw - 16px))}}

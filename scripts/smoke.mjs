@@ -596,11 +596,13 @@ try {
   await failedVersion.getByTitle('下一个版本').click();
   await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedAnswer = text; } } }));
-  await completeVersion.getByTitle('复制消息').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  await completeVersion.getByTitle('复制最后一段正文').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
   await completeVersion.getByTitle('编辑为新版本').click();
   const answerEditor = page.locator('.edit-box textarea'); await answerEditor.waitFor();
   assert.equal(await answerEditor.inputValue(), '最后一段正文。', '编辑只载入最后一段正文');
-  assert.ok((await answerEditor.boundingBox()).height >= 350, '回答编辑框应尽量占用可用高度');
+  const editorHeight = (await answerEditor.boundingBox()).height;
+  assert.ok(editorHeight >= 300, '回答编辑框仍应有足够高度');
+  assert.ok(editorHeight <= (await page.evaluate(() => innerHeight)) - 300, '回答编辑框应保持在视口可用高度内');
   await answerEditor.fill('改写后的最后正文。'); await page.getByRole('button', { name: '保存新版本' }).click();
   const editedSegments = await page.evaluate(async ({ conversationId, userId }) => {
     const conversation = (await window.deepchan.load()).conversations.find(c => c.id === conversationId);
@@ -628,7 +630,7 @@ try {
   await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === false, thinkingFixture.answerId);
   await thinking.locator('summary').click(); assert.equal(await thinking.evaluate(el => el.open), true, '回答完成后仍可手动展开思考摘要');
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.
