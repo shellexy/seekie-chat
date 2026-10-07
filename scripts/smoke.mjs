@@ -600,6 +600,19 @@ try {
   await completeVersion.getByTitle('编辑为新版本').click();
   const answerEditor = page.locator('.edit-box textarea'); await answerEditor.waitFor();
   assert.equal(await answerEditor.inputValue(), '最后一段正文。', '编辑只载入最后一段正文');
+  const editLayout = await page.evaluate(() => {
+    const scroller = document.querySelector('.message-scroll'), edit = document.querySelector('.edit-box'), actions = edit?.querySelector('.button-row');
+    if (!scroller || !edit || !actions) throw new Error('编辑控件布局缺失');
+    const scrollRect = scroller.getBoundingClientRect(), editRect = edit.getBoundingClientRect(), actionsRect = actions.getBoundingClientRect();
+    const network = document.querySelector('.search-toggle'), options = document.querySelector('.composer-option');
+    const networkRect = network.getBoundingClientRect(), optionsRect = options.getBoundingClientRect();
+    const networkIcon = network.querySelector('svg').getBoundingClientRect(), optionsIcon = options.querySelector('svg').getBoundingClientRect();
+    return { editorTop: editRect.top - scrollRect.top, actionsBottom: actionsRect.bottom, scrollBottom: scrollRect.bottom, networkHeight: networkRect.height, optionsHeight: optionsRect.height, networkIconSize: networkIcon.width, optionsIconSize: optionsIcon.width };
+  });
+  assert.ok(editLayout.editorTop >= 0 && editLayout.editorTop <= 20, '编辑框打开后应滚到视口顶部附近');
+  assert.ok(editLayout.actionsBottom <= editLayout.scrollBottom, '取消和保存按钮应留在可视区域内');
+  assert.ok(Math.abs(editLayout.networkHeight - editLayout.optionsHeight) < 1, '联网按钮与会话选项按钮应等高');
+  assert.ok(Math.abs(editLayout.networkIconSize - editLayout.optionsIconSize) < 1, '联网图标与会话选项图标应等大');
   const editorHeight = (await answerEditor.boundingBox()).height;
   assert.ok(editorHeight >= 300, '回答编辑框仍应有足够高度');
   assert.ok(editorHeight <= (await page.evaluate(() => innerHeight)) - 300, '回答编辑框应保持在视口可用高度内');
