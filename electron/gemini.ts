@@ -39,7 +39,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
   };
   for (let round = 0; round < 4; round++) {
     const allowTools = round < 3;
-    const generationConfig: any = { maxOutputTokens: model.maxOutput };
+    const generationConfig: any = { maxOutputTokens: model.maxOutput, ...(model.temperature ? { temperature: config.temperature ?? 1, topP: config.topP ?? 1 } : {}) };
     if (model.reasoning === 'effort') {
       const thinking: any = { includeThoughts: true };
       if (config.effort !== 'auto') {

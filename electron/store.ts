@@ -100,12 +100,13 @@ export function validateState(value: unknown): asserts value is AppState {
   for (const c of s.settings.connections) { if (!validId(c.id) || !['chat', 'responses', 'anthropic', 'gemini'].includes(c.protocol) || typeof c.apiKey !== 'string' || !Number.isFinite(c.timeout) || c.timeout < 10 || c.timeout > 600) throw new Error('连接配置无效'); const u = new URL(c.baseUrl); if (!['https:', 'http:'].includes(u.protocol)) throw new Error('连接地址无效'); if (c.proxy && !/^https?:\/\//.test(c.proxy)) throw new Error('当前版本的代理需使用 HTTP/HTTPS 地址'); }
   for (const c of s.conversations) {
     if (!validId(c.id) || !Array.isArray(c.messages) || !Array.isArray(c.branches) || !c.branches.length) throw new Error('会话结构无效');
+    if (c.archived !== undefined && typeof c.archived !== 'boolean') throw new Error('会话归档状态无效');
     const ids = new Set<string>();
     for (const m of c.messages) { if (!validId(m.id) || ids.has(m.id) || !['user','assistant'].includes(m.role) || typeof m.text !== 'string' || !Array.isArray(m.attachments) || !Array.isArray(m.tools) || !Array.isArray(m.sources)) throw new Error('消息结构无效'); ids.add(m.id); }
     const byId = new Map(c.messages.map(m => [m.id, m]));
     for (const m of c.messages) { const seen = new Set<string>(); let current: typeof m | undefined = m; while (current) { if (seen.has(current.id)) throw new Error('消息结构存在循环'); seen.add(current.id); if (!current.parentId) break; current = byId.get(current.parentId); if (!current) throw new Error('缺少父消息'); } }
     const branchIds = new Set(c.branches.map(b => b.id));
     if (!branchIds.has(c.activeBranchId)) throw new Error('当前分支无效');
-    for (const b of c.branches) if (!validId(b.id) || (b.leafId && !ids.has(b.leafId)) || !b.config || !Array.isArray(b.draftAttachments) || (b.parentBranchId && !branchIds.has(b.parentBranchId))) throw new Error('分支结构无效');
+    for (const b of c.branches) if (!validId(b.id) || (b.leafId && !ids.has(b.leafId)) || !b.config || !Array.isArray(b.draftAttachments) || (b.parentBranchId && !branchIds.has(b.parentBranchId)) || (b.config.temperature !== undefined && (!Number.isFinite(b.config.temperature) || b.config.temperature < 0 || b.config.temperature > 2)) || (b.config.topP !== undefined && (!Number.isFinite(b.config.topP) || b.config.topP < 0 || b.config.topP > 1))) throw new Error('分支结构无效');
   }
 }

@@ -43,7 +43,11 @@ test('new chats enable automatic search and select only available providers', as
   state.settings.connections = [{ id: 'c', name: 'fixture', protocol: 'responses', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
   state.settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'fixture', contextWindow: 10000, maxOutput: 4096, vision: false, tools: true, nativeSearch: true, reasoning: 'none', efforts: [], temperature: false }];
   state.settings.defaultModel = 'm';
-  assert.equal(createConversation(state.settings).branches[0].config.search, 'auto');
+  const conversation = createConversation(state.settings);
+  assert.equal(conversation.branches[0].config.search, 'auto');
+  assert.equal(conversation.branches[0].config.temperature, 1);
+  assert.equal(conversation.branches[0].config.topP, 1);
+  assert.equal(conversation.archived, false);
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'native');
   state.settings.connections[0].protocol = 'chat';
   state.settings.exaKey = 'fixture';

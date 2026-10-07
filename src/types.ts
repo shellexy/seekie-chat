@@ -14,6 +14,7 @@ export interface Model {
 }
 export interface ChatConfig {
   modelId: string; system: string; search: SearchMode; effort: string; budget: number;
+  temperature?: number; topP?: number;
 }
 export interface PromptPreset { id: string; name: string; content: string }
 export interface Settings {
@@ -55,6 +56,7 @@ export interface Branch {
 }
 export interface Conversation {
   id: string; title: string; manualTitle: boolean; titleState: 'idle' | 'pending' | 'done';
+  archived?: boolean;
   created: number; updated: number; backgroundUsage?: { kind: 'title' | 'compression'; modelId: string; usage: Usage; created: number }[]; activeBranchId: string; branches: Branch[]; messages: Message[];
 }
 export interface AppState { settings: Settings; conversations: Conversation[]; selectedId: string | null }

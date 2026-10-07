@@ -14,7 +14,7 @@ export function normalizePromptSettings(settings: Settings) {
   if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
 }
 export const uid = () => crypto.randomUUID();
-export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)) });
+export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
 export function resolveSearch(settings: Settings, modelId: string, mode: ChatConfig['search']): 'off' | 'native' | 'exa' {
   if (mode !== 'auto') return mode;
   const model = settings.models.find(m => m.id === modelId);
@@ -28,7 +28,7 @@ export function initialState(): AppState {
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();
-  return { id, title: '新对话', manualTitle: false, titleState: 'idle', created: now, updated: now, activeBranchId: branchId,
+  return { id, title: '新对话', manualTitle: false, titleState: 'idle', archived: false, created: now, updated: now, activeBranchId: branchId,
     messages: [], branches: [{ id: branchId, name: '主线', leafId: null, originId: null, parentBranchId: null, config: defaultConfig(settings), draft: '', draftAttachments: [], scrollTop: 0, updated: now }] };
 }
 export function pathTo(conversation: Conversation, leafId: string | null): Message[] {

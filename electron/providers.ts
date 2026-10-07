@@ -99,6 +99,11 @@ async function exa(args: string, settings: Settings, signal: AbortSignal) {
   return (data.results || []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url), text: String(r.text || '').slice(0, 2500) }));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop): Promise<Result> {
+  config = {
+    ...config,
+    temperature: Number.isFinite(config.temperature) ? Math.max(0, Math.min(2, config.temperature!)) : 1,
+    topP: Number.isFinite(config.topP) ? Math.max(0, Math.min(1, config.topP!)) : 1
+  };
   config = { ...config, search: resolveSearch({ ...settings, models: [model], connections: [connection] }, model.id, config.search) };
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
   if (config.search === 'exa' && !model.tools) throw new Error('Exa 搜索需要支持工具调用的模型');
@@ -108,6 +113,9 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, exa, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
   const input = buildInput(connection.protocol, messages, model);
+  const restrictedSampling = connection.protocol === 'responses' || connection.protocol === 'anthropic';
+  const supportsSampling = model.temperature && (!restrictedSampling || model.reasoning === 'none');
+  const sampling = supportsSampling ? { temperature: config.temperature, top_p: config.topP } : {};
   const addText = (s: string) => { text += s; hooks.text(s); };
   const addReason = (s: string) => { reasoning += s; hooks.reasoning(s); };
   const addSources = (items: Source[]) => { for (const s of items) if (/^https?:\/\//.test(s.url) && !sources.some(x => x.url === s.url)) sources.push(s); hooks.sources([...sources]); };
@@ -129,17 +137,17 @@ export async function generate(connection: Connection, model: Model, config: Cha
     const allowTools = round < 3;
     let body: any; let path: string;
     if (connection.protocol === 'chat') {
-      path = 'chat/completions'; body = { model: model.model, messages: [{ role: 'system', content: system }, ...input], stream: true, ...(model.streamUsage !== false ? { stream_options: { include_usage: true } } : {}), [model.outputTokenField || 'max_completion_tokens']: model.maxOutput };
+      path = 'chat/completions'; body = { model: model.model, messages: [{ role: 'system', content: system }, ...input], stream: true, ...sampling, ...(model.streamUsage !== false ? { stream_options: { include_usage: true } } : {}), [model.outputTokenField || 'max_completion_tokens']: model.maxOutput };
       if (config.search === 'exa' && allowTools) body.tools = [{ type: 'function', function: exaTool }];
       if (model.reasoning === 'effort' && config.effort && config.effort !== 'auto') body.reasoning_effort = config.effort;
     } else if (connection.protocol === 'responses') {
-      path = 'responses'; body = { model: model.model, instructions: system, input, stream: true, max_output_tokens: model.maxOutput, store: false };
+      path = 'responses'; body = { model: model.model, instructions: system, input, stream: true, ...sampling, max_output_tokens: model.maxOutput, store: false };
       if (config.search === 'native') body.tools = [{ type: 'web_search' }];
       if (config.search === 'exa' && allowTools) body.tools = [{ type: 'function', ...exaTool }];
       if (model.reasoning === 'effort') body.reasoning = { ...(config.effort !== 'auto' ? { effort: config.effort } : {}), summary: 'auto' };
       body.include = ['reasoning.encrypted_content'];
     } else {
-      path = 'messages'; body = { model: model.model, system, messages: input, stream: true, max_tokens: model.maxOutput };
+      path = 'messages'; body = { model: model.model, system, messages: input, stream: true, ...sampling, max_tokens: model.maxOutput };
       if (config.search === 'native') body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
       if (config.search === 'exa' && allowTools) body.tools = [{ name: exaTool.name, description: exaTool.description, input_schema: exaTool.parameters }];
       if (model.reasoning === 'budget') {

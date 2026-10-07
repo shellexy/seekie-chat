@@ -33,8 +33,9 @@ test('Gemini sends images and system prompts, separates thoughts and counts cumu
       ]);
     });
     const { state, conversation, branch } = fixture(); conversation.messages[0].attachments = [{ id: 'a', name: 'tree.png', mime: 'image/png', data: 'data:image/png;base64,aGVsbG8=', size: 5 }];
-    const result = await generate(connection, model, { ...branch.config, search: 'off', effort: 'low', system: '你是图像助手。' }, conversation.messages, state.settings, new AbortController().signal);
+    const result = await generate(connection, model, { ...branch.config, search: 'off', effort: 'low', temperature: 0.4, topP: 0.65, system: '你是图像助手。' }, conversation.messages, state.settings, new AbortController().signal);
     assert.equal(body.systemInstruction.parts[0].text, '你是图像助手。'); assert.deepEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: 'LOW' });
+    assert.equal(body.generationConfig.temperature, 0.4); assert.equal(body.generationConfig.topP, 0.65);
     assert.deepEqual(body.contents[0].parts[0], { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } });
     assert.equal(result.text, '图片中有树。'); assert.equal(result.reasoning, '观察图片。'); assert.deepEqual(result.usage, { input: 10, output: 7 });
     const answer = addMessage(conversation, branch, 'assistant', result.text); answer.status = 'complete'; answer.raw = result.raw;

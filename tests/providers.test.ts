@@ -74,6 +74,18 @@ for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${prot
   assert.equal(result.text, '你好'); assert.equal(result.reasoning, '摘要'); assert.deepEqual(result.usage, { input: 10, output: 2 }); assert.equal(output.join(''), '你好'); assert.ok(result.raw.entries.length);
   await agent.close();
 });
+for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${protocol} sends the branch temperature and top_p settings`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const events = protocol === 'chat' ? [ { choices: [{ delta: { content: 'ok' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] } ]
+    : protocol === 'responses' ? [ { type: 'response.output_text.delta', delta: 'ok' }, { type: 'response.completed', response: { output: [], usage: { input_tokens: 10, output_tokens: 1 } } } ]
+    : [ { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } }, { type: 'message_stop' } ];
+  const path = protocol === 'chat' ? '/v1/chat/completions' : protocol === 'responses' ? '/v1/responses' : '/v1/messages'; let body: any;
+  agent.get('https://fixture.invalid').intercept({ path, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''); }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', 'test');
+  await generate(connection(protocol), { ...model, reasoning: 'none', temperature: true }, { ...c.branches[0].config, search: 'off', temperature: 0.4, topP: 0.65 }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(body.temperature, 0.4); assert.equal(body.top_p, 0.65);
+  await agent.close();
+});
 for (const protocol of ['responses', 'anthropic'] as const) test(`${protocol} web_search records the actual search parameters`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const query = 'How do streamed native searches expose their query?';
