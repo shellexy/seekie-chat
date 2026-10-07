@@ -15,15 +15,28 @@ test('GPT and DeepSeek Flash names default to vision and tool support', () => {
   for (const name of ['gpt-4o', 'GPT-5', 'openai/gpt-4.1', 'gpt-oss-120b', 'models/deepseek-flash', 'deepseek/deepseek-flash-v2', 'DeepSeek Flash']) assert.equal(shouldDefaultVisionAndTools(name), true, name);
   for (const name of ['deepseek-r1', 'local-custom-model']) assert.equal(shouldDefaultVisionAndTools(name), false, name);
 });
+test('token estimates prefer reported assistant output and use the lightweight text and image fallback', () => {
+  const { u, a } = fixture();
+  u.text = 'a中';
+  assert.equal(estimateTokens([u]), 13, 'ASCII and non-ASCII characters use 0.3 and 0.6 token estimates, plus message framing');
+  u.text = '';
+  u.attachments = [{ id: 'image', name: 'image.png', mime: 'image/png', size: 1, data: '' }];
+  assert.equal(estimateTokens([u]), 196, 'a native image is estimated at 184 tokens plus message framing');
+  a.usage = { input: 999, output: 77 };
+  a.tools = [{ id: 'tool', name: 'web_fetch', input: '{}', output: 'x'.repeat(10), status: 'done', started: 0 }];
+  assert.equal(estimateTokens([a]), 92, 'reported request input is not attributed to one message; exact output and estimated tool result are counted');
+  a.usage.estimated = true;
+  assert.equal(estimateTokens([a]), 21, 'estimated usage falls back to message text and tool arguments');
+});
 test('history compression retains at least two rounds and grows the suffix to 10% or 50k tokens', () => {
   const c = createConversation(initialState().settings), branch = c.branches[0];
   for (let turn = 0; turn < 7; turn++) {
-    addMessage(c, branch, 'user', '问'.repeat(5000));
-    const answer = addMessage(c, branch, 'assistant', '答'.repeat(5000)); answer.status = 'complete';
+    addMessage(c, branch, 'user', '问'.repeat(8000));
+    const answer = addMessage(c, branch, 'assistant', '答'.repeat(8000)); answer.status = 'complete';
   }
   const path = pathTo(c, branch.leafId);
   const millionWindowCut = compressionCut(path, 1_000_000);
-  assert.equal(millionWindowCut, 4, '50k budget should retain the five most recent rounds');
+  assert.equal(millionWindowCut, 2, '50k budget should retain enough recent turns to reach the target');
   assert.equal(path[millionWindowCut].role, 'user');
   assert.ok(estimateTokens(path.slice(millionWindowCut)) >= 50_000);
   const mediumWindowCut = compressionCut(path, 320_000);
