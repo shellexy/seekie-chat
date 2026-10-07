@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeEffort, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -452,4 +452,24 @@ test('the preferred starting effort wins even when the list has no medium level'
   assert.equal(defaultModelEffort(model), 'low', '没有指定时落到首项');
   assert.equal(defaultModelEffort({ ...model, defaultEffort: 'high' }), 'high', '指定的起始档位优先');
   assert.equal(defaultModelEffort({ ...model, defaultEffort: 'medium' }), 'low', '不在支持列表里的指定一律忽略');
+});
+
+test('DeepSeek lands on high from every add path, and none is treated as auto', () => {
+  const deepseek: Model = { id: 'd', connectionId: 'c', name: 'deepseek-flash', model: 'deepseek-flash', contextWindow: 128000, maxOutput: 8192, vision: true, tools: true, nativeSearch: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], temperature: true };
+  assert.equal(defaultModelEffort(deepseek), 'high', '服务端列表添加：等级表由服务端给出、没给默认档位');
+  assert.equal(defaultModelEffort({ ...deepseek, efforts: ['minimal', 'low', 'medium', 'high'] }), 'medium', '用户自己配的等级表仍然按 medium 起步');
+  assert.equal(normalizeEffort('none'), 'auto', '旧会话里存的 none 归一到 auto');
+  assert.equal(normalizeEffort('high'), 'high');
+  // 旧数据迁移：早期版本把服务端报的 none 存进了模型。
+  const settings = initialState().settings;
+  settings.connections = [{ id: 'c', name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  settings.models = [{ ...deepseek, efforts: ['none', 'low', 'high', 'max'], defaultEffort: 'none' }];
+  normalizeSettings(settings);
+  assert.deepEqual(settings.models[0].efforts, ['low', 'high', 'max']);
+  assert.equal(settings.models[0].defaultEffort, undefined);
+  // 整份等级表只有 none 时退回按模型名推导，不留空列表。
+  settings.models = [{ ...deepseek, efforts: ['none'], defaultEffort: 'none' }];
+  normalizeSettings(settings);
+  assert.deepEqual(settings.models[0].efforts, ['low', 'high', 'max']);
+  assert.equal(defaultModelEffort(settings.models[0]), 'high');
 });

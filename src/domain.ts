@@ -33,6 +33,17 @@ export function normalizeSettings(settings: Settings) {
   if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) settings.preferredExternalSearch = 'auto';
   if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) settings.defaultWebFetch = 'auto';
   if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
+  // 早期版本照单全收服务端的等级表，于是 DeepSeek Anthropic 端点报的 none 档位被存了进去，
+  // 新对话还因此把 none 当成默认等级。none 本来就是 auto 的意思，从旧数据里清掉。
+  for (const m of settings.models) {
+    if (!Array.isArray(m.efforts)) continue;
+    if (m.efforts.includes('none')) {
+      const rest = m.efforts.filter(level => level !== 'none');
+      // 整份等级表只有一个 none 时，退回按模型名推导的等级，而不是留一个空列表。
+      m.efforts = rest.length ? rest : defaultModelEfforts(settings.connections.find(c => c.id === m.connectionId)?.protocol || 'chat', m.model);
+    }
+    if (m.defaultEffort === 'none') delete m.defaultEffort;
+  }
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
@@ -114,14 +125,21 @@ export function shouldDefaultVisionAndTools(...names: string[]): boolean {
     return /(?:^|\/)(?:gpt|gemini)(?:[-_.:/]|$)/.test(normalized) || /(?:^|\/)deepseek[- ]flash(?:[-_.:/]|$)/.test(normalized);
   });
 }
+// DeepSeek 的官方三档里没有 medium，落到首项 low 与它的常用起点不符；high 才是。三条添加
+// 路径（预设、手动添加、从服务端列表）都要落到同一个起点，所以规则放在这里而不是只写进预设。
+export const DEEPSEEK_PREFERRED_EFFORT = 'high';
 // Preference order for a model's initial effort: what the service recommends, then the usual middle
 // level if the model supports it, then whatever comes first.
 export function defaultModelEffort(model?: Model): string {
   if (!model) return 'auto';
   if (model.defaultEffort && model.efforts.includes(model.defaultEffort)) return model.defaultEffort;
   if (model.efforts.includes('medium')) return 'medium';
+  if (/^deepseek(?:[-/]|$)/i.test(model.model.trim()) && model.efforts.includes(DEEPSEEK_PREFERRED_EFFORT)) return DEEPSEEK_PREFERRED_EFFORT;
   return model.efforts[0] || 'auto';
 }
+/** `none` 是 `auto` 的同义词：都是"不发送思考参数"。模型等级表里不再保留 none，但旧会话里存着的
+ *  这个值要归一到 auto，否则会被等级校验判成"不支持"而直接报错。 */
+export function normalizeEffort(value: string): string { return value === 'none' ? 'auto' : value; }
 export const defaultConfig = (settings: Settings): ChatConfig => {
   const modelId = newChatModelId(settings), model = settings.models.find(m => m.id === modelId);
   return { modelId, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT,

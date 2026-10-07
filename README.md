@@ -34,7 +34,7 @@ DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但*
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `minimal, low, medium, high`。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
-手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，未知模型默认支持 `minimal, low, medium, high`；GPT 使用 `low, medium, high, xhigh, max`，DeepSeek 使用 `low, high, max`。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，也默认勾选图片输入和工具调用。上下文窗口默认为 1,000,000 token，最大输出为 65,536 token，可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
+手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，未知模型默认支持 `minimal, low, medium, high`；GPT 使用 `low, medium, high, xhigh, max`，DeepSeek 使用 `low, high, max`。服务端把“不发送思考参数”报成一个叫 `none` 的档位时（DeepSeek 的 Anthropic 兼容端点就是如此），该档位按 `auto` 处理，不进入等级列表；旧数据里已经存进去的 `none` 会在加载时清掉，旧会话里存着的 `none` 也会按 `auto` 发送，不会被判成不支持的等级。 DeepSeek 的默认起始档位为 `high`：它的等级表里没有 `medium`，不会落到首项 `low`；预设、手动添加与从服务端列表添加三条路径结果一致。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，也默认勾选图片输入和工具调用。上下文窗口默认为 1,000,000 token，最大输出为 65,536 token，可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 

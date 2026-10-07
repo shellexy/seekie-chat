@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronRight, ExternalLink, ListPlus, Plus, Trash2, Wifi, X } from 'lucide-react';
 import { api } from './api';
 import { settingsProblems } from './validation';
-import { defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
+import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
 import type { Connection, Model, ServerModel, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
@@ -40,8 +40,8 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。
       nativeSearch: t.name === 'DeepSeek · Anthropic（内置搜索）',
       // 思考等级跟随官方新版：不再有 medium，也没有 xhigh。等级里没有 medium 时
-      // defaultModelEffort 会落到首项 low，这里显式指定 high 作为默认起始档位。
-      videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], defaultEffort: 'high', temperature: true
+      // defaultModelEffort 会落到首项 low，预设与从服务端列表添加都改用 high 作为起点。
+      videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], defaultEffort: DEEPSEEK_PREFERRED_EFFORT, temperature: true
     } : t.name === 'Ollama Cloud' ? {
       id: uid(), connectionId: c.id, name: 'gemma4:31b', model: 'gemma4:31b',
       contextWindow: 256_000, maxOutput: 256_000, vision: true, tools: true,

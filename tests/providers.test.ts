@@ -762,6 +762,12 @@ test('a described model list keeps names, limits and modalities', () => {
     id: 'deepseek-chat', name: 'DeepSeek Chat', contextWindow: 128_000, maxOutput: 8_192,
     inputModalities: ['text', 'image'], outputModalities: ['text'], efforts: ['low', 'high'], defaultEffort: 'high'
   });
+  // DeepSeek's Anthropic-compatible endpoint reports "send no reasoning parameter" as a level
+  // called `none`; auto already means that here, and keeping it would make it the default pick.
+  assert.deepEqual(parseServerModel({ id: 'deepseek-flash', effort: { supported_levels: ['none', 'low', 'high', 'max'] } }),
+    { id: 'deepseek-flash', efforts: ['low', 'high', 'max'] });
+  assert.deepEqual(parseServerModel({ id: 'd', effort: { supported_levels: ['low', 'high'], default_level: 'none' } }), { id: 'd', efforts: ['low', 'high'] });
+  assert.deepEqual(parseServerModel({ id: 'd', effort: { supported_levels: ['none'] } }), { id: 'd' }, '全表只有 none 时退回按模型名推导');
   // A plain OpenAI entry describes nothing beyond its id.
   assert.deepEqual(parseServerModel({ id: 'gpt-4o', object: 'model', created: 1, owned_by: 'openai' }), { id: 'gpt-4o' });
   // Camel case gateways and bare strings are accepted, and display names win over resource names.

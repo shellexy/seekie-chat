@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { defaultModelEffort, SEARCH_MODE_LABELS, WEB_FETCH_LABELS } from './domain';
+import { defaultModelEffort, normalizeEffort, SEARCH_MODE_LABELS, WEB_FETCH_LABELS } from './domain';
 import ModelPicker from './ModelPicker';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
@@ -86,7 +86,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                       {[1024,2048,4096,8192].map(budget => <option key={budget} value={budget} disabled={budget >= model.maxOutput}>
                         {budget}
                       </option>)}
-                    </select> : <select aria-label="思考等级" title={model?.reasoning === 'effort' ? '选择当前模型的思考等级' : '当前模型未配置思考等级能力'} value={model?.reasoning === 'effort' ? branch.config.effort : 'auto'} disabled={busy || model?.reasoning !== 'effort'} onChange={e => onUpdateConfig({ effort: e.target.value })}>
+                    </select> : <select aria-label="思考等级" title={model?.reasoning === 'effort' ? '选择当前模型的思考等级' : '当前模型未配置思考等级能力'} value={model?.reasoning === 'effort' ? normalizeEffort(branch.config.effort) : 'auto'} disabled={busy || model?.reasoning !== 'effort'} onChange={e => onUpdateConfig({ effort: e.target.value })}>
                       <option value="auto">
                         {model?.reasoning === 'effort' ? 'auto' : '不支持'}
                       </option>
