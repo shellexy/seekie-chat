@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachmentBase64, attachmentKind, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from '../electron/attachments';
+import { attachmentBase64, attachmentKind, canSendNative, convertUnsupportedAttachments, findAttachment, markdownForUnsupported } from '../electron/attachments';
 import type { Attachment, Message, Model, Protocol } from '../src/types';
+import { addMessage, createConversation, initialState } from '../src/domain';
 
 const attachment = (name: string, mime: string, data = `data:${mime};base64,AA==`): Attachment => ({ id: 'a1', name, mime, size: 4, data });
 const model = (protocol: Protocol | string, overrides: Partial<Model> = {}): Model => ({
@@ -48,4 +49,17 @@ test('only the converted Markdown is sent for attachments the model cannot read 
   await assert.rejects(convertUnsupportedAttachments([message([missing])], 'chat', model('chat')), /文件内容不可用/);
   assert.equal(attachmentBase64(attachment('a.png', 'image/png')), 'AA==');
   assert.equal(attachmentBase64(attachment('a.png', 'image/png', 'not-a-data-url')), '');
+});
+
+test('an attachment can be located by id for the renderer to fetch', () => {
+  const image = attachment('a.png', 'image/png');
+  const state = initialState();
+  const conversation = createConversation(state.settings);
+  addMessage(conversation, conversation.branches[0], 'user', '看图').attachments = [image];
+  conversation.branches[0].draftAttachments = [{ ...attachment('draft.pdf', 'application/pdf'), id: 'd1d1d1d1-d1d1-d1d1-d1d1-d1d1d1d1d1d1' }];
+  state.conversations = [conversation];
+  assert.equal(findAttachment(state, image.id)?.name, 'a.png', '消息附件要能找到');
+  const draft = conversation.branches[0].draftAttachments[0];
+  assert.equal(findAttachment(state, draft.id)?.name, 'draft.pdf', '草稿附件也要能找到');
+  assert.equal(findAttachment(state, 'ffffffff-ffff-ffff-ffff-ffffffffffff'), undefined);
 });

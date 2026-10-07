@@ -81,6 +81,8 @@ export interface Bridge {
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<string[]>; title(conversationId: string): Promise<void>;
   debug(messageId: string): Promise<RequestRecord[]>;
+  // Attachment payloads are fetched one at a time instead of travelling with every broadcast.
+  attachment(id: string): Promise<string>;
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;

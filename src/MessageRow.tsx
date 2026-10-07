@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Copy, FileJson, GitBranch, Paperclip, Pencil, RotateCcw, Search, Sparkles } from 'lucide-react';
 import Markdown from './Markdown';
 import AnswerMetaDetails from './AnswerMetaDetails';
+import { useAttachmentPayload } from './attachment_cache';
 import { lastAssistantBody, messageDateTime, sameMessage } from './domain';
 import type { Attachment, Message } from './types';
 
@@ -48,13 +49,10 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editText, s
   onOpenExternal: (url: string) => void; onNotice: (text: string) => void;
 }) {
   const role = message.role, body = lastAssistantBody(message);
-  const attachable = (attachment: Attachment) => attachment.mime.startsWith('image/') && !!attachment.data;
   return <article className={`message ${role} ${searchHighlighted ? 'search-highlight-active' : ''}`} id={`message-${message.id}`} data-id={message.id}
     onContextMenu={event => { event.preventDefault(); onContextMenu(message, { x: event.clientX, y: event.clientY }); }}>
     {editing ? <div className="edit-box"><textarea value={editText} onChange={e => onEditTextChange(e.target.value)} rows={5}/><div className="button-row"><button onClick={onCancelEdit}>取消</button><button className="primary" onClick={() => onSubmitEdit(message)}>{role === 'user' ? '保存并生成' : '保存新版本'}</button></div><small>原版本及后续消息会保留。</small></div> : <>
-      <div className="message-attachments">{message.attachments.map(attachment => attachable(attachment)
-        ? <button type="button" key={attachment.id} className="image-attachment-trigger" aria-label={`查看图片：${attachment.name}`} title={attachment.name} onClick={() => onOpenAttachment(attachment)}><img src={attachment.data} alt={attachment.name}/></button>
-        : <button type="button" key={attachment.id} className="file-attachment" aria-label={`查看附件：${attachment.name}`} onClick={() => onOpenAttachment(attachment)} title={`查看附件：${attachment.name}`}><Paperclip size={14}/><span>{attachment.name}</span>{attachment.markdown && <small>Markdown</small>}</button>)}</div>
+      <div className="message-attachments">{message.attachments.map(attachment => <AttachmentPreview key={attachment.id} attachment={attachment} onOpen={onOpenAttachment}/>)}</div>
       {role === 'assistant' ? <AssistantContent message={message} taskKind={taskKind}/> : message.text ? <div className="message-content"><Markdown text={message.text}/></div> : null}
       {!!message.sources.length && <div className="sources"><span>来源</span>{message.sources.map((source, index) => <button title={source.url} key={source.url} onClick={() => onOpenExternal(source.url)}>{index + 1} · {source.title}</button>)}</div>}
       {message.error && <div className="message-error">{message.error}</div>}
@@ -78,6 +76,14 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editText, s
   </article>;
 }
 
+// An image is only shown once its payload arrived; the payload comes from the main process the first
+// time it is needed, so a message can render immediately and fill the picture in afterwards.
+function AttachmentPreview({ attachment, onOpen }: { attachment: Attachment; onOpen: (attachment: Attachment) => void }) {
+  const payload = useAttachmentPayload(attachment);
+  return attachment.mime.startsWith('image/') && payload
+    ? <button type="button" className="image-attachment-trigger" aria-label={`查看图片：${attachment.name}`} title={attachment.name} onClick={() => onOpen(attachment)}><img src={payload} alt={attachment.name}/></button>
+    : <button type="button" className="file-attachment" aria-label={`查看附件：${attachment.name}`} onClick={() => onOpen(attachment)} title={`查看附件：${attachment.name}`}><Paperclip size={14}/><span>{attachment.name}</span>{attachment.markdown && <small>Markdown</small>}</button>;
+}
 // Everything the row renders, compared by value: message content, and the few interaction flags.
 function propsEqual(previous: Parameters<typeof MessageRow>[0], next: Parameters<typeof MessageRow>[0]) {
   const sameNeighbour = (offset: number) => (previous.siblings[previous.versionIndex + offset]?.status ?? '') === (next.siblings[next.versionIndex + offset]?.status ?? '');

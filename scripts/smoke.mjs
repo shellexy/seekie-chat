@@ -504,6 +504,14 @@ try {
   page = await launch();
   saved = await page.evaluate(() => window.deepchan.load());
   await assertUsageDetails(page, 72);
+  // Attachment bytes no longer travel with the state, so after a restart the picture can only come
+  // from the on-demand fetch; a broken lazy path shows up here as an image without its payload.
+  const restoredImage = page.locator('.message img').first();
+  await restoredImage.waitFor();
+  assert.match(await restoredImage.getAttribute('src') || '', /^data:image\//, '重启后图片必须仍能通过按需加载显示');
+  const storedAttachment = saved.conversations.flatMap(c => c.messages).flatMap(m => m.attachments).find(a => a.mime.startsWith('image/'));
+  assert.ok(storedAttachment, '测试数据里应当有图片附件');
+  assert.equal(storedAttachment.data, '', '广播出去的状态不应再携带附件载荷');
   // Request records are persisted with the conversation, so they survive a restart too.
   await page.locator('.message.assistant').last().getByRole('button', { name: '查看请求详情' }).click();
   const restoredDebug = page.locator('.attachment-viewer-window');

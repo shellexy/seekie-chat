@@ -1,6 +1,6 @@
 import { formatFromExtension, toMarkdownBytes } from '@firecrawl/anydoc';
 import { extname } from 'node:path';
-import type { Attachment, Message, Model, Protocol } from '../src/types';
+import type { AppState, Attachment, Message, Model, Protocol } from '../src/types';
 
 export type AttachmentKind = 'image' | 'video' | 'audio' | 'pdf' | 'document';
 
@@ -13,6 +13,14 @@ export function attachmentKind(attachment: Pick<Attachment, 'mime' | 'name'>): A
   return 'document';
 }
 
+/** Locates one attachment by id, whether it belongs to a message or to a branch draft. */
+export function findAttachment(state: AppState, id: string): Attachment | undefined {
+  for (const conversation of state.conversations) {
+    for (const message of conversation.messages) for (const attachment of message.attachments) if (attachment.id === id) return attachment;
+    for (const branch of conversation.branches) for (const attachment of branch.draftAttachments) if (attachment.id === id) return attachment;
+  }
+  return undefined;
+}
 export function attachmentBase64(attachment: Pick<Attachment, 'data'>) {
   return /^data:[^;,]+;base64,(.*)$/s.exec(attachment.data || '')?.[1] || '';
 }

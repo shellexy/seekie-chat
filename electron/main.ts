@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, SECRET_MARKER } from './store';
 import { validateState } from '../src/validation';
 import { generate, listModels, type WebFetch } from './providers';
-import { convertUnsupportedAttachments } from './attachments';
+import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
 import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
@@ -201,6 +201,8 @@ function register() {
     const controller = new AbortController(); tasks.set(id, { controller, branchId, kind: 'compression' }); emit(true);
     try { await compress(conversation, branch, controller.signal); } finally { tasks.delete(id); store.save(state); emit(true); }
   });
+  // Attachment payloads are fetched one at a time: a broadcast carries no bytes, only references.
+  handle('attachment', (id: string) => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id) ? findAttachment(state, id)?.data || '' : '');
   handle('debug', (messageId: string) => requestLog.get(messageId).length ? requestLog.get(messageId) : store.loadRequests(messageId));
   handle('title', async (id: string) => {
     const conversation = state.conversations.find(c => c.id === id); if (!conversation) throw new Error('会话不存在'); if (titles.has(id)) throw new Error('标题正在生成中');

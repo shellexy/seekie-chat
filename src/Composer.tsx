@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import { useAttachmentPayload } from './attachment_cache';
 import { modelLabel } from './domain';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
+// A draft image may still be in flight from the main process when a saved draft is restored.
+function DraftImage({ attachment }: { attachment: Attachment }) {
+  const payload = useAttachmentPayload(attachment);
+  return <img src={payload} alt={attachment.name} title={attachment.name}/>;
+}
 // The input area of the chat: draft text and attachments, the model and effort selectors, the
 // session options popover, the networking toggle, the send/stop button and its own height handle.
 export default function Composer({ branch, model, models, connections, busy, pending, atBottom, messageCount, height, textareaRef,
@@ -45,7 +51,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
               </div>
               <div className="draft-attachments">
                 {branch.draftAttachments.map(a => <div key={a.id} className="draft-attachment">
-                  {a.mime.startsWith('image/') ? <img src={a.data} alt={a.name} title={a.name}/> : <span className="attachment-chip" title={a.name}>
+                  {a.mime.startsWith('image/') ? <DraftImage attachment={a}/> : <span className="attachment-chip" title={a.name}>
                     <Paperclip size={15}/>
                     {a.name}
                   </span>}

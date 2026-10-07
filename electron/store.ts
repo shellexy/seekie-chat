@@ -74,6 +74,9 @@ export class Store {
   }
   public(state: AppState): AppState {
     const copy = structuredClone(state);
+    // Attachment bytes stay in the main process: the renderer asks for one by id when it needs to
+    // show it. Otherwise every broadcast would copy and transfer every image in the conversation.
+    for (const a of attachments(copy)) a.data = '';
     for (const c of copy.settings.connections) { if (c.apiKey) c.apiKey = SECRET_MARKER; for (const name of Object.keys(c.headers)) c.headers[name] = SECRET_MARKER; }
     if (copy.settings.exaKey) copy.settings.exaKey = SECRET_MARKER;
     if (copy.settings.ollamaKey) copy.settings.ollamaKey = SECRET_MARKER;
@@ -103,11 +106,13 @@ export class Store {
       // Every referenced attachment keeps its file, including one that is down to its converted
       // Markdown: deleting that file would destroy the only remaining copy of the content.
       const name = `${a.id}.txt`; keep.add(name);
+      const file = join(this.directory, 'attachments', name);
       if (!a.data && a.markdown !== undefined) continue;
-      if (!a.data) throw new Error(`附件“${a.name}”的内容已缺失，请重新添加该附件`);
+      // The renderer never receives attachment bytes, so its copy of the state has none: an empty
+      // payload is expected as long as the file itself is still on disk.
+      if (!a.data) { if (existsSync(file)) continue; throw new Error(`附件“${a.name}”的内容已缺失，请重新添加该附件`); }
       if (!/^data:[^;,]+;base64,[A-Za-z0-9+/]*={0,2}$/.test(a.data)) throw new Error('附件格式无效');
       if (a.data.length > 15_000_000) throw new Error('附件超过 10 MB');
-      const file = join(this.directory, 'attachments', name);
       if (!existsSync(file)) writeFileSync(file, a.data, { mode: 0o600 }); a.data = '';
     }
     // Only the rows whose payload changed are written; SQLite then writes just those pages.
