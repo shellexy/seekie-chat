@@ -22,21 +22,6 @@ export function initStateSchema(db: StateDatabase) { db.exec(SCHEMA); }
 
 function rows(db: StateDatabase, sql: string): Record<string, unknown>[] { return db.prepare(sql).all() as Record<string, unknown>[]; }
 
-export function normalizedIsEmpty(db: StateDatabase) {
-  return !db.prepare('SELECT value FROM meta WHERE key = ?').get('settings');
-}
-
-export function hasBlobState(db: StateDatabase) {
-  try { return !!db.prepare('SELECT payload FROM state WHERE id=1').get(); } catch { return false; }
-}
-export function readBlobState(db: StateDatabase): AppState | undefined {
-  try {
-    const row = db.prepare('SELECT payload FROM state WHERE id=1').get() as { payload: string } | undefined;
-    return row ? JSON.parse(row.payload) as AppState : undefined;
-  } catch { return undefined; }
-}
-export function dropBlobState(db: StateDatabase) { db.exec('DROP TABLE IF EXISTS state'); }
-
 /** Rebuilds the application state, or undefined when this database has never been written. */
 export function loadState(db: StateDatabase): AppState | undefined {
   const meta = new Map(rows(db, 'SELECT key, value FROM meta').map(row => [String(row.key), JSON.parse(String(row.value)) as unknown]));

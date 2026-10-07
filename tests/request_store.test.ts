@@ -1,11 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
-import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, migrateRequestTable, pruneRequests, saveRequests } from '../electron/request_store';
-import { validateState } from '../src/validation';
+import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, pruneRequests, saveRequests } from '../electron/request_store';
 import type { RequestRecord } from '../src/types';
 
 const record = (index: number, body = '{}'): RequestRecord => ({ url: `https://fixture.invalid/v1/round-${index}`, method: 'POST', headers: { Authorization: '••••••••' }, body });
@@ -16,7 +14,6 @@ const id = (name: string) => {
   return `${hex}-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(0, 4)}-${hex.repeat(2).slice(0, 12)}`;
 };
 const directory = () => mkdtempSync(join(tmpdir(), 'deepchan-requests-'));
-function database() { return new DatabaseSync(':memory:'); }
 
 test('request records survive in their own files', () => {
   const root = directory();
@@ -76,37 +73,5 @@ test('a corrupt record file is ignored instead of breaking the debug view', () =
     const message = id('broken');
     writeFileSync(join(root, 'requests', `${message}.json`), '{not json', { mode: 0o600 });
     assert.deepEqual(loadRequests(root, message), []);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('records stored by the previous release move out of the database table', () => {
-  const root = directory();
-  try {
-    const db = database();
-    db.exec('CREATE TABLE requests (message_id TEXT PRIMARY KEY, created INTEGER NOT NULL, payload TEXT NOT NULL)');
-    const message = id('legacy');
-    db.prepare('INSERT INTO requests (message_id,created,payload) VALUES (?,?,?)').run(message, Date.now(), JSON.stringify([record(7)]));
-    mkdirSync(join(root, 'requests'), { recursive: true });
-    migrateRequestTable(db, root);
-    assert.equal(loadRequests(root, message).length, 1, '旧表里的记录必须迁移成文件');
-    assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='requests'").all().length, 0, '迁移后删除旧表');
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test('a database written by the previous sql.js release still opens', () => {
-  // tests/fixtures/legacy-chat.sqlite was produced by the sql.js code path (state + secrets +
-  // legacy requests table), so this guards the upgrade path for existing installs. It is copied
-  // first because migrating drops the legacy table, and the fixture must stay untouched.
-  const root = directory();
-  cpSync(join(process.cwd(), 'tests/fixtures/legacy-chat.sqlite'), join(root, 'chat.sqlite'));
-  const db = new DatabaseSync(join(root, 'chat.sqlite'));
-  const state = JSON.parse((db.prepare('SELECT payload FROM state WHERE id=1').get() as { payload: string }).payload);
-  assert.doesNotThrow(() => validateState(state), '旧库的状态必须仍然合法');
-  assert.equal(state.conversations[0].messages[1].text, '旧库里的回答');
-  const secrets = db.prepare('SELECT id, payload FROM secrets').all() as { id: string; payload: string }[];
-  assert.equal(Buffer.from(secrets[0].payload, 'base64').toString(), 'legacy-ciphertext', '密文必须原样保留');
-  try {
-    migrateRequestTable(db, root);
-    assert.equal(loadRequests(root, state.conversations[0].messages[1].id).length, 1, '旧库里的请求记录也要迁移');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -1,11 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { safeStorage } from 'electron';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, Conversation, Message, RequestRecord } from '../src/types';
-import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, migrateRequestTable, saveRequests } from './request_store';
-import { dropBlobState, hasBlobState, initStateSchema, loadState, normalizedIsEmpty, primeCache, readBlobState, saveMessage, saveState, type StateCache } from './state_store';
+import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
+import { initStateSchema, loadState, primeCache, saveMessage, saveState, type StateCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
@@ -16,18 +16,15 @@ export class Store {
   constructor(public directory: string) {}
   init() {
     mkdirSync(join(this.directory, 'attachments'), { recursive: true, mode: 0o700 });
-    // The database file is an ordinary SQLite file: it keeps working across this driver change.
     this.db = new DatabaseSync(join(this.directory, 'chat.sqlite'));
     // WAL keeps each save to the pages that changed instead of rewriting the whole file, and FULL
     // sync trades a little speed for durability of settings, credentials and chat history.
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec('PRAGMA synchronous = FULL');
-    this.db.exec('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    this.db.exec('CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
     this.secureFiles();
     initStateSchema(this.db);
-    // Request records moved from the old database table into their own files.
-    initRequestDirectory(this.directory); migrateRequestTable(this.db, this.directory);
-    this.migrateBlob();
+    initRequestDirectory(this.directory);
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
     if (this.secure) for (const row of this.db.prepare('SELECT id,payload FROM secrets').all() as { id: string; payload: string }[]) { try { this.secrets.set(row.id, safeStorage.decryptString(Buffer.from(row.payload, 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
     const credentials = join(this.directory, 'credentials.json');
@@ -141,21 +138,6 @@ export class Store {
   loadRequests(messageId: string) { return loadRequests(this.directory, messageId); }
   deleteRequests(messageIds: string[]) { deleteRequests(this.directory, messageIds); }
   clearRequests() { clearRequests(this.directory); }
-  // One document became one row per entity. The old blob stays in the file until the new tables are
-  // written successfully, and a copy of the pre-migration database is kept for inspection.
-  private migrateBlob() {
-    if (!hasBlobState(this.db) || !normalizedIsEmpty(this.db)) return;
-    const stored = readBlobState(this.db);
-    if (!stored) return;
-    try {
-      this.db.exec('PRAGMA wal_checkpoint(FULL)');
-      const file = join(this.directory, 'chat.sqlite'), backup = `${file}.pre-normalize`;
-      if (!existsSync(backup)) copyFileSync(file, backup);
-    } catch { /* the migration itself is transactional */ }
-    this.db.exec('BEGIN');
-    try { saveState(this.db, stored, new Map()); dropBlobState(this.db); this.db.exec('COMMIT'); }
-    catch (error) { this.db.exec('ROLLBACK'); throw error; }
-  }
   /** Streaming writes one message row; everything else is reconciled by the next full save. */
   saveStreamingMessage(conversation: Conversation, message: Message) {
     const position = conversation.messages.indexOf(message);

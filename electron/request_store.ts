@@ -7,7 +7,6 @@ import type { RequestRecord } from '../src/types';
 // file that every save rewrites, and so exports and backups stay free of request payloads.
 export const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 // The legacy table migration only needs these two calls, so it stays independent of the driver.
-export interface LegacyDatabase { exec(sql: string): unknown; prepare(sql: string): { all(): unknown[] } }
 const validId = (id: string) => /^[a-f0-9-]{36}$/.test(id);
 const requestDirectory = (root: string) => join(root, 'requests');
 const requestFile = (root: string, messageId: string) => join(requestDirectory(root), `${messageId}.json`);
@@ -57,19 +56,4 @@ function listRequests(root: string) {
     const path = join(requestDirectory(root), name);
     try { const stats = statSync(path); return [{ path, size: stats.size, modified: stats.mtimeMs }]; } catch { return []; }
   });
-}
-// Records written by the previous release live in a database table; move them into files once.
-export function migrateRequestTable(db: LegacyDatabase, root: string) {
-  let rows: { message_id?: unknown; payload?: unknown }[] = [];
-  try { rows = db.prepare('SELECT message_id, payload FROM requests').all() as { message_id?: unknown; payload?: unknown }[]; } catch { return; }
-  if (rows.length) {
-    initRequestDirectory(root);
-    for (const row of rows) {
-      try {
-        const entries = JSON.parse(String(row.payload));
-        if (Array.isArray(entries)) saveRequests(root, String(row.message_id), entries as RequestRecord[]);
-      } catch { /* skip an unreadable row rather than failing startup */ }
-    }
-  }
-  db.exec('DROP TABLE IF EXISTS requests');
 }

@@ -124,7 +124,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 ```
 
-数据库由主进程通过 Node 内置的 `node:sqlite` 直接读写（WAL 模式，`synchronous=FULL`），会话、分支、消息各占一行：保存时只写内容真正变化的行，流式生成期间更只更新正在生成的那一条消息，不再整库重写。退出时会 checkpoint 并把日志合并回主文件，因此正常情况下只留下 `chat.sqlite`；`-wal`/`-shm` 与主文件同为 `0600`。从"整份状态"格式升级过来的数据库会在首次打开时自动迁移，迁移前的原文件保留为 `chat.sqlite.pre-normalize`。使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、搜索服务 Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
+数据库由主进程通过 Node 内置的 `node:sqlite` 直接读写（WAL 模式，`synchronous=FULL`），会话、分支、消息各占一行：保存时只写内容真正变化的行，流式生成期间更只更新正在生成的那一条消息，不再整库重写。退出时会 checkpoint 并把日志合并回主文件，因此正常情况下只留下 `chat.sqlite`；`-wal`/`-shm` 与主文件同为 `0600`。不再支持旧版数据库格式：数据目录必须是当前版本写出的结构。使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、搜索服务 Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。应用内“请求详情”同样由主进程提供：`Authorization`、`x-api-key`、`x-goog-api-key` 以及在连接里配置的自定义请求头，在离开主进程前就已替换为掩码（只保留头名称，便于核对发出去的头）。请求记录写在数据目录下独立的 `requests/` 文件里（与 `attachments/` 并列），因此既不会进入结构化导出和备份（导入备份时清空），也不会撑大每次保存都要重写的数据库文件；目录 `0700`、文件 `0600`。
 
@@ -136,7 +136,6 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 npm run check          # 类型检查 + 单元测试
 npm run build          # 类型检查 + 前端打包 + 主进程打包
 npm run test:dev       # 启动 Vite 开发服务，验证开发页与设置界面能正常加载
-npm run test:upgrade   # 用上一版 sql.js 写出的数据库启动应用，验证升级后数据与请求记录仍在
 npm run test:desktop   # 构建后启动真实 Electron 窗口跑桌面回归
 ```
 

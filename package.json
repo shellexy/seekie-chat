@@ -13,7 +13,6 @@
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "test:dev": "node scripts/check-dev.mjs",
-    "test:upgrade": "npm run build && node scripts/check-upgrade.mjs",
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { dropBlobState, hasBlobState, initStateSchema, loadState, normalizedIsEmpty, primeCache, readBlobState, saveMessage, saveState } from '../electron/state_store';
+import { initStateSchema, loadState, primeCache, saveMessage, saveState } from '../electron/state_store';
 import { addMessage, createConversation, initialState, uid } from '../src/domain';
 import { validateState } from '../src/validation';
 import type { AppState, Message } from '../src/types';
@@ -96,27 +96,4 @@ test('the streaming fast path updates a single row', () => {
   assert.equal(saveMessage(db, cache, conversation.id, 1, message), true);
   assert.equal(loadState(db)!.conversations[0].messages[1].text, '第一个回答流式追加');
   assert.equal(saveMessage(db, cache, conversation.id, 1, message), false, '写完立刻再存不应重复写');
-});
-
-test('a database written as one blob is recognised and can be migrated', () => {
-  // The committed fixture is a real database from the sql.js release: state blob + secrets + the
-  // legacy requests table. It is copied because migrating drops tables from the file.
-  const root = mkdtempSync(join(tmpdir(), 'state-store-'));
-  cpSync(join(process.cwd(), 'tests/fixtures/legacy-chat.sqlite'), join(root, 'chat.sqlite'));
-  const db = new DatabaseSync(join(root, 'chat.sqlite'));
-  try {
-    initStateSchema(db);
-    assert.equal(normalizedIsEmpty(db), true);
-    assert.equal(hasBlobState(db), true);
-    const blob = readBlobState(db)!;
-    assert.equal(blob.conversations[0].messages[0].text, '旧库里的提问');
-    const cache = new Map<string, string>();
-    saveState(db, blob, cache);
-    dropBlobState(db);
-    assert.equal(hasBlobState(db), false);
-    assert.deepEqual(loadState(db), blob, '迁移后读出来的状态必须与旧的整份状态一致');
-    assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='state'").get()!.n, 0);
-  } finally {
-    db.close(); rmSync(root, { recursive: true, force: true });
-  }
 });
