@@ -58,7 +58,7 @@
 
 Gemini 预设使用 `https://generativelanguage.googleapis.com/v1beta`，认证使用 `x-goog-api-key`；模型列表支持分页并只展示可生成内容的模型。Gemini 3 及以上可配置思考等级，Gemini 2.5 可配置思考预算；原生搜索使用 Google Search，保存服务返回的来源和思考签名。
 
-Ollama 预设使用 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，并预置 `gemma4:31b`，上下文窗口与最大输出均为 256,000 token，启用图片、工具和视频输入。该模型没有已知的思考参数，默认选择 effort，等级为 `minimal, low, medium, high`。上下文窗口允许与最大输出相等。
+Ollama 预设使用 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，并预置 `gemma4:31b`，上下文窗口与最大输出均为 256,000 token，启用图片、工具和视频输入。该模型没有已知的思考参数，默认选择 effort，等级为 `none, minimal, low, medium, high`。注意 gemma4 只认思考等级：改用思考预算会导致完全不思考，也看不到思考摘要。上下文窗口允许与最大输出相等。
 
 Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；提供测试连接并显示脱敏错误。模型列表支持服务端获取和手动添加，获取失败不阻止手动配置。
 

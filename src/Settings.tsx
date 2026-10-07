@@ -146,10 +146,13 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
           <div className="model-picker-list">{sortedFound.map(server => {
             const already = draft.models.some(m => m.connectionId === selected && m.model === server.id);
             const facts = modelFacts(server);
-            return <label key={server.id} className={`model-picker-row ${already ? 'used' : ''}`} title={already ? '该模型已在此连接中' : server.id}>
+            // 已添加的模型同样显示服务端给出的信息，否则同一行只有"已添加"三个字，看不出
+            // 这个模型到底多大、支持什么。
+            const detail = [already ? '已添加' : '', facts].filter(Boolean).join(' · ') || '服务端未提供更多信息';
+            return <label key={server.id} className={`model-picker-row ${already ? 'used' : ''}`} title={already ? `该模型已在此连接中：${server.id}` : server.id}>
               <input type="checkbox" aria-label={`选择模型 ${server.id}`} disabled={already} checked={picked.has(server.id)} onChange={e => setPicked(current => { const next = new Set(current); if (e.target.checked) next.add(server.id); else next.delete(server.id); return next; })}/>
               <span className="model-picker-name">{server.name || server.id}{server.name && server.name !== server.id && <code>{server.id}</code>}</span>
-              <span className="model-picker-facts">{already ? '已添加' : facts || '服务端未提供更多信息'}</span>
+              <span className="model-picker-facts">{detail}</span>
             </label>;
           })}</div>
           <div className="button-row">

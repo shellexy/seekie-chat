@@ -187,6 +187,13 @@ try {
   // 与服务端 /models 报告的值一致：1048576 / 393216（384K）。
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1048576');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '393216');
+  // Ollama 的 gemma4 只认思考等级：改用思考预算会导致完全不思考，也看不到思考摘要。
+  await page.locator('.preset-row').getByRole('button', { name: 'Ollama Cloud', exact: true }).click();
+  const gemmaCard = page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: 'gemma4:31b' }) }).last();
+  assert.equal(await gemmaCard.getByLabel('展示名称', { exact: true }).inputValue(), 'gemma4:31b');
+  // 包裹式 label 会把 select 的选项文本也算进可访问名，所以只能用正则前缀匹配。
+  assert.equal(await gemmaCard.getByLabel(/^思考参数/).inputValue(), 'effort', 'gemma4 必须使用思考等级，改成思考预算就不思考了');
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek', exact: true }).click();
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   for (const name of ['图片输入', '工具调用']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), false, 'OpenAI 兼容协议不提供服务端原生搜索');
@@ -244,6 +251,17 @@ try {
     assert.match(await added.innerText(), /切换到此模型时默认使用 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
   }
   await addServerModel('fixture-model');
+  // 已经添加过的行仍要显示服务端给出的信息，只是前面多一个"已添加"，否则同一行看不出模型多大。
+  await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
+  await page.getByRole('dialog', { name: '添加服务端模型' }).waitFor();
+  const usedRow = page.locator('.model-picker-row.used', { hasText: 'GPT-4o' });
+  const usedFacts = await usedRow.innerText();
+  for (const fact of ['已添加', '上下文 128,000', '输出上限 16,384', '输入 text / image', '思考 low / medium / high（默认 high）']) assert.ok(usedFacts.includes(fact), `已添加的行仍应显示「${fact}」，实际：${usedFacts}`);
+  // 淡化但不能淡到读不出来：按计算样式算出的对比度不得低于 2（0.55 时只有 1.74）。
+  const usedContrast = await usedRow.evaluate(el => { const o = parseFloat(getComputedStyle(el).opacity); const [r, g, b] = getComputedStyle(el.querySelector('.model-picker-facts')).color.match(/[\d.]+/g).slice(0, 3).map(Number); const lum = c => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); }; const bg = [246, 247, 245]; const eff = [r, g, b].map((v, i) => v * o + bg[i] * (1 - o)); const [hi, lo] = [lum(eff), lum(bg)].sort((a, b) => b - a); return +((hi + 0.05) / (lo + 0.05)).toFixed(2); });
+  assert.ok(usedContrast >= 2, `已添加行的模型信息对比度不应低于 2，实际 ${usedContrast}`);
+  await page.getByRole('button', { name: '关闭添加模型' }).click();
+  await page.getByRole('dialog', { name: '添加服务端模型' }).waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');
   await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');

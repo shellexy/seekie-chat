@@ -2167,7 +2167,9 @@ input[type="range"] {
 }
 .model-picker-row.used {
   cursor: default;
-  opacity: 0.55;
+  /* 这一行现在也显示服务端给出的模型信息，0.55 会把它压到 1.74:1 对比度、几乎读不出来。
+     0.8 对应 2.33:1，仍比可选行的 3.01:1 淡，行内"已添加"与禁用的勾选框继续表明状态。 */
+  opacity: 0.8;
 }
 .model-picker-name {
   display: flex;
