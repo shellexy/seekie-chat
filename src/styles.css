@@ -1037,6 +1037,11 @@ summary {
   overflow: hidden;
   white-space: nowrap;
 }
+/* 连接名是次要信息，弱化成 --muted，模型名才跳出来。 */
+.model-select-trigger .model-connection {
+  color: var(--muted);
+  overflow: visible;
+}
 /* An overflowing name fades out at the edge instead of ending in an ellipsis. The mask is applied by
    the component only once the text really reaches the border, since masking a short label would fade
    its last characters for no reason. The fade covers a quarter of the label: a shorter one reads as a
@@ -1166,13 +1171,43 @@ summary {
   font-size: 13px;
   line-height: 1.8;
 }
-/* 模型选择与思考等级贴着发送按钮，把左侧留给附件与角色。 */
+/* 模型选择与思考等级是一个整体控件：共用外框，悬停时各自的那一半变亮，但仍是两个可分别
+   点击的东西。 */
 .composer-models {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
   margin-left: auto;
   min-width: 0;
+  overflow: hidden;
+}
+.composer-models .model-selector,
+.composer-models .reasoning-selector {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.composer-models .reasoning-selector {
+  border-left: 1px solid var(--line);
+}
+.composer-models .model-select-trigger,
+.composer-models .reasoning-selector select {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  /* 两半一样高才像同一个按钮：下拉框自带内边距，模型按钮补上撑满。 */
+  align-self: stretch;
+  /* select 不是 button，拿不到全局的过渡，这里补上，悬停时的手感才和模型按钮一致。 */
+  transition: background 0.15s, color 0.15s;
+}
+.composer-models .model-select-trigger:hover,
+.composer-models .reasoning-selector select:hover {
+  background: var(--hover);
+}
+.composer-models .model-select-trigger[aria-expanded="true"] {
+  background: var(--accent-bg);
 }
 .composer-bottom {
   display: flex;
@@ -2987,42 +3022,22 @@ input[type="range"] {
 .composer-option {
   height: 24px;
 }
+/* 联网开关改成纯文字标签：开启与否直接写在文字里，不再需要图标和蓝点来表达状态。 */
 .search-toggle {
-  width: 24px;
   height: 24px;
-  padding: 5px;
+  padding: 0 8px;
   color: var(--muted);
   background: transparent;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .search-toggle.enabled {
-  color: var(--muted);
+  color: var(--accent);
   background: transparent;
 }
 .search-toggle.enabled:hover {
   color: var(--text);
   background: var(--hover);
-}
-.search-toggle .network-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.search-toggle .network-icon svg {
-  width: 14px;
-  height: 14px;
-}
-.search-toggle .network-icon.off::after {
-  position: absolute;
-  left: -2px;
-  top: 6px;
-  width: 18px;
-  height: 2px;
-  border-radius: 2px;
-  background: currentColor;
-  box-shadow: 0 0 0 2px var(--bg);
-  content: "";
-  transform: rotate(-45deg);
 }
 /* The editor keeps the tall answer workspace, but each text block gets its own box that grows with
    its content, so reasoning and tool calls between blocks stay visible as gaps. */

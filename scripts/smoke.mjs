@@ -564,6 +564,27 @@ try {
   assert.equal(clippedStyle.overflow, 'clip', '淡出截断时不应再显示省略号');
   assert.equal(await modelSelector.evaluate(el => el.querySelector('span').getClientRects().length), 1, '名称应始终只有一行');
   await toolbar.evaluate(el => { el.style.maxWidth = ''; });
+  // 模型选择与思考等级是一个整体控件：共用外框、中间一条分隔线，悬停时两半的背景色相同。
+  const modelGroup = toolbar.locator('.composer-models');
+  const modelButton = modelGroup.getByRole('button', { name: '聊天模型' });
+  const effortSelect = modelGroup.getByRole('combobox', { name: '思考等级' });
+  assert.equal(await modelGroup.locator('.reasoning-selector').evaluate(el => getComputedStyle(el).borderLeftWidth), await modelGroup.evaluate(el => getComputedStyle(el).borderTopWidth), '两半之间的分隔线应与外框同宽');
+  const halfHeights = await modelGroup.evaluate(el => {
+    const button = el.querySelector('.model-select-trigger'), select = el.querySelector('.reasoning-selector select');
+    return { button: button.getBoundingClientRect().height, select: select.getBoundingClientRect().height };
+  });
+  assert.ok(Math.abs(halfHeights.button - halfHeights.select) < 0.5, `两半应等高才像同一个按钮：${halfHeights.button} vs ${halfHeights.select}`);
+  assert.equal(await modelButton.evaluate(el => el.querySelectorAll('svg').length), 0, '模型按钮末尾不再有下拉箭头');
+  const connectionName = modelButton.locator('.model-connection');
+  assert.equal(await connectionName.count(), 1, '连接名应单独一段');
+  assert.equal(await connectionName.evaluate(el => getComputedStyle(el).color), await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--muted').trim().replace('#', '#') && `rgb(${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--muted').trim().slice(1,3),16)}, ${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--muted').trim().slice(3,5),16)}, ${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--muted').trim().slice(5,7),16)})`), '连接名应为 --muted');
+  await modelButton.hover(); await page.waitForTimeout(250);
+  const modelHover = await modelButton.evaluate(el => getComputedStyle(el).backgroundColor);
+  await effortSelect.hover(); await page.waitForTimeout(250);
+  const effortHover = await effortSelect.evaluate(el => getComputedStyle(el).backgroundColor);
+  assert.notEqual(modelHover, 'rgba(0, 0, 0, 0)', '悬停应真的出现背景色，否则下面的相等是空过');
+  assert.equal(effortHover, modelHover, `思考等级悬停背景应与模型按钮一致：${effortHover} vs ${modelHover}`);
+  await page.mouse.move(5, 5);
   await page.locator('.model-select-trigger.clipped').waitFor({ state: 'detached' }).catch(() => {});
   await page.locator('.header-title small.model-label').innerText();
   assert.equal(await page.locator('.header-title small.model-label').getAttribute('title'), '模拟 chat | 本地模拟 chat');
@@ -623,8 +644,8 @@ try {
   await page.locator('.config-popover').waitFor({ state: 'hidden' });
   const networkToggle = toolbar.getByRole('button', { name: '联网', exact: true });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
-  assert.equal(await networkToggle.innerText(), '', '联网按钮仅显示地球状态图标');
-  assert.equal(await networkToggle.locator('.network-icon.off').count(), 0);
+  assert.equal(await networkToggle.innerText(), '已联网', '联网开关改为纯文字标签');
+  assert.equal(await networkToggle.locator('.network-icon').count(), 0, '不再有地球图标');
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -632,7 +653,7 @@ try {
     return config.search === 'off' && config.webFetch === 'off';
   });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'false');
-  assert.equal(await networkToggle.locator('.network-icon.off').count(), 1, '关闭联网时显示斜线状态');
+  assert.equal(await networkToggle.innerText(), '未联网', '关闭时文字应变为"未联网"');
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -981,6 +1002,13 @@ try {
     return { modelId: model.id, connectionId: connection.id, label: `${model.name} | ${connection.name}` };
   });
   const beforeNewChat = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
+  // 先等渲染进程真正重新载入设置：模型选择器是渲染进程状态的投影，看不到被停用的模型就说明
+  // 状态已经更新。否则紧接着建的新对话仍会用旧状态里的模型。
+  await page.getByRole('button', { name: '聊天模型' }).first().click();
+  await page.locator('.model-select-popover').waitFor();
+  assert.equal(await page.locator('.model-select-popover').getByRole('option', { name: stopped.label }).count(), 0, `停用连接的模型不应出现在选择器中：${stopped.label}`);
+  await page.keyboard.press('Escape');
+  await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: /新建对话/ }).first().click();
   await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 3);
   // 会话数够了不代表选中项已经切过去：选中还停在旧会话上时读到的仍是旧模型，会偶发失败。
@@ -1258,13 +1286,13 @@ try {
     const scrollRect = scroller.getBoundingClientRect(), editRect = edit.getBoundingClientRect(), actionsRect = actions.getBoundingClientRect();
     const network = document.querySelector('.search-toggle'), options = document.querySelector('.composer-option');
     const networkRect = network.getBoundingClientRect(), optionsRect = options.getBoundingClientRect();
-    const networkIcon = network.querySelector('svg').getBoundingClientRect(), optionsIcon = options.querySelector('svg').getBoundingClientRect();
-    return { editorTop: editRect.top - scrollRect.top, actionsBottom: actionsRect.bottom, scrollBottom: scrollRect.bottom, networkHeight: networkRect.height, optionsHeight: optionsRect.height, networkIconSize: networkIcon.width, optionsIconSize: optionsIcon.width };
+    const networkText = network.querySelector('span')?.getBoundingClientRect() || networkRect, optionsText = options.querySelector('svg').getBoundingClientRect();
+    return { editorTop: editRect.top - scrollRect.top, actionsBottom: actionsRect.bottom, scrollBottom: scrollRect.bottom, networkHeight: networkRect.height, optionsHeight: optionsRect.height, networkTextSize: networkText.width, optionsIconSize: optionsText.width };
   });
   assert.ok(editLayout.editorTop >= 0 && editLayout.editorTop <= 20, '编辑框打开后应滚到视口顶部附近');
   assert.ok(editLayout.actionsBottom <= editLayout.scrollBottom, '取消和保存按钮应留在可视区域内');
   assert.ok(Math.abs(editLayout.networkHeight - editLayout.optionsHeight) < 1, '联网按钮与会话选项按钮应等高');
-  assert.ok(Math.abs(editLayout.networkIconSize - editLayout.optionsIconSize) < 1, '联网图标与会话选项图标应等大');
+  assert.ok(editLayout.networkTextSize > 0, '联网开关是文字标签，应有文字宽度');
   // The hint and the buttons share a row; shrinking the window to its minimum must not overlap them.
   const previousSize = await desktop.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; const size = window.getSize(); window.setSize(800, size[1]); return size; });
   await page.waitForTimeout(200);

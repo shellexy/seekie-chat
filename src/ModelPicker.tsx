@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Star } from 'lucide-react';
+import { Check, Star } from 'lucide-react';
 import usePopover from './usePopover';
 import { modelLabel } from './domain';
 import type { Connection, Model } from './types';
@@ -51,7 +51,8 @@ export default function ModelPicker({ model, models, connections, favorites, rec
     // the same as clicking a row.
     else if (event.key === 'Escape') popover.trigger.current?.focus();
   }
-  const label = model ? modelLabel(model, connections) : '选择模型';
+  const connectionName = model ? connections.find(c => c.id === model.connectionId)?.name || '未知连接' : '';
+  const label = model ? `${model.name} | ${connectionName}` : '选择模型';
   // The label fades out at the edge rather than ending in an ellipsis. CSS alone cannot tell an
   // overflowing element from a short one, and a mask on a short label would fade its last characters
   // for no reason, so the component measures the text and only then asks for the mask.
@@ -72,8 +73,7 @@ export default function ModelPicker({ model, models, connections, favorites, rec
     <button ref={popover.trigger} className={'model-select-trigger' + (clipped ? ' clipped' : '')} aria-label="聊天模型" aria-haspopup="listbox" aria-expanded={popover.open}
       title={model ? label : '选择模型'} disabled={disabled} onClick={popover.toggle}
       onKeyDown={e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); popover.show(); } }}>
-      <span ref={labelRef}>{label}</span>
-      <ChevronDown size={12}/>
+      <span ref={labelRef}>{model ? <>{model.name}<span className="model-connection"> | {connectionName}</span></> : label}</span>
     </button>
     {popover.open && createPortal(<div ref={popover.panel} className="popover model-select-popover" role="listbox" aria-label="聊天模型" style={popover.position} onKeyDown={onKeyDown}>
       {sections.map(section => <div className="model-select-section" key={section.title}>

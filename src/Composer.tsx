@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
 import { defaultModelEffort, EFFORT_OFF, SEARCH_MODE_LABELS, WEB_FETCH_LABELS, WHALELADY_SYSTEM_PROMPT } from './domain';
 import ModelPicker from './ModelPicker';
@@ -146,9 +146,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   </div>
                 </div>
                 <button className={`search-toggle ${networkingEnabled ? 'enabled' : ''} ${networkUnavailable ? 'unavailable' : ''}`} aria-label="联网" aria-pressed={networkingEnabled} disabled={busy} title={networkUnavailable ? '自动联网搜索未配置，并且当前模型不支持工具调用；请配置搜索服务或启用模型工具调用。' : !networkingEnabled ? '点击同时启用联网搜索和读取网页' : branch.config.search === 'off' ? '读取网页已启用；点击关闭联网搜索和读取网页' : effectiveSearch === 'native' ? '原生搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'exa' ? 'Exa 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'ollama' ? 'Ollama Cloud Web Search 已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'tavily' ? 'Tavily 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'firecrawl' ? 'Firecrawl 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'deepseek' ? 'DeepSeek 搜索已启用，按次计费；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'anysearch' ? 'AnySearch 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : '联网搜索和读取网页已启用；点击全部关闭'} onClick={() => onUpdateConfig(networkingEnabled ? { search: 'off', webFetch: 'off' } : { search: defaultSearch, webFetch: 'auto' })}>
-                  <span className={'network-icon ' + (!networkingEnabled ? 'off' : '')}>
-                    <Globe2 size={14}/>
-                  </span>
+                  {networkingEnabled ? '已联网' : '未联网'}
                 </button>
                 <div className="composer-models">
                   <div className="model-selector">
