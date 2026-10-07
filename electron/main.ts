@@ -161,17 +161,17 @@ async function runChat(request: RunRequest) {
       }
       if (estimatedInputTokens() > model.contextWindow) throw new Error('预计输入上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');
-      const started = performance.now(), requestStartedAt = Date.now(); let firstTokenMs: number | undefined;
+      const started = performance.now(), requestStartedAt = Date.now(); let firstTokenMs: number | undefined, firstOutputMs: number | undefined;
       const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
-        text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emitStream(); }, reasoning: s => { if (s) { if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emitStream(); },
-        tool: t => { finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emitStream(); },
+        text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) { firstTokenMs = performance.now() - started; if (firstOutputMs === undefined) firstOutputMs = firstTokenMs; } message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emitStream(); }, reasoning: s => { if (s) { if (firstOutputMs === undefined) firstOutputMs = performance.now() - started; if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emitStream(); },
+        tool: t => { finishReasoning(); if (firstOutputMs === undefined) firstOutputMs = performance.now() - started; const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emitStream(); },
         sources: sources => { message.sources = sources; emitStream(); },
         notice: message => notify(message),
         record: entry => { requestLog.add(message.id, entry); store.saveRequests(message.id, requestLog.get(message.id)); }
       }, webFetch);
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
       const elapsedMs = performance.now() - started;
-      message.raw = result.raw; message.usage = { ...result.usage, elapsedMs, generationMs: elapsedExcludingToolWait(elapsedMs, requestStartedAt, message.tools), firstTokenMs }; message.sources = result.sources; message.status = 'complete';
+      message.raw = result.raw; message.usage = { ...result.usage, elapsedMs, generationMs: elapsedExcludingToolWait(elapsedMs, requestStartedAt, message.tools), firstTokenMs, firstOutputMs }; message.sources = result.sources; message.status = 'complete';
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';
       void generateTitle(conversation, config, pathTo(conversation, message.id));
     } catch (error) { message.status = controller.signal.aborted ? 'interrupted' : 'error'; message.error = controller.signal.aborted ? '已停止生成' : redact(error); }

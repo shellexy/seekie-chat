@@ -66,6 +66,9 @@ export interface Usage {
   cachedInput?: number;
   // Full chat request duration includes visible tool waits; generationMs excludes the union of measured tool intervals.
   elapsedMs?: number; generationMs?: number; firstTokenMs?: number;
+  // Time until the model produced anything at all — reasoning counts as output. Differs from
+  // firstTokenMs, which waits for the answer body and therefore includes the whole thinking phase.
+  firstOutputMs?: number;
 }
 export interface Message {
   id: string; parentId: string | null; role: Role; text: string; reasoning: string;

@@ -27,16 +27,25 @@ const server = createServer(async (req, res) => {
   // 前者，所以这一支按真实格式发。
   const sendEvent = data => res.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);
   if (req.url === '/v1/chat/completions') {
-    send({ choices: [{ delta: { reasoning_content: title || compression ? '' : '先检查需求，再选择实施步骤。' } }] });
-    await new Promise(r => setTimeout(r, 30));
-    const pieces = text.match(/.{1,22}|\n/g);
-    for (const [index, part] of pieces.entries()) {
-      send({ choices: [{ delta: { content: part } }] });
-      // Pause after the first piece so the 80ms broadcast happens while the answer is still running:
-      // that is what makes the incremental patch observable in the smoke.
-      await new Promise(r => setTimeout(r, index === 0 && !title && !compression ? 200 : 2));
+    // 模型可以先请求工具再给正文；工具调用是模型的第一个输出。用本地 datetime，不需要网络。
+    const wantsToolFirst = JSON.stringify(data.messages).includes('先问时间') && !JSON.stringify(data.messages).includes('"role":"tool"');
+    if (wantsToolFirst) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'clock-1', type: 'function', function: { name: 'datetime', arguments: '{}' } }] } }] });
+      send({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] });
+    } else {
+      // 工具优先那个场景第二轮不出推理：否则推理会先于正文落下计时，看不出工具调用算不算输出。
+      const toolScenario = JSON.stringify(data.messages).includes('先问时间');
+      if (!toolScenario) send({ choices: [{ delta: { reasoning_content: title || compression ? '' : '先检查需求，再选择实施步骤。' } }] });
+      await new Promise(r => setTimeout(r, 30));
+      const pieces = text.match(/.{1,22}|\n/g);
+      for (const [index, part] of pieces.entries()) {
+        send({ choices: [{ delta: { content: part } }] });
+        // Pause after the first piece so the 80ms broadcast happens while the answer is still running:
+        // that is what makes the incremental patch observable in the smoke.
+        await new Promise(r => setTimeout(r, index === 0 && !title && !compression ? 200 : 2));
+      }
+      send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 30 } } });
     }
-    send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 30 } } });
   } else if (req.url === '/v1/responses') {
     // 两种思维链事件名都要覆盖：OpenAI 发 reasoning_summary_text.delta（摘要），DeepSeek 的
     // Responses 接口发 reasoning_text.delta（思维链原文）。
@@ -117,13 +126,7 @@ async function assertUsageDetails(page, output = 60) {
   const trigger = answer.getByRole('button', { name: /^查看回答详情：/ });
   assert.match(await trigger.innerText(), /^.+·\d{4}-\d{2}-\d{2} \d{2}:\d{2} · [\d,]+ 输入 · [\d,]+ 输出$/);
   const tooltip = page.getByRole('tooltip');
-  // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
-  await trigger.hover();
-  try { await tooltip.waitFor({ timeout: 2000 }); } catch { await trigger.hover(); await tooltip.waitFor(); }
-  const metaBlock = await tooltip.locator('.answer-meta-block').innerText();
-  assert.match(metaBlock, /模拟 .+\s+本地模拟 .+[\s\S]*\d{4}-\d{2}-\d{2} \d{2}:\d{2}/, '详情块应有模型名、连接名与时间');
-  // 连接名之后补上这条回答自己的思考等级与角色预设名。两项都按这条回答记下的东西算：思考
-  // 等级只有按等级配置的模型才有，角色预设名按提示词内容匹配，都认不出就不显示。
+  // 期望值先算好：悬浮层会被任何一次滚动关掉，读的时候不能夹在中间做耗时的 IPC。
   const expected = await page.evaluate(async id => {
     const s = await window.deepchan.load(), m = s.conversations.flatMap(c => c.messages).find(x => x.id === id);
     const model = s.settings.models.find(x => x.id === m?.modelId);
@@ -132,25 +135,39 @@ async function assertUsageDetails(page, output = 60) {
       role: s.settings.promptPresets.find(p => p.content === m?.config?.system)?.name || ''
     };
   }, id);
+  // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
+  await trigger.hover();
+  try { await tooltip.waitFor({ timeout: 2000 }); } catch { await trigger.hover(); await tooltip.waitFor(); }
+  // 一次读齐：两次读取之间弹层可能被滚动关掉。
+  // innerText 而非 textContent：后者把相邻的 p 直接拼在一起、不留换行。
+  const meta = await tooltip.evaluate(el => ({ block: el.querySelector('.answer-meta-block')?.innerText || '', lines: [...el.querySelectorAll('.answer-meta-block p')].map(p => p.innerText || '') }));
+  const metaBlock = meta.block;
+  assert.match(metaBlock, /模拟 .+\s+本地模拟 .+[\s\S]*\d{4}-\d{2}-\d{2} \d{2}:\d{2}/, '详情块应有模型名、连接名与时间');
+  // 连接名之后补上这条回答自己的思考等级与角色预设名。两项都按这条回答记下的东西算：思考
+  // 等级只有按等级配置的模型才有，角色预设名按提示词内容匹配，都认不出就不显示。
   if (expected.effort) { assert.match(metaBlock, new RegExp(`思考等级：${expected.effort}`), '详情块应显示这条回答用的思考等级'); assert.ok(metaBlock.indexOf('思考等级') > metaBlock.indexOf('本地模拟'), '思考等级应排在连接名之后'); }
   else assert.doesNotMatch(metaBlock, /思考等级：/, '不用思考等级的模型不应显示思考等级');
   if (expected.role) { assert.match(metaBlock, new RegExp(`角色预设：${expected.role}`), '详情块应显示这条回答用的角色预设名'); assert.ok(metaBlock.indexOf('角色预设') > metaBlock.indexOf('思考等级') || !expected.effort, '角色预设名应排在思考等级之后'); }
   else assert.doesNotMatch(metaBlock, /角色预设：/, '自定义提示词不应显示角色预设名');
   if (expected.effort && expected.role) {
     // 思考等级与角色预设名排在同一行。
-    const metaLines = await tooltip.locator('.answer-meta-block p').allTextContents();
-    assert.equal(metaLines.filter(line => line.includes('思考等级') && line.includes('角色预设')).length, 1, `思考等级与角色预设名应在同一行，实际分行：${JSON.stringify(metaLines)}`);
+    assert.equal(meta.lines.filter(line => line.includes('思考等级') && line.includes('角色预设')).length, 1, `思考等级与角色预设名应在同一行，实际分行：${JSON.stringify(meta.lines)}`);
   }
-  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','生成速度：','首字耗时：']);
+  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','生成速度：','首个输出：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
   assert.equal(values[3], `${(message.usage.elapsedMs / 1000).toFixed(2)} s`);
   assert.equal(values[4], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
   // 生成速度：生成耗时再减去首字耗时。
+  // 生成速度扣掉的是模型第一个输出之前的等待；推理也算输出，所以不能扣首字耗时。
   const generationMs = message.usage.generationMs ?? message.usage.elapsedMs;
-  const generationOnly = generationMs - message.usage.firstTokenMs;
-  assert.equal(values[5], generationOnly > 0 ? `${(output / (generationOnly / 1000)).toFixed(1)} tps` : '--', '生成速度应扣除首字耗时');
-  assert.equal(values[6], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  const firstOutput = message.usage.firstOutputMs ?? message.usage.firstTokenMs;
+  const generationOnly = generationMs - firstOutput;
+  assert.equal(values[5], generationOnly > 0 ? `${(output / (generationOnly / 1000)).toFixed(1)} tps` : '--', '生成速度应扣除首个输出之前的等待');
+  assert.equal(values[6], `${(firstOutput / 1000).toFixed(2)} s`, '首个输出应是模型开始出 token 的时刻');
+  assert.equal(values[7], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  // 模型先思考时，"首个输出"应早于"正文首字"——两者不是一回事，生成速度用的是前者。
+  if (message.reasoning) assert.ok(message.usage.firstOutputMs < message.usage.firstTokenMs, `首个输出应早于正文首字，实际 ${message.usage.firstOutputMs} vs ${message.usage.firstTokenMs}`);
   const box = await tooltip.boundingBox();
   assert.ok(await page.evaluate(box => box.x >= 0 && box.y >= 0 && box.x + box.width <= innerWidth && box.y + box.height <= innerHeight, box), 'tooltip fits inside window');
   await page.mouse.move(5, 5); await tooltip.waitFor({ state: 'hidden' });
@@ -670,6 +687,17 @@ try {
   assert.ok(streamPatches.every((patch, index) => patch.length > 0 && (index === 0 || patch.revision > streamPatches[index - 1].revision)), '补丁必须携带正文且修订号单调递增');
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
   await assertUsageDetails(page);
+  // 模型先请求工具再给正文：工具调用是模型的第一个输出，计时要算它。
+  await input.fill('先问时间'); await page.getByTitle('发送消息', { exact: true }).click();
+  await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
+  const toolFirst = await page.evaluate(async () => {
+    const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId);
+    const answer = c.messages.filter(m => m.role === 'assistant').at(-1);
+    return { hasTool: !!answer.tools.length, firstOutputMs: answer.usage?.firstOutputMs, firstTokenMs: answer.usage?.firstTokenMs, generationMs: answer.usage?.generationMs, output: answer.usage?.output };
+  });
+  assert.equal(toolFirst.hasTool, true, '模型应先请求了 datetime 工具');
+  assert.ok(toolFirst.firstOutputMs < toolFirst.firstTokenMs, `工具调用先于正文时，首个输出应早于首字，实际 ${toolFirst.firstOutputMs} vs ${toolFirst.firstTokenMs}`);
+  assert.ok(toolFirst.generationMs - toolFirst.firstOutputMs > 0, '扣掉首个输出后仍应剩下生成时间');
   await page.evaluate(async () => {
     const original = await window.deepchan.load(); const id = original.selectedId;
     const promise = window.deepchan.title(id);
@@ -921,8 +949,11 @@ try {
     await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
     return { modelId: model.id, connectionId: connection.id, label: `${model.name} | ${connection.name}` };
   });
+  const beforeNewChat = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
   await page.getByRole('button', { name: /新建对话/ }).first().click();
   await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 3);
+  // 会话数够了不代表选中项已经切过去：选中还停在旧会话上时读到的仍是旧模型，会偶发失败。
+  await waitFor(page, async previous => (await window.deepchan.load()).selectedId !== previous, beforeNewChat);
   throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
   assert.notEqual(await activeModel(), stopped.modelId, '停用连接后新对话不应继续开在它的模型上');
   await page.getByRole('button', { name: '聊天模型' }).first().click();
@@ -1019,8 +1050,8 @@ try {
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: /^查看回答详情：/ });
   await legacyTrigger.click();
-  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 5);
-  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--']);
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 6);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--','--']);
   assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
   await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);
