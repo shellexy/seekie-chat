@@ -335,15 +335,42 @@ try {
   // from its rule, or a rule that loses a specificity fight, passes the whole suite while the panel
   // renders with the global button styles. Both happened here once already; these assertions are
   // what makes the next one loud.
+  // Playwright leaves the pointer sitting on the button after clicking it, so sampling straight away
+  // measures the hover background rather than the idle one. Move the pointer away first.
+  // The global button rule transitions the background over 150ms, so both the idle and the open
+  // colour have to settle before they are compared — sampling mid-transition reads a partial alpha.
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(250);
   const triggerStyle = await modelSelector.evaluate(el => {
     const label = el.querySelector('span'), cs = getComputedStyle(el);
-    return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, background: cs.backgroundColor, whiteSpace: getComputedStyle(label).whiteSpace, clipped: el.classList.contains('clipped') };
+    return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, background: cs.backgroundColor, color: cs.color, whiteSpace: getComputedStyle(label).whiteSpace, clipped: el.classList.contains('clipped') };
   });
   assert.equal(triggerStyle.border, '0px', '模型选择按钮不应有边框');
-  assert.equal(triggerStyle.radius, '0px', '模型选择按钮不应有圆角盒');
-  assert.equal(triggerStyle.background, 'rgba(0, 0, 0, 0)', '模型选择按钮应无底色');
+  assert.equal(triggerStyle.radius, '8px', '模型选择按钮应与"会话选项"一样有圆角');
+  assert.equal(triggerStyle.background, 'rgba(0, 0, 0, 0)', '未激活时模型选择按钮应无底色');
   assert.equal(triggerStyle.whiteSpace, 'nowrap', '模型名称应单行显示');
   assert.equal(triggerStyle.clipped, false, '名称未超出时不该加淡出遮罩');
+  // While the list is up the button itself turns into the open-state cue, so it must not look idle.
+  // The colour is compared against --accent-bg rather than a literal, so this also holds in dark mode.
+  await modelSelector.click();
+  await page.locator('.model-select-popover').waitFor();
+  await page.waitForTimeout(250);
+  const openStyle = await modelSelector.evaluate(el => {
+    const probe = document.createElement('div');
+    probe.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-bg').trim();
+    document.body.appendChild(probe);
+    const accentBg = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color, accentBg, expanded: el.getAttribute('aria-expanded') };
+  });
+  assert.equal(openStyle.expanded, 'true', '浮层打开时按钮应标记为展开');
+  assert.equal(openStyle.background, openStyle.accentBg, '浮层打开时按钮底色应为 --accent-bg');
+  assert.equal(openStyle.color, triggerStyle.color, '按下时不应改变模型名称的字色');
+  await page.keyboard.press('Escape');
+  await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(250);
+  assert.equal(await modelSelector.evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', '关闭后按钮应恢复无底色');
   // Force the overflow branch: the fixture names are short, so shrink the label box until it clips.
   await toolbar.evaluate(el => { el.style.maxWidth = '96px'; });
   await page.locator('.model-select-trigger.clipped').waitFor();

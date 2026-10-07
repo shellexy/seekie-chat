@@ -972,9 +972,10 @@ summary {
   color: var(--muted);
   min-width: 0;
 }
-/* The composer button carries no border, box or padding of its own: the global `button` rule brings
-   all three, and a plain class has to override them explicitly or the model name renders as a
-   button-shaped box inside the toolbar. */
+/* The composer button carries no border or padding of its own: the global `button` rule brings both,
+   and a plain class has to override them explicitly or the model name renders as a button-shaped box
+   inside the toolbar. The rounded hover background and the 8px radius are left to that same global
+   rule, so this button reads exactly like the 会话选项 button next to it. */
 .model-select-trigger {
   display: flex;
   align-items: center;
@@ -982,11 +983,18 @@ summary {
   min-width: 0;
   max-width: 100%;
   border: 0;
-  border-radius: 0;
-  padding: 4px 2px;
+  padding: 4px 6px;
   background: transparent;
   color: var(--text);
   font-size: 11px;
+}
+/* Open state, matching the branch pill in the header: the accent tint says the list is up without
+   needing a second visual cue. Hover alone would not, since it disappears the moment the pointer
+   moves into the panel. Only the background changes — recolouring the model name would make the name
+   look like a different model, and it is the one label in this toolbar that names the conversation's
+   subject. */
+.model-select-trigger[aria-expanded="true"] {
+  background: var(--accent-bg);
 }
 .model-select-trigger span {
   overflow: hidden;
