@@ -72,6 +72,12 @@ export class Store {
     state.settings.secureStorage = this.secure;
     if (state.settings.secretPolicy === 'encrypted' && !this.secure) throw new Error('系统安全存储不可用，请选择保存到数据目录');
   }
+  /** One message in the shape the renderer may see: attachment payloads stay in the main process. */
+  publicMessage(message: Message): Message {
+    const copy = structuredClone(message);
+    for (const attachment of copy.attachments) attachment.data = '';
+    return copy;
+  }
   public(state: AppState): AppState {
     const copy = structuredClone(state);
     // Attachment bytes stay in the main process: the renderer asks for one by id when it needs to

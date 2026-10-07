@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type Ke
 import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
+import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
 import { addMessage, createConversation, editMessage, firstLine, fork, initialState, lastAssistantBody, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
@@ -70,10 +71,19 @@ export default function App() {
   function toast(s: string) { setNotice(s); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 6500); }
   function openAttachmentPreview(attachment: Attachment) { setPreviewAttachment(attachment); }
   function closeAttachmentPreview() { setPreviewAttachment(null); }
-  function apply(s: AppState) {
+  function apply(incoming: AppState) {
+    // A full state may have been produced before the newest streaming patch arrived; the newer text
+    // wins so the answer never visibly moves backwards.
+    const s = keepNewerStreaming(stateRef.current, incoming);
     normalizeSettings(s.settings);
     for (const c of s.conversations) for (const b of c.branches) { const local = draftCache.current.get(b.id); if (local) { b.draft = local.draft; b.draftAttachments = local.attachments; } }
     stateRef.current = s; setState(s);
+  }
+  // Streaming answers arrive as patches: replacing one message keeps every other object identity, so
+  // only the row that changed re-renders.
+  function applyPatch(patch: MessagePatch) {
+    const next = applyMessagePatch(stateRef.current, patch);
+    if (next) { stateRef.current = next; setState(next); }
   }
   function receive(server: AppState) {
     if (!pendingWrites.current) { apply(server); return; }
@@ -105,7 +115,7 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     void api.load().then(s => { if (alive) { apply(s); setLoaded(true); } }).catch(e => toast(String(e)));
-    const off = api.onEvent(event => { if (event.state) receive(event.state); if (event.tasks) setTasks(event.tasks); if (event.error) toast(event.error); });
+    const off = api.onEvent(event => { if (event.patch) applyPatch(event.patch); else if (event.state) receive(event.state); if (event.tasks) setTasks(event.tasks); if (event.error) toast(event.error); });
     const reload = () => { draftCache.current.clear(); void api.load().then(apply); }; window.addEventListener('deepchan-reload', reload);
     return () => { alive = false; off(); window.removeEventListener('deepchan-reload', reload); };
   }, []);

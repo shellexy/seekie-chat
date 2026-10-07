@@ -55,6 +55,9 @@ export interface Message {
   created: number; edited?: boolean; modelId?: string; modelName?: string; connectionName?: string; config?: ChatConfig; usage?: Usage;
   // Protocol-native assistant payload, preserved for signed thinking and tool continuity.
   raw?: unknown;
+  // Maintained by the main process while an answer streams. Patches and full states both carry it,
+  // so a snapshot produced earlier can never overwrite newer streamed text.
+  streamRevision?: number;
 }
 export interface Summary {
   text: string; nodeIds: string[]; modelId: string; created: number;
@@ -73,8 +76,10 @@ export interface AppState { settings: Settings; conversations: Conversation[]; s
 // One outgoing API request as shown by the in-app debug view. Credentials are masked before the
 // renderer ever receives the record, and the body is a pretty-printed (possibly truncated) string.
 export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; error?: string }
+// One streaming answer, sent on its own instead of shipping the whole state.
+export interface MessagePatch { conversationId: string; message: Message }
 export interface RunRequest { conversationId: string; branchId: string; messageId: string }
-export interface AppEvent { state?: AppState; tasks?: { conversationId: string; branchId: string; kind: string }[]; task?: { conversationId: string; branchId: string; kind: string } | null; error?: string }
+export interface AppEvent { state?: AppState; patch?: MessagePatch; tasks?: { conversationId: string; branchId: string; kind: string }[]; task?: { conversationId: string; branchId: string; kind: string } | null; error?: string }
 export interface Bridge {
   load(): Promise<AppState>; save(state: AppState): Promise<AppState>;
   run(request: RunRequest): Promise<void>; cancel(conversationId: string): Promise<void>;

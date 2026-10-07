@@ -22,15 +22,30 @@ let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 // The answer currently streaming: while it is set, the debounced persist writes only that row.
 let streaming: { conversation: Conversation; message: Message } | null = null;
+// The same answer is also the only thing the throttled broadcast has to send.
+let pendingPatch: { conversationId: string; messageId: string } | null = null;
 const redact = (error: unknown) => {
   let text = error instanceof Error ? error.message : String(error);
   for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey, state?.settings.firecrawlKey, state?.settings.anysearchKey]) if (key) text = text.split(key).join('[已隐藏]');
   return text.slice(0, 1600);
 };
+function taskList() { return [...tasks].map(([conversationId, t]) => ({ conversationId, branchId: t.branchId, kind: t.kind })); }
 function emit(immediate = false, streamingChars = 0) {
-  const send = () => { broadcastTimer = undefined; if (win && !win.isDestroyed()) win.webContents.send('event', { state: store.public(state), tasks: [...tasks].map(([conversationId, t]) => ({ conversationId, branchId: t.branchId, kind: t.kind })) }); };
+  const send = () => {
+    broadcastTimer = undefined;
+    if (!win || win.isDestroyed()) { pendingPatch = null; return; }
+    // While an answer streams, only that message is sent: a full state would clone and transfer every
+    // other message and every attachment on each refresh.
+    const target = pendingPatch; pendingPatch = null;
+    if (target && !immediate) {
+      const conversation = state.conversations.find(c => c.id === target.conversationId);
+      const message = conversation?.messages.find(m => m.id === target.messageId);
+      if (conversation && message) { win.webContents.send('event', { patch: { conversationId: conversation.id, message: store.publicMessage(message) }, tasks: taskList() }); return; }
+    }
+    win.webContents.send('event', { state: store.public(state), tasks: taskList() });
+  };
   // `streamingChars` is the length of the answer being streamed: long answers refresh less often.
-  if (immediate) { clearTimeout(broadcastTimer); send(); } else if (!broadcastTimer) broadcastTimer = setTimeout(send, broadcastDelay(streamingChars));
+  if (immediate) { clearTimeout(broadcastTimer); pendingPatch = null; send(); } else if (!broadcastTimer) broadcastTimer = setTimeout(send, broadcastDelay(streamingChars));
   if (!persistTimer) persistTimer = setTimeout(() => {
     persistTimer = undefined;
     try {
@@ -121,7 +136,9 @@ async function runChat(request: RunRequest) {
   message.modelId = model.id; message.modelName = model.name; message.connectionName = connection.name; message.config = config; streaming = { conversation, message }; emit(true);
   void (async () => {
     let reasoningStarted: number | undefined, reasoningElapsed = 0;
-    const emitStream = () => emit(false, message.text.length + message.reasoning.length);
+    // Every streaming update bumps the revision and queues a patch; the throttled flush sends the
+    // latest message, and completion still sends the whole state.
+    const emitStream = () => { message.streamRevision = (message.streamRevision ?? 0) + 1; pendingPatch = { conversationId: conversation.id, messageId: message.id }; emit(false, message.text.length + message.reasoning.length); };
     const finishReasoning = () => {
       if (reasoningStarted === undefined) return;
       const elapsed = performance.now() - reasoningStarted;

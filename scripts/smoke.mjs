@@ -21,7 +21,13 @@ const server = createServer(async (req, res) => {
   if (req.url === '/v1/chat/completions') {
     send({ choices: [{ delta: { reasoning_content: title || compression ? '' : '先检查需求，再选择实施步骤。' } }] });
     await new Promise(r => setTimeout(r, 30));
-    for (const part of text.match(/.{1,22}|\n/g)) { send({ choices: [{ delta: { content: part } }] }); await new Promise(r => setTimeout(r, 2)); }
+    const pieces = text.match(/.{1,22}|\n/g);
+    for (const [index, part] of pieces.entries()) {
+      send({ choices: [{ delta: { content: part } }] });
+      // Pause after the first piece so the 80ms broadcast happens while the answer is still running:
+      // that is what makes the incremental patch observable in the smoke.
+      await new Promise(r => setTimeout(r, index === 0 && !title && !compression ? 200 : 2));
+    }
     send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 30 } } });
   } else if (req.url === '/v1/responses') {
     send({ type: 'response.reasoning_summary_text.delta', delta: '推理摘要来自模拟服务。' });
@@ -120,6 +126,9 @@ async function launch() {
 }
 try {
   let page = await launch();
+  // Records the wire while answers stream: the main process must send patches (one message) rather
+  // than a full state, and the revisions must increase.
+  await page.evaluate(() => { window.__patches = []; window.deepchan.onEvent(event => { if (event.patch) window.__patches.push({ revision: event.patch.message.streamRevision, length: event.patch.message.text.length }); }); });
   const windowControls = page.getByRole('toolbar', { name: '窗口控件' });
   assert.equal(await windowControls.getByRole('button').count(), 3);
   const chatControlBounds = await windowControls.boundingBox();
@@ -343,6 +352,9 @@ try {
   await page.locator('.sidebar-label').click();
   await page.locator('.conversation-popover').waitFor({ state: 'hidden' });
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
+  const streamPatches = await page.evaluate(() => window.__patches || []);
+  assert.ok(streamPatches.length >= 1, `流式期间必须收到增量补丁（收到 ${streamPatches.length}）`);
+  assert.ok(streamPatches.every((patch, index) => patch.length > 0 && (index === 0 || patch.revision > streamPatches[index - 1].revision)), '补丁必须携带正文且修订号单调递增');
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
   await assertUsageDetails(page);
   await page.evaluate(async () => {
