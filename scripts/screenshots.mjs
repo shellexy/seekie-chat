@@ -55,10 +55,10 @@ await page.evaluate(async () => {
   const answer = {
     id: uuid(), parentId: question.id, role: 'assistant',
     text: '两者的差别主要在运行时：\n\n- **Tauri** 用系统自带的 WebView，安装包通常 3–10 MB；内存占用随系统 WebView 变化，各发行版表现不一致。\n- **Electron** 自带 Chromium 与 Node.js，安装包 80 MB 起；换来的是一致的行为和完整的调试链路。\n\n目标发行版可控、体积优先，Tauri 更合适；要覆盖多种桌面环境、少踩"在我机器上能用"的坑，Electron 省心得多。',
-    reasoning: '先把两边拆成运行时、打包体积和调试链路三块比较，再按发行版覆盖范围给结论。',
+    reasoning: '先把两边拆成几块来看：运行时从哪来、安装包多大、内存占多少，最后再谈调试和分发。\n\nTauri 复用系统自带的 WebView，体积小，但 WebView 版本跟着发行版走，同一个问题在 Ubuntu 和 Fedora 上表现可能不一样；Electron 自带 Chromium，代价是包大，但一份二进制放到哪都一样。\n\n用户问的是取舍，不是要一个结论，所以两种适用条件都要给出来，不能只推荐一个。',
     reasoningMs: 2100,
     segments: [
-      { type: 'reasoning', text: '先把两边拆成运行时、打包体积和调试链路三块比较，再按发行版覆盖范围给结论。', ms: 2100 },
+      { type: 'reasoning', text: '先把两边拆成几块来看：运行时从哪来、安装包多大、内存占多少，最后再谈调试和分发。\n\nTauri 复用系统自带的 WebView，体积小，但 WebView 版本跟着发行版走，同一个问题在 Ubuntu 和 Fedora 上表现可能不一样；Electron 自带 Chromium，代价是包大，但一份二进制放到哪都一样。\n\n用户问的是取舍，不是要一个结论，所以两种适用条件都要给出来，不能只推荐一个。', ms: 2100 },
       { type: 'tool', toolId: toolSearch.id },
       { type: 'tool', toolId: toolFetch.id },
       { type: 'text', text: '两者的差别主要在运行时：\n\n- **Tauri** 用系统自带的 WebView，安装包通常 3–10 MB；内存占用随系统 WebView 变化，各发行版表现不一致。\n- **Electron** 自带 Chromium 与 Node.js，安装包 80 MB 起；换来的是一致的行为和完整的调试链路。\n\n目标发行版可控、体积优先，Tauri 更合适；要覆盖多种桌面环境、少踩"在我机器上能用"的坑，Electron 省心得多。' }
@@ -148,6 +148,14 @@ await page.locator('.branch-option').first().waitFor();
 await page.waitForTimeout(250);
 await shot('branches');
 await page.keyboard.press('Escape');
+
+// 推理摘要展开：说明模型的思考过程是可见的，而不是只给一句"思考了 2.1 秒"。
+await chatTop();
+await page.locator('.message.assistant').first().locator('.thinking summary').click();
+await page.waitForTimeout(250);
+await shot('reasoning');
+await page.locator('.message.assistant').first().locator('.thinking summary').click();
+await page.waitForTimeout(200);
 
 // 请求详情：给第一条回答补一条请求记录。真实运行时是主进程写入 requests/<消息 id>.json，
 // 这里直接写同一个位置，内容和真实记录同形（头已脱敏、请求体是格式化后的 JSON）。
