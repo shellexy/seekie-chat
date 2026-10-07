@@ -1,6 +1,5 @@
 import { fetch, ProxyAgent } from 'undici';
 import * as os from 'node:os';
-import appInfo from '../package.json';
 import { generateGemini } from './gemini';
 import { UsageCounter } from './usage';
 import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
@@ -11,6 +10,8 @@ export interface Result { text: string; reasoning: string; raw: { protocol: stri
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void }
 export type WebFetch = (url: string, signal: AbortSignal, settings: Settings, mode: WebFetchMode | undefined) => Promise<FetchedPage>;
 const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {} };
+const CODEX_CLI_VERSION = '0.162.1';
+const CLAUDE_CODE_VERSION = '2.1.296';
 export function endpoint(connection: Connection, path: string) {
   const base = connection.baseUrl.replace(/\/+$/, '');
   const url = new URL(base);
@@ -22,9 +23,9 @@ function modelUserAgent(modelNames: string[]) {
   const matches = (pattern: RegExp) => modelNames.some(name => pattern.test(name.trim()));
   if (matches(/(?:^|\/)gpt(?:[-_/\s]|$)/i)) {
     const architecture = ({ x64: 'x86_64', arm64: 'aarch64' } as Record<string, string>)[os.arch()] || os.arch();
-    return `codex_cli_rs/${appInfo.version} (${os.type()} ${os.release()}; ${architecture})`;
+    return `codex_cli_rs/${CODEX_CLI_VERSION} (${os.type()} ${os.release()}; ${architecture})`;
   }
-  if (matches(/(?:^|\/)claude(?:[-_/\s]|$)/i)) return `claude-cli/${appInfo.version} (external, cli)`;
+  if (matches(/(?:^|\/)claude(?:[-_/\s]|$)/i)) return `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`;
   return undefined;
 }
 export function authHeaders(connection: Connection, model?: string | Pick<Model, 'model' | 'name'>) {

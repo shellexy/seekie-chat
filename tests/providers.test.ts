@@ -8,8 +8,8 @@ import { UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
 test('model family User-Agent defaults identify Codex or Claude Code and respect custom headers', () => {
-  assert.match(authHeaders(connection('responses'), 'gpt-4o')['User-Agent'], /^codex_cli_rs\/\d+\.\d+\.\d+ \(/);
-  assert.match(authHeaders(connection('anthropic'), 'anthropic/claude-sonnet-4')['User-Agent'], /^claude-cli\/\d+\.\d+\.\d+ \(external, cli\)$/);
+  assert.match(authHeaders(connection('responses'), 'gpt-4o')['User-Agent'], /^codex_cli_rs\/0\.162\.1 \(/);
+  assert.match(authHeaders(connection('anthropic'), 'anthropic/claude-sonnet-4')['User-Agent'], /^claude-cli\/2\.1\.296 \(external, cli\)$/);
   assert.match(authHeaders(connection('responses'), { model: 'compatible-id', name: 'GPT 4o' })['User-Agent'], /^codex_cli_rs\//);
   assert.match(authHeaders(connection('anthropic'), { model: 'compatible-id', name: 'Claude Sonnet 4' })['User-Agent'], /^claude-cli\//);
   assert.equal(authHeaders(connection('chat'), 'deepseek-flash')['User-Agent'], undefined);
