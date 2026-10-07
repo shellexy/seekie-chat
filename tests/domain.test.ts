@@ -445,3 +445,11 @@ test('tool output that happens to be JSON is indented for reading, and only for 
   assert.equal(formatToolOutput(''), '');
   assert.equal(formatToolOutput('网页正文里有 { 和 } 但不是 JSON'), '网页正文里有 { 和 } 但不是 JSON');
 });
+
+test('the preferred starting effort wins even when the list has no medium level', () => {
+  // DeepSeek 预设的等级里没有 medium，defaultModelEffort 本会落到首项 low。
+  const model: Model = { id: 'm', connectionId: 'c', name: 'm', model: 'm', contextWindow: 1000, maxOutput: 100, vision: false, tools: false, nativeSearch: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], temperature: true };
+  assert.equal(defaultModelEffort(model), 'low', '没有指定时落到首项');
+  assert.equal(defaultModelEffort({ ...model, defaultEffort: 'high' }), 'high', '指定的起始档位优先');
+  assert.equal(defaultModelEffort({ ...model, defaultEffort: 'medium' }), 'low', '不在支持列表里的指定一律忽略');
+});

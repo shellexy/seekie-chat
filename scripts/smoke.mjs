@@ -240,7 +240,7 @@ try {
     assert.equal(await added.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '128000', '服务端给出的上下文窗口应作为默认值');
     assert.equal(await added.getByLabel('最大输出（token）', { exact: true }).inputValue(), '16384', '服务端给出的输出上限应作为默认值');
     assert.equal(await added.getByLabel('支持的等级（逗号分隔）', { exact: true }).inputValue(), 'low,medium,high');
-    assert.match(await added.innerText(), /切换到此模型时使用服务端建议的 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
+    assert.match(await added.innerText(), /切换到此模型时默认使用 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
   }
   await addServerModel('fixture-model');
   assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');

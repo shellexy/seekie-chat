@@ -14,7 +14,8 @@ export interface Model {
   videoInput?: boolean; audioInput?: boolean; pdfInput?: boolean;
   nativeSearch: boolean; reasoning: 'none' | 'effort' | 'budget';
   efforts: string[]; temperature: boolean; outputTokenField?: 'max_completion_tokens' | 'max_tokens'; streamUsage?: boolean;
-  // The effort level the service recommends for this model, kept so switching to it starts there.
+  // The effort level to start at when switching to this model. Either the service's own
+  // recommendation (default_level) or a level a preset picked, so it is not always a recommendation.
   defaultEffort?: string;
 }
 export interface ChatConfig {
