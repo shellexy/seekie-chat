@@ -1021,7 +1021,7 @@ summary {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 4px 5px 8px;
+  padding: 5px 6px 5px 8px;
   font-size: 12px;
   color: var(--text);
 }
@@ -1033,17 +1033,21 @@ summary {
 .model-select-row > .model-select-label[aria-selected="true"] {
   color: var(--accent);
 }
-/* Star sits in a fixed column hard against the right edge, so every row's star lines up no matter
-   how long the model name is. It stays invisible until hover unless the model is already a
-   favourite, which keeps the list readable while still offering the action on every row. */
-.model-select-star {
+/* The star is the last element of the row, so it owns the right edge: the icon is pushed to the
+   end of its own box instead of being centred in one. Centring a 14px icon inside a 26px column left
+   6px of dead space on each side, which read as an extra right margin next to the panel border. The
+   clickable area is kept by padding the left side only, so the target stays 26px wide while the icon
+   ends where the row's content ends.
+   Scoped to the panel on purpose: the generic `.popover button` rule sets justify-content and wins
+   on specificity against a bare class, which pushed the icon back to the left. */
+.model-select-popover .model-select-star {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   width: 26px;
   height: 24px;
-  padding: 0;
+  padding: 0 0 0 6px;
   color: var(--muted);
   opacity: 0;
 }
