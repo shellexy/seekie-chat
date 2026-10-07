@@ -201,7 +201,11 @@ export default function App() {
       setMessageMenu(null);
     };
     const escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setMessageMenu(null); };
-    const scroll = () => setMessageMenu(null);
+    // Scrolling dismisses the menu, but not the scroll that brought the message into view, nor the
+    // momentum still running right after the right click. Dismissing in the same instant the menu
+    // opened makes it unusable whenever the list has just been scrolled to the message.
+    const openedAt = performance.now();
+    const scroll = () => { if (performance.now() - openedAt < 250) return; setMessageMenu(null); };
     document.addEventListener('pointerdown', closeOutside);
     document.addEventListener('keydown', escape);
     window.addEventListener('scroll', scroll, true);
