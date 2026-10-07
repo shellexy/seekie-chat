@@ -286,6 +286,15 @@ try {
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   assert.equal(await page.evaluate(async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
+  await page.locator('.branch-pill').click();
+  const branchRows = page.locator('.branch-option');
+  await branchRows.last().getByTitle('重命名分支').click();
+  const branchRenameDialog = page.getByRole('dialog', { name: '重命名分支' });
+  await branchRenameDialog.waitFor({ state: 'visible' });
+  await branchRenameDialog.getByLabel('分支名称').fill('Electron 方案');
+  await branchRenameDialog.getByRole('button', { name: '保存', exact: true }).click();
+  await waitFor(page, async name => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.name === name); }, 'Electron 方案');
+  await page.locator('.branch-popover').waitFor({ state: 'hidden' });
   await input.fill('只讨论 Electron 的实现'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
   let saved = await page.evaluate(() => window.deepchan.load());
@@ -365,9 +374,9 @@ try {
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: '查看 token 用量与速度' });
   await legacyTrigger.click();
-  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '未提供').length === 3);
-  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['未提供','未提供']);
-  assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '未提供');
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 3);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--']);
+  assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
   await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);
   assert.equal(saved.conversations.reduce((n,c) => n+c.messages.length,0), messageCount);

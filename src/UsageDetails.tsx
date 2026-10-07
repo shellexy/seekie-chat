@@ -40,8 +40,8 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
       window.removeEventListener('scroll', scroll, true);
     };
   }, [open]);
-  const count = (value?: number) => value === undefined ? '未提供' : `${value.toLocaleString()} token`;
-  const speed = usage.elapsedMs !== undefined && usage.elapsedMs > 0 ? `${(usage.output / (usage.elapsedMs / 1000)).toFixed(1)} tps` : '未提供';
+  const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
+  const speed = usage.elapsedMs !== undefined && usage.elapsedMs > 0 ? `${(usage.output / (usage.elapsedMs / 1000)).toFixed(1)} tps` : '--';
   return <>
     <button ref={trigger} className="usage" aria-label="查看 token 用量与速度" aria-expanded={open} aria-describedby={open ? id : undefined}
       onPointerEnter={show} onPointerLeave={leave} onFocus={show} onBlur={leave}
@@ -54,7 +54,7 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
         <dt>输入（缓存）：</dt><dd>{count(usage.cachedInput)}</dd>
         <dt>输出：</dt><dd>{count(usage.output)}</dd>
         <dt>速度：</dt><dd>{speed}</dd>
-        <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '未提供' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
+        <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
       </dl>
       <p>缓存为输入中的命中量；速度按输出 ÷ 总耗时计算，含思考、网络及工具调用。首字指回答正文。</p>
     </div>, document.body)}
