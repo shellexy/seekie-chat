@@ -41,7 +41,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     const c: Connection = { name: t.name, protocol: t.protocol, baseUrl: t.baseUrl, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', responsesForGpt: true };
     const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic';
     const presetModel: Model | undefined = deepSeekPreset ? {
-      id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
+      id: uid(), connectionId: c.id, name: 'DeepSeek-Flash', model: 'deepseek-flash',
       // 上下文与最大输出取服务端 /models 报告的值：1048576 / 393216（384K）。
       contextWindow: 1_048_576, maxOutput: 393_216, vision: true, tools: true,
       // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。

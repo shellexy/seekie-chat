@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -360,6 +360,35 @@ test('new chats start from the most recently used model, and the switch can be t
   settings.useRecentModel = true;
   settings.models = [model('first')];
   assert.equal(newChatModelId(settings), 'first', '记录里的模型已被删除时不能选它');
+});
+
+test('a branch whose model is gone falls back to a model that is still there', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'fixture', protocol: 'chat', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  const model = (id: string, name = id): Model => ({ id, connectionId: 'c', name, model: id, contextWindow: 10000, maxOutput: 4096, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false });
+  assert.equal(fallbackModelId(settings), '', '一个模型都没有时没有可兜底的');
+  settings.models = [model('heavy', 'gpt-6-astra'), model('fast', 'DeepSeek-Flash')];
+  settings.defaultModel = 'heavy';
+  assert.equal(fallbackModelId(settings), 'heavy', '默认聊天模型是明确的选择，优先用它');
+  // 分支自己的模型没了：对话建在还没有模型的时候，或那个模型在设置里被删了。
+  settings.models = [model('fast', 'DeepSeek-Flash')];
+  settings.defaultModel = '';
+  assert.equal(fallbackModelId(settings), 'fast', '没有明确选择时用还在的模型');
+  // 快的优先：flash、luna 这类是便宜又快的型号，替用户拿主意时先挑它们。
+  settings.models = [model('heavy', 'gpt-6-astra'), model('fast', 'DeepSeek-Flash'), model('luna', 'gpt-6-luna')];
+  settings.defaultModel = '';
+  assert.equal(fallbackModelId(settings), 'fast', '同名与模型 ID 里带 flash / luna 的排在前面');
+  // 最近使用过的仍然优先——那是用户自己选过的。
+  rememberRecentModel(settings, 'heavy');
+  assert.equal(fallbackModelId(settings), 'heavy', '最近使用过的模型优先于快的');
+  // 停用只是不参与选择，并不阻断发送：全停用了也得挑得出一个。
+  settings.connections[0].disabled = true;
+  settings.recentModels = [];
+  assert.equal(fallbackModelId(settings), 'fast', '连接全停用时也还能兜底');
+  // 新建对话同样偏向快的型号。
+  settings.connections[0].disabled = false;
+  settings.defaultModel = '';
+  assert.equal(newChatModelId(settings), 'fast', '新对话没有明确选择时也挑快的');
 });
 
 test('recent models are recorded on switch and moved to the front only after a finished answer', () => {

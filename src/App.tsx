@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -139,7 +139,10 @@ export default function App() {
   for (const message of messages) if (message.role === 'user') turnNumbers.set(message.id, ++turnCount);
   const chatSearchResults = searchMessages(messages, chatSearchQuery);
   const activeSearchIndex = chatSearchResults.length ? ((chatSearchIndex % chatSearchResults.length) + chatSearchResults.length) % chatSearchResults.length : 0;
-  const model = state.settings.models.find(m => m.id === branch?.config.modelId);
+  const model = state.settings.models.find(m => m.id === branch?.config.modelId)
+    // 分支自己的模型可能已经没了：对话是在还没有模型时建的，或者那个模型在设置里被删了。
+    // 这时模型按钮是空的，用户连话都发不出去，所以先按可用的模型顶上。
+    || (branch ? state.settings.models.find(m => m.id === fallbackModelId(state.settings)) : undefined);
   // 当前分支用的是哪个角色预设：按内容匹配，与会话选项里的下拉同一套判断，认不出就是自定义提示词。
   const rolePreset = branch ? rolePresetName(state.settings, branch.config.system) : undefined;
   const modelConnection = state.settings.connections.find(c => c.id === model?.connectionId);
@@ -172,6 +175,15 @@ export default function App() {
   useEffect(() => {
     if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages.map(m => m.text.length + m.reasoning.length + m.tools.length).join(','), atBottom]);
+  // 分支上的模型可能已经失效了：对话是在还没有任何模型时建的，或者那个模型在设置里被删了。
+  // 这时把分支改指到一个可用的模型，否则按钮是空的，用户连第一句话都发不出去。改的是分支
+  // 自己的配置，所以主进程发请求时拿到的也是这个模型。
+  useEffect(() => {
+    if (!branch || state.settings.models.some(m => m.id === branch.config.modelId)) return;
+    const modelId = fallbackModelId(state.settings);
+    if (!modelId) return;
+    void commit(s => { const { b } = find(s); if (!s.settings.models.some(m => m.id === b.config.modelId)) b.config.modelId = modelId; }).catch(() => {});
+  }, [branch, state.settings.models]);
   useEffect(() => {
     setEditing(null); setBranchMenu(false); setChatSearchOpen(false); setSummaryOpen(false);
     requestAnimationFrame(() => { if (scrollRef.current && branch) { scrollRef.current.scrollTop = branch.scrollTop || scrollRef.current.scrollHeight; setAtBottom(scrollRef.current.scrollHeight - scrollRef.current.scrollTop - scrollRef.current.clientHeight < 100); } });

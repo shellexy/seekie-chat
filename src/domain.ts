@@ -181,8 +181,29 @@ export function newChatModelId(settings: Settings): string {
   // 因为禁用不阻断发送，应用不该退化成没有模型可选的空白。
   const available = new Set(enabledModels(settings).map(m => m.id));
   const fallback = new Set(settings.models.map(m => m.id));
-  const order = [...(settings.useRecentModel ? settings.recentModels || [] : []), settings.defaultModel, ...settings.models.map(m => m.id)];
+  const order = [...(settings.useRecentModel ? settings.recentModels || [] : []), settings.defaultModel, ...byPreference(settings.models).map(m => m.id)];
   return order.find(id => available.has(id)) || order.find(id => fallback.has(id)) || '';
+}
+/** 快的那些型号：DeepSeek-Flash、gpt-6-luna 之类。便宜又快，替用户拿主意时优先挑它们。 */
+function isFastModel(model: Model): boolean { return /flash|luna/i.test(`${model.name} ${model.model}`); }
+/** 同样的候选里把快的排前面；同一档内保持原有顺序，排序是稳定的。 */
+function byPreference(models: Model[]): Model[] { return [...models].sort((a, b) => Number(isFastModel(b)) - Number(isFastModel(a))); }
+/**
+ * 分支自己的模型不能用了时，替它挑一个。
+ * 两种情况会走到这里：对话是在还没有任何模型时就建起来的，以及分支用的那个模型后来在设置里
+ * 被删了。两种情况下模型按钮都是空的，用户连话都发不出去。
+ * 顺序是：最近使用（开了那个开关时）、默认聊天模型、然后任意可用模型；都没有明确选择时，
+ * 快的优先。
+ */
+export function fallbackModelId(settings: Settings): string {
+  const all = settings.models;
+  if (!all.length) return '';
+  const enabled = enabledModels(settings), enabledIds = new Set(enabled.map(m => m.id));
+  const recent = (settings.useRecentModel ? settings.recentModels || [] : []).find(id => enabledIds.has(id));
+  if (recent) return recent;
+  if (enabledIds.has(settings.defaultModel)) return settings.defaultModel;
+  // 全都停用时也还能用：禁用只是不参与选择，并不阻断发送。
+  return (byPreference(enabled)[0] || byPreference(all)[0]).id;
 }
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['none', 'minimal', 'low', 'medium', 'high'];

@@ -274,8 +274,8 @@ try {
   assert.equal(await page.getByLabel(/^接口协议/).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '接口协议标签与选项并排');
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'chat', 'DeepSeek 预设默认走 OpenAI 兼容协议');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/');
-  assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'deepseek-flash');
-  assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash');
+  assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'DeepSeek-Flash', '自动添加的模型展示名用 DeepSeek-Flash');
+  assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash', '模型 ID 仍是服务端的 deepseek-flash');
   // 与服务端 /models 报告的值一致：1048576 / 393216（384K）。
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1048576');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '393216');
@@ -609,6 +609,37 @@ try {
   assert.equal(await roleLabel.count(), 1, '顶栏应显示角色预设名');
   assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
   assert.equal((await roleLabel.innerText()).trim(), (await roleLabel.innerText()).trim().replace(/^·\s*/, ''), '角色预设名前不应有间隔点');
+  // 分支用的模型被删掉之后，模型按钮不该空着：自动换成一个还在的模型，用户才能接着聊。
+  const snapshot = await page.evaluate(async () => JSON.stringify(await window.seekie.load()));
+  const victim = await page.evaluate(async () => {
+    const state = await window.seekie.load();
+    const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const gone = state.settings.models.find(m => m.id === branch.config.modelId);
+    state.settings.models = state.settings.models.filter(m => m.id !== gone.id);
+    state.settings.defaultModel = ''; state.settings.recentModels = [];
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
+    return { id: gone.id, name: gone.name };
+  });
+  // 渲染进程重新载入设置后会自愈：分支改指到一个还在的模型。
+  await waitFor(page, async id => {
+    const state = await window.seekie.load();
+    const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    return !!branch.config.modelId && branch.config.modelId !== id && state.settings.models.some(m => m.id === branch.config.modelId);
+  }, victim.id);
+  const healedTitle = await modelSelector.getAttribute('title');
+  assert.ok(healedTitle && healedTitle !== '选择模型', `模型被删后按钮应显示某个模型，实际：${healedTitle}`);
+  assert.ok(!healedTitle.includes(victim.name), `按钮不该再显示被删掉的模型，实际：${healedTitle}`);
+  // 复原整份状态，后面的阶段还要用这些模型。
+  await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, snapshot);
+  await waitFor(page, async id => {
+    const state = await window.seekie.load();
+    const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    return branch.config.modelId === id;
+  }, victim.id);
+  assert.equal(await modelSelector.getAttribute('title'), '模拟 chat | 本地模拟 chat', '复原后模型按钮应回到原样');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
   // 因为原生下拉弹层在无头环境里画不出来。
