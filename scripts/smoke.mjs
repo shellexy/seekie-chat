@@ -60,8 +60,12 @@ async function assertUsageDetails(page, output = 60) {
   const message = await page.evaluate(async id => (await window.deepchan.load()).conversations.flatMap(c => c.messages).find(m => m.id === id), id);
   assert.equal(message.usage.input, 120); assert.equal(message.usage.output, output); assert.equal(message.usage.cachedInput, 30);
   assert.ok(message.usage.elapsedMs > 0); assert.ok(message.usage.firstTokenMs >= 0 && message.usage.firstTokenMs <= message.usage.elapsedMs);
-  const time = answer.locator('time'); assert.match(await time.innerText(), /^\d{4}-\d{2}-\d{2}·\d{2}:\d{2}$/);
-  assert.equal(await time.getAttribute('datetime'), new Date(message.created).toISOString());
+  const modelMeta = answer.locator('.answer-model-meta');
+  assert.match(await modelMeta.innerText(), /^.+·\d{2}:\d{2}$/);
+  await modelMeta.hover();
+  const modelTooltip = page.locator('.answer-model-popover'); await modelTooltip.waitFor();
+  assert.match(await modelTooltip.innerText(), /模拟 .+ \| 本地模拟 .+•\d{4}-\d{2}-\d{2}·\d{2}:\d{2}/);
+  await page.mouse.move(5, 5); await modelTooltip.waitFor({ state: 'hidden' });
   const trigger = answer.getByRole('button', { name: '查看 token 用量与速度' });
   const tooltip = page.getByRole('tooltip');
   await trigger.hover(); await tooltip.waitFor();
@@ -201,7 +205,21 @@ try {
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
-  assert.equal(await page.locator('.message.assistant .message-model').first().innerText(), '模拟 chat | 本地模拟 chat');
+  assert.equal(await page.locator('.message.assistant .answer-model-meta').first().getAttribute('aria-label'), '查看模型信息：模拟 chat');
+  const uploadButton = page.getByRole('button', { name: '上传附件', exact: true });
+  assert.equal((await uploadButton.innerText()).trim(), '');
+  const chatMenu = page.locator('.conversation-item').first();
+  await chatMenu.getByTitle('会话操作').click();
+  await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
+  const renameDialog = page.getByRole('dialog', { name: '重命名对话' });
+  await renameDialog.getByLabel('对话标题').fill('重命名交互检查');
+  await renameDialog.getByRole('button', { name: '保存', exact: true }).click();
+  await renameDialog.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.conversation-item').first().locator('.conversation-select').innerText(), '重命名交互检查');
+  await page.locator('.conversation-item').first().getByTitle('会话操作').click();
+  await page.locator('.conversation-popover').waitFor();
+  await page.locator('.sidebar-label').click();
+  await page.locator('.conversation-popover').waitFor({ state: 'hidden' });
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
   await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
   await assertUsageDetails(page);
@@ -278,7 +296,7 @@ try {
       await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
     }
     assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
-    assert.equal(await page.locator('.message.assistant .message-model').last().innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
+    assert.equal(await page.locator('.message.assistant .answer-model-meta').last().getAttribute('aria-label'), `查看模型信息：模拟 ${protocol}`);
     await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
     console.log('stage: protocol complete', protocol);
   }
