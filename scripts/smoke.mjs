@@ -477,12 +477,26 @@ try {
   assert.equal(logs.length, 0, logs.join('\n'));
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '关闭前所有标题已完成');
   const db = readFileSync(join(directory,'chat.sqlite'));
-  assert.ok(!db.includes(Buffer.from('fixture-secret'))); assert.ok(!db.includes(Buffer.from('header-secret')));
+  // Header names are kept on purpose so the debug view can show what was sent; credential values
+  // must never reach the file, whether through the state JSON or the persisted request records.
+  assert.ok(!db.includes(Buffer.from('Bearer fixture-secret')), '数据库不得包含 API Key 的值');
+  assert.ok(!db.includes(Buffer.from('"header-secret"')), '数据库不得包含自定义请求头的值');
   const messageCount = saved.conversations.reduce((n,c) => n+c.messages.length,0);
   await desktop.close(); desktop = null;
   page = await launch();
   saved = await page.evaluate(() => window.deepchan.load());
   await assertUsageDetails(page, 72);
+  // Request records are persisted with the conversation, so they survive a restart too.
+  await page.locator('.message.assistant').last().getByRole('button', { name: '查看请求详情' }).click();
+  const restoredDebug = page.locator('.attachment-viewer-window');
+  await restoredDebug.waitFor();
+  const restoredText = await restoredDebug.innerText();
+  assert.match(restoredText, /第 1 次请求/, '重启后仍应能查看请求记录');
+  assert.match(restoredText, /请求体/);
+  assert.ok(!restoredText.includes('Bearer fixture-secret'), '重启后的请求记录同样不得泄露密钥');
+  await page.keyboard.press('Escape');
+  await restoredDebug.waitFor({ state: 'hidden' });
+  console.log('stage: request log persisted');
   const legacyFixture = await page.evaluate(async () => {
     const s = await window.deepchan.load(), selectedId = s.selectedId;
     const c = structuredClone(s.conversations.find(c => c.id === selectedId));

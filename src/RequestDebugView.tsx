@@ -25,7 +25,7 @@ function recordMarkdown(record: RequestRecord, index: number) {
   return sections.join('\n\n');
 }
 
-const EMPTY_HINT = '这条回答没有可用的请求记录。\n\n请求详情只保存在内存中：重启应用、重新生成或重新发送之后，旧记录会清空。';
+const EMPTY_HINT = '这条回答没有可用的请求记录。\n\n请求详情随对话保存在本地，但只保留最近一段时间的记录，且不进入导出和备份。';
 
 export default function RequestDebugView({ messageLabel, records, onClose }: { messageLabel: string; records: RequestRecord[]; onClose: () => void }) {
   useEffect(() => {

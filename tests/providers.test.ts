@@ -625,6 +625,24 @@ test('debug records carry the redacted request and attach upstream failures', as
   } finally { await agent.close(); }
 });
 
+test('debug records collapse attachment bytes instead of storing them', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://fixture.invalid'); pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+      { choices: [{ delta: { content: '看到了。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    const state = initialState(), c = createConversation(state.settings), message = addMessage(c, c.branches[0], 'user', '看看这张图');
+    message.attachments = [{ id: crypto.randomUUID(), name: 'shot.png', mime: 'image/png', size: 4096, data: `data:image/png;base64,${'A'.repeat(4096)}` }];
+    const records: RequestRecord[] = [];
+    await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, record: entry => records.push(entry) });
+    const body = records[0].body;
+    assert.doesNotMatch(body, /A{64}/, 'base64 数据不应进入调试记录');
+    assert.match(body, /data:image\/png;base64,<已省略 \d+ 字符的 base64 数据>/);
+    assert.match(body, /image_url/, '附件所在的结构必须完整保留');
+    assert.ok(body.length < 4000, `记录应保持精简，实际 ${body.length}`);
+  } finally { await agent.close(); }
+});
+
 test('request diagnostics record what was sent and what the upstream answered', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const directory = mkdtempSync(join(tmpdir(), 'deepchan-dump-')), previous = process.env.DEEPCHAN_DEBUG_REQUESTS;

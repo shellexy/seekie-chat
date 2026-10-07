@@ -3,7 +3,8 @@ import { safeStorage } from 'electron';
 import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
-import type { AppState, Attachment } from '../src/types';
+import type { AppState, Attachment, RequestRecord } from '../src/types';
+import { clearRequests, deleteRequests, initRequestTable, loadRequests, saveRequests } from './request_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: Database;
@@ -16,6 +17,7 @@ export class Store {
     const file = join(this.directory, 'chat.sqlite');
     this.db = existsSync(file) ? new SQL.Database(readFileSync(file)) : new SQL.Database();
     this.db.run('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    initRequestTable(this.db);
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
     if (this.secure) for (const row of this.db.exec('SELECT id,payload FROM secrets')[0]?.values || []) { try { this.secrets.set(String(row[0]), safeStorage.decryptString(Buffer.from(String(row[1]), 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
     const credentials = join(this.directory, 'credentials.json');
@@ -104,6 +106,12 @@ export class Store {
     } else if (existsSync(credentials)) unlinkSync(credentials);
     for (const file of readdirSync(join(this.directory, 'attachments'))) if (!keep.has(file)) unlinkSync(join(this.directory, 'attachments', file));
   }
+  // Request records live in their own table: they persist for the in-app debug view but never enter
+  // the state JSON, so exports and structural backups stay free of request payloads.
+  saveRequests(messageId: string, entries: RequestRecord[]) { saveRequests(this.db, messageId, entries); }
+  loadRequests(messageId: string) { return loadRequests(this.db, messageId); }
+  deleteRequests(messageIds: string[]) { deleteRequests(this.db, messageIds); }
+  clearRequests() { clearRequests(this.db); }
   private saveSecret(id: string, value: string, policy: string) {
     if (!value) return; this.secrets.set(id, value);
     if (this.secure && policy === 'encrypted') this.db.run('INSERT INTO secrets (id,payload) VALUES (?,?)', [id, safeStorage.encryptString(value).toString('base64')]);

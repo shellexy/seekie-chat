@@ -27,8 +27,11 @@ export function debugHeaders(connection: Connection, headers: Record<string, str
   for (const [name, value] of Object.entries(headers)) copy[name] = SECRET_HEADERS.test(name) || custom.has(name.toLowerCase()) ? REDACTED : value;
   return copy;
 }
+const BASE64_PAYLOAD = /data:([^;,]{1,80});base64,[A-Za-z0-9+/=]{64,}/g;
 function recordedBody(body: unknown) {
-  const text = JSON.stringify(body, null, 2);
+  // Attachment bytes dominate a request body and are useless for debugging, so each blob collapses
+  // to its size; the surrounding structure stays readable and the record stays small.
+  const text = JSON.stringify(body, null, 2).replace(BASE64_PAYLOAD, (match, mime: string) => `data:${mime};base64,<已省略 ${match.length} 字符的 base64 数据>`);
   return text.length > MAX_RECORDED_BODY ? `${text.slice(0, MAX_RECORDED_BODY)}\n…（请求体过长，仅记录前 ${MAX_RECORDED_BODY} 字符）` : text;
 }
 // Opt-in diagnostics for opaque upstream rejections: with DEEPCHAN_DEBUG_REQUESTS=<dir> every
