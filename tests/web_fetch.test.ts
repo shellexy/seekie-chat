@@ -43,10 +43,28 @@ test('web_fetch rejects local and private destinations before making a request',
   assert.equal(requests, 0);
 });
 
-test('automatic webpage reading prefers Exa and sends the authenticated Contents request', async () => {
+test('automatic webpage reading prefers Tavily and sends the authenticated Extract request', async () => {
   const settings = initialState().settings;
-  settings.exaKey = 'exa-fixture'; settings.tavilyKey = 'tavily-fixture';
+  settings.tavilyKey = 'tavily-fixture'; settings.exaKey = 'exa-fixture';
   settings.connections.push({ id: 'ollama-cloud', name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/', apiKey: 'ollama-fixture', headers: {}, timeout: 30, proxy: '' });
+  let request: { url: string; init?: RequestInit } | undefined, localRequests = 0;
+  const page = await fetchWebPageWithProviders('https://article.example/story#section', signal(), settings, 'auto', async () => {
+    localRequests++; return new Response('unexpected local fetch');
+  }, async (url, init) => {
+    request = { url, init };
+    return new Response(JSON.stringify({ results: [{ url: 'https://article.example/story', title: 'Tavily page', raw_content: '# Tavily page\n\nMarkdown from Tavily.' }], failed_results: [] }), { headers: { 'content-type': 'application/json' } });
+  }, publicHost);
+  assert.equal(request?.url, 'https://api.tavily.com/extract', 'Tavily 排在内置顺序最前');
+  assert.equal(new Headers(request?.init?.headers).get('authorization'), 'Bearer tavily-fixture');
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { urls: ['https://article.example/story'], format: 'markdown', extract_depth: 'basic' });
+  assert.equal(page.provider, 'tavily'); assert.equal(page.contentType, 'text/markdown');
+  assert.equal(page.title, 'Tavily page'); assert.match(page.content, /Markdown from Tavily/);
+  assert.equal(localRequests, 0);
+});
+
+test('the Exa extractor sends the authenticated Contents request', async () => {
+  const settings = initialState().settings;
+  settings.exaKey = 'exa-fixture';
   let request: { url: string; init?: RequestInit } | undefined, localRequests = 0;
   const page = await fetchWebPageWithProviders('https://article.example/story#section', signal(), settings, 'auto', async () => {
     localRequests++; return new Response('unexpected local fetch');
@@ -71,6 +89,7 @@ test('automatic webpage reading falls through failed providers in priority order
     localRequests++; return new Response('unexpected local fetch');
   }, async (url, init) => {
     calls.push(url);
+    if (url === 'https://api.tavily.com/extract') return new Response('unavailable', { status: 503 });
     if (url === 'https://api.exa.ai/contents') return new Response('unavailable', { status: 503 });
     if (url === 'https://ollama.com/api/web_fetch') {
       assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer ollama-fixture');
@@ -79,7 +98,7 @@ test('automatic webpage reading falls through failed providers in priority order
     }
     throw new Error(`Unexpected provider ${url}`);
   }, publicHost);
-  assert.deepEqual(calls, ['https://api.exa.ai/contents', 'https://ollama.com/api/web_fetch']);
+  assert.deepEqual(calls, ['https://api.tavily.com/extract', 'https://api.exa.ai/contents', 'https://ollama.com/api/web_fetch'], '按 Tavily、Exa、Ollama Cloud 的顺序依次降级');
   assert.equal(page.provider, 'ollama'); assert.equal(page.title, 'Ollama page'); assert.match(page.content, /Markdown from Ollama/);
   assert.equal(localRequests, 0);
 });
@@ -152,7 +171,7 @@ test('automatic webpage reading falls back to local fetch when every configured 
   }, async url => {
     calls.push(url); return new Response('service error', { status: 503 });
   }, publicHost);
-  assert.deepEqual(calls, ['https://api.firecrawl.dev/v2/scrape', 'https://api.anysearch.com/v1/extract', 'https://api.tavily.com/extract']);
+  assert.deepEqual(calls, ['https://api.tavily.com/extract', 'https://api.anysearch.com/v1/extract', 'https://api.firecrawl.dev/v2/scrape'], '免 Key 的三家按 Tavily、AnySearch、Firecrawl 的顺序依次尝试');
   assert.equal(page.provider, 'local'); assert.match(page.content, /hosted fetch services were unavailable/);
 });
 

@@ -99,8 +99,10 @@ export function normalizeSettings(settings: Settings) {
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
-// DeepSeek 排在最后：它是唯一按次计费的服务，不参与下面的内置自动降级链。
-export const EXTERNAL_SEARCH_MODES: ExternalSearchMode[] = ['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek'];
+// 外部搜索的内置降级顺序：自动模式按这个顺序挑第一家配了 Key 的服务。Tavily 排在最前，
+// 因为它的搜索延迟明显低于 Firecrawl。DeepSeek 排在最后：它是唯一按次计费的服务，
+// 不参与下面的内置自动降级链。
+export const EXTERNAL_SEARCH_MODES: ExternalSearchMode[] = ['tavily', 'exa', 'ollama', 'anysearch', 'firecrawl', 'deepseek'];
 export const WEB_FETCH_MODES: WebFetchMode[] = ['auto', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'local', 'off'];
 // 最近使用只用于挑模型，不值得无限增长；收藏没有上限，删除模型后的残留由保存时清理。
 export const MAX_RECENT_MODELS = 8;
@@ -133,6 +135,19 @@ export function externalSearchAvailable(mode: ExternalSearchMode, settings: Sett
   if (mode === 'ollama') return !!ollamaWebSearchKey(settings);
   if (mode === 'deepseek') return !!deepseekWebSearchKey(settings);
   return true;
+}
+/**
+ * 某家外部搜索当前的密钥。与 externalSearchAvailable 分开：后者问的是"能不能用"
+ * （三家免 Key 服务永远可以），这里问的是"有没有配 Key"。自动降级链优先挑有 Key 的那家，
+ * 免 Key 只在完全没有密钥时才轮到。
+ */
+export function externalSearchKey(mode: ExternalSearchMode, settings: Settings): string {
+  if (mode === 'exa') return settings.exaKey || '';
+  if (mode === 'ollama') return ollamaWebSearchKey(settings);
+  if (mode === 'tavily') return settings.tavilyKey || '';
+  if (mode === 'firecrawl') return settings.firecrawlKey || '';
+  if (mode === 'anysearch') return settings.anysearchKey || '';
+  return deepseekWebSearchKey(settings);
 }
 /**
  * 新对话的默认读取网页方法。'last' 表示接着最近一次在会话里选择的；还没有任何记录时回到自动。
@@ -259,21 +274,22 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   const model = settings.models.find(m => m.id === modelId);
   const connection = settings.connections.find(c => c.id === model?.connectionId);
   // 原生搜索要求模型勾选了原生搜索且协议不是 Chat Completions；外部搜索要求模型支持工具调用，
-  // 没有配置任何 Key 时用 Firecrawl 免 Key 兜底。这两条都拿不出来才真的关闭联网。
+  // 没有配置任何 Key 时用 Tavily 免 Key 兜底。这两条都拿不出来才真的关闭联网。
   const native = (): Exclude<ChatConfig['search'], 'auto'> | undefined => model?.nativeSearch && connection && connection.protocol !== 'chat' ? 'native' : undefined;
   const external = (): Exclude<ChatConfig['search'], 'auto'> | undefined => {
     if (!model?.tools) return undefined;
     // 用户指定的外部搜索排在最前；它没有可用密钥时跳过，继续走下面的内置顺序。
     const preferred = settings.preferredExternalSearch;
     if (preferred && preferred !== 'auto' && externalSearchAvailable(preferred, settings)) return preferred;
-    if (settings.exaKey) return 'exa';
-    if (ollamaWebSearchKey(settings)) return 'ollama';
-    if (settings.firecrawlKey) return 'firecrawl';
-    if (settings.anysearchKey) return 'anysearch';
-    if (settings.tavilyKey) return 'tavily';
-    // 刻意不把 DeepSeek 放进这条链：它是唯一按次计费的搜索服务，配了密钥就自动启用
-    // 会让"自动联网"悄悄开始花钱。只有显式选择（会话里选它，或把它设为优先项）才会用到。
-    return 'firecrawl';
+    // 内置顺序里第一家配了 Key 的胜出。DeepSeek 刻意不在这条链里：它是唯一按次计费的
+    // 搜索服务，配了密钥就自动启用会让"自动联网"悄悄开始花钱。只有显式选择（会话里选它，
+    // 或把它设为优先项）才会用到。
+    for (const mode of EXTERNAL_SEARCH_MODES) {
+      if (mode === 'deepseek') continue;
+      if (externalSearchKey(mode, settings)) return mode;
+    }
+    // 一个 Key 都没配时，用内置顺序里第一家支持免 Key 的服务（Tavily）。
+    return EXTERNAL_SEARCH_MODES.find(mode => mode !== 'deepseek' && externalSearchAvailable(mode, settings)) || 'tavily';
   };
   // 设置里关掉"优先使用内置搜索"时，自动模式改为外部服务优先，原生只作最后兜底。
   return settings.preferNativeSearch === false ? external() ?? native() ?? 'off' : native() ?? external() ?? 'off';

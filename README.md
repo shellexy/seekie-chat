@@ -90,7 +90,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。温度（0–2）和 `top_p`（0–1）也在“会话选项”中设置，按当前分支保存，默认值均为 1；当前模型或协议的思考模式不接受采样参数时，控件会禁用。新对话的搜索模式和默认读取网页方法可在“设置 → 联网搜索 → 默认联网搜索”里指定（读取网页默认为“自动”，也可选“上次使用”接着你在会话里最后选择的那一个），之后仍可在“会话选项”中逐个分支修改；切换模型时保留显式的“关闭”，其余回到该默认值。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
 
-- **自动联网（默认）**：优先使用模型原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序使用已配置 Key 的服务；没有已配置搜索 Key 时使用 Firecrawl 免 Key 搜索。“设置 → 联网搜索”里有三个只影响自动模式的偏好：默认开启的“自动模式下优先使用模型原生搜索”（关闭后自动模式先走外部搜索服务，原生搜索只作最后兜底）、“自动模式下优先使用的外部搜索”（决定外部链先试哪一家，选“默认顺序（内置）”即上面的顺序；未配置 API Key 的选项在界面上置灰，而已保存的值在密钥被删除时会跳过该家继续降级，因为 Tavily、Firecrawl、AnySearch 免 Key 也可用，只有 Exa 和 Ollama Cloud 必须有密钥），以及“新对话的默认读取网页方法”。会话里显式选择的搜索模式始终按指定执行。
+- **自动联网（默认）**：优先使用模型原生搜索，其次按 Tavily、Exa、Ollama Cloud、AnySearch、Firecrawl 的顺序使用已配置 Key 的服务；没有已配置搜索 Key 时使用 Tavily 免 Key 搜索（Tavily 的响应明显快于 Firecrawl，因此排在最前）。“设置 → 联网搜索”里有三个只影响自动模式的偏好：默认开启的“自动模式下优先使用模型原生搜索”（关闭后自动模式先走外部搜索服务，原生搜索只作最后兜底）、“自动模式下优先使用的外部搜索”（决定外部链先试哪一家，选“默认顺序（内置）”即上面的顺序；未配置 API Key 的选项在界面上置灰，而已保存的值在密钥被删除时会跳过该家继续降级，因为 Tavily、Firecrawl、AnySearch 免 Key 也可用，只有 Exa 和 Ollama Cloud 必须有密钥），以及“新对话的默认读取网页方法”。会话里显式选择的搜索模式始终按指定执行。
 - **关闭**：不启用工具搜索。
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`，Gemini 使用 `googleSearch`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。
@@ -99,7 +99,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **Tavily**：可在设置中填写 Tavily API Key；未填写时发送 `X-Tavily-Access-Mode: keyless`，使用 basic 搜索深度。
 - **Firecrawl**：API Key 可选；无 Key 时使用官方限额内的搜索，有 Key 时可提高限额。搜索可返回 Markdown 正文。
 - **AnySearch**：API Key 可选；无 Key 时使用匿名额度，有 Key 时可提高限额。
-- **读取网页**：与联网搜索独立设置。自动模式先尝试已配置密钥的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch，再尝试支持免 Key 的 Firecrawl、AnySearch、Tavily；都失败时回退到本地读取网页。也可以指定服务、本地读取网页或关闭。Tavily、Firecrawl、AnySearch 均可免 Key 读取网页；Ollama Cloud 可复用连接 API Key。**DeepSeek Fetch** 调用 `POST https://api.deepseek.com/v1/tools/fetch` 返回 Markdown，同样按次计费、不参与自动降级。
+- **读取网页**：与联网搜索独立设置。自动模式先尝试已配置密钥的 Tavily、Exa、Ollama Cloud、AnySearch、Firecrawl，再尝试支持免 Key 的 Tavily、AnySearch、Firecrawl；都失败时回退到本地读取网页。也可以指定服务、本地读取网页或关闭。Tavily、Firecrawl、AnySearch 均可免 Key 读取网页；Ollama Cloud 可复用连接 API Key。**DeepSeek Fetch** 调用 `POST https://api.deepseek.com/v1/tools/fetch` 返回 Markdown，同样按次计费、不参与自动降级。
 - **本地读取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
 - **联网按钮**：同时启用或关闭联网搜索和读取网页；两项仍可在会话选项中分别调整。
 

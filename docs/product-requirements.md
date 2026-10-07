@@ -162,7 +162,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 ### 5.2 搜索模式
 
-联网搜索和读取网页分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl、AnySearch 和 DeepSeek 搜索。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Firecrawl 的免 Key 搜索。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
+联网搜索和读取网页分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl、AnySearch 和 DeepSeek 搜索。新对话默认自动联网，优先原生搜索，其次按 Tavily、Exa、Ollama Cloud、AnySearch、Firecrawl 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Tavily 的免 Key 搜索。Tavily 排在最前，因为它的响应明显快于 Firecrawl。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
 
 - 新对话的默认搜索模式在“设置 → 联网搜索 → 默认联网搜索”中指定，默认“自动联网”；之后每个分支仍可单独调整，切换模型时保留显式的“关闭”并回到该默认值。
 - 新对话的默认读取网页方法同样可配置，默认“自动”，另提供“上次使用”：新对话接着最近一次在会话里选择的读取方式记录该值，尚无记录时回落到自动。
@@ -185,7 +185,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 - Responses 协议的思考事件名两家不同：OpenAI 发 `response.reasoning_summary_text.delta`（摘要），DeepSeek 发 `response.reasoning_text.delta`（思维链原文），两种都要读取；Responses 服务的流式帧可能在 `data:` 之前多一行 `event:`，两种帧格式都要支持。
 - 引用显示来源标题、URL，能定位关联引用并在系统浏览器打开。来源列表默认收成一行（显示条数），点击标题才展开全部条目——一次搜索能带回十几条，全部铺开会把回答区撑得很长。
 - 工具结果和网页内容视为外部资料，不能改变应用权限、执行命令或读取本地文件。该提示写在搜索与读取网页两个工具的描述里（`UNTRUSTED_CONTENT_NOTE`），四种协议一致；系统提示词按用户所写原样发送，不追加任何工具或联网相关片段，因此改提示词不会把这层防护删掉。
-- 读取网页默认自动按 Exa Contents、Ollama Cloud `api/web_fetch`、Tavily Extract、Firecrawl Scrape、AnySearch Extract 的顺序调用已配置密钥的服务；然后尝试 Firecrawl、AnySearch、Tavily 的免 Key API。服务失败时继续尝试下一个；都不可用或都失败时回退到本地读取网页。Tavily 免 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 与 AnySearch 不发送 Authorization。Ollama Cloud 可复用连接配置中的 API Key。
+- 读取网页默认自动按 Tavily Extract、Exa Contents、Ollama Cloud `api/web_fetch`、AnySearch Extract、Firecrawl Scrape 的顺序调用已配置密钥的服务；然后尝试 Tavily、AnySearch、Firecrawl 的免 Key API。服务失败时继续尝试下一个；都不可用或都失败时回退到本地读取网页。Tavily 免 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 与 AnySearch 不发送 Authorization。Ollama Cloud 可复用连接配置中的 API Key。
 - 用户可在会话选项中为读取网页指定自动、任一供应商、本地读取网页或关闭。无 Key 的 Tavily、Firecrawl 和 AnySearch 仍可选用。旧会话没有此字段时，若原搜索模式为关闭则读取网页保持关闭，否则按自动处理。
 - `web_fetch` 通过 Electron 主进程提供。供应商读取网页 API 返回 Markdown；AnySearch 返回 HTML 时使用 Defuddle 转换。本地读取网页使用 Electron `net.fetch`（Chromium 网络栈）并服从默认 session 的代理配置，请求优先声明 `text/markdown`，HTML 使用 Defuddle 提取并转换为 Markdown。
 - Gemini 原生 Google Search 和自定义 `web_fetch` 同时启用仅支持 Gemini 3 及更新模型；较早 Gemini 模型选择外部搜索提供方时可使用 `web_fetch`。

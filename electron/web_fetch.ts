@@ -2,7 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Defuddle } from 'defuddle/node';
 import { parseHTML } from 'linkedom';
-import { deepseekWebSearchKey, ollamaWebSearchKey } from '../src/domain';
+import { externalSearchKey } from '../src/domain';
 import type { Settings, WebFetchMode } from '../src/types';
 
 export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'deepseek' | 'local' }
@@ -14,6 +14,10 @@ const ACCEPT = 'text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8, tex
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 20_000;
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+// 自动读取网页的顺序，与联网搜索的内置顺序一致：Tavily 排最前，它的响应明显快于 Firecrawl。
+const AUTO_FETCH_ORDER: WebFetchProvider[] = ['tavily', 'exa', 'ollama', 'anysearch', 'firecrawl'];
+// 支持免 Key 的三家，顺序与上面一致；Exa 与 Ollama Cloud 必须有密钥。
+const KEYLESS_FETCH_ORDER: WebFetchProvider[] = ['tavily', 'anysearch', 'firecrawl'];
 
 function ipv4Number(address: string): number | undefined {
   if (isIP(address) !== 4) return undefined;
@@ -135,12 +139,7 @@ export async function fetchWebPage(input: string, signal: AbortSignal, fetcher: 
 }
 
 function apiKeyFor(provider: WebFetchProvider, settings: Settings) {
-  if (provider === 'exa') return settings.exaKey;
-  if (provider === 'ollama') return ollamaWebSearchKey(settings);
-  if (provider === 'tavily') return settings.tavilyKey;
-  if (provider === 'firecrawl') return settings.firecrawlKey;
-  if (provider === 'deepseek') return deepseekWebSearchKey(settings);
-  return settings.anysearchKey;
+  return externalSearchKey(provider, settings);
 }
 function providerUrl(provider: WebFetchProvider) {
   return provider === 'exa' ? 'https://api.exa.ai/contents'
@@ -221,8 +220,8 @@ export async function fetchWebPageWithProviders(
   const configured: WebFetchProvider[] = selected === 'auto'
     ? [
       // DeepSeek 不在自动链里：它按次计费，自动读网页不该悄悄产生费用，与联网搜索同理。
-      ...(['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch'] as const).filter(provider => !!apiKeyFor(provider, settings)),
-      ...(['firecrawl', 'anysearch', 'tavily'] as const).filter(provider => !apiKeyFor(provider, settings))
+      ...AUTO_FETCH_ORDER.filter(provider => !!apiKeyFor(provider, settings)),
+      ...KEYLESS_FETCH_ORDER.filter(provider => !apiKeyFor(provider, settings))
     ]
     : [selected];
   const failures: string[] = [];

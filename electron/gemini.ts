@@ -149,7 +149,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     catch (error) {
       if (!builtInSearch || !/include_server_side_tool_invocations/i.test(String(error))) throw error;
       builtInSearch = false;
-      // Prefer an external provider (including the keyless Firecrawl fallback) over losing search;
+      // Prefer an external provider (including the keyless Tavily fallback) over losing search;
       // native is excluded because that is exactly what the relay refused to combine.
       const fallback = resolveSearch({ ...settings, models: [{ ...model, nativeSearch: false }] }, model.id, 'auto');
       if (isExternalSearch(fallback)) {

@@ -422,8 +422,9 @@ try {
   assert.equal(await page.getByLabel('新对话的搜索模式').inputValue(), 'auto');
   assert.equal(await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).isChecked(), true, '默认原生搜索优先');
   // The external head and the default webpage reader are separate preferences; both land in settings.
+  // The dropdown lists the built-in priority order: Tavily first, DeepSeek (billed per call) last.
   const preferredExternal = page.getByLabel('自动模式下优先使用的外部搜索');
-  assert.deepEqual(await preferredExternal.locator('option').allTextContents(), ['默认顺序（内置）', 'Exa（需 API Key）', 'Ollama Cloud（需 API Key）', 'Tavily', 'Firecrawl', 'AnySearch', 'DeepSeek 搜索（按次计费）']);
+  assert.deepEqual(await preferredExternal.locator('option').allTextContents(), ['默认顺序（内置）', 'Tavily', 'Exa（需 API Key）', 'Ollama Cloud（需 API Key）', 'AnySearch', 'Firecrawl', 'DeepSeek 搜索（按次计费）']);
   assert.equal(await preferredExternal.inputValue(), 'auto');
   await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).uncheck();
   await preferredExternal.selectOption('tavily');

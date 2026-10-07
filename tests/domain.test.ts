@@ -104,6 +104,7 @@ test('new chats enable automatic search and select only available providers', as
   assert.equal(conversation.archived, false);
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'native');
   state.settings.connections[0].protocol = 'chat';
+  // 内置顺序是 Tavily、Exa、Ollama Cloud、AnySearch、Firecrawl：配了 Key 的里挑最靠前的一家。
   state.settings.exaKey = 'fixture';
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'exa');
   state.settings.exaKey = '';
@@ -117,18 +118,20 @@ test('new chats enable automatic search and select only available providers', as
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'ollama');
   assert.equal(resolveSearch(state.settings, 'm', 'tavily'), 'tavily');
   state.settings.connections.pop();
-  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  // 一个 Key 都没配时用免 Key 的那家：内置顺序里第一个免 Key 可用的是 Tavily。
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily');
   state.settings.anysearchKey = 'anysearch-fixture';
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'anysearch');
   state.settings.firecrawlKey = 'firecrawl-fixture';
-  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'anysearch', 'AnySearch 排在 Firecrawl 前面');
   state.settings.tavilyKey = 'tavily-fixture';
-  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily', 'Tavily 排在内置顺序最前');
   state.settings.firecrawlKey = '';
-  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'anysearch');
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily');
   state.settings.anysearchKey = '';
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily');
   state.settings.tavilyKey = '';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily', '都没有 Key 时用免 Key 的 Tavily');
   assert.equal(resolveSearch(state.settings, 'm', 'off'), 'off');
 });
 
@@ -416,7 +419,7 @@ test('automatic search prefers external providers when native search is not pref
   settings.preferNativeSearch = false;
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa', '关掉后外部服务优先，原生只作兜底');
   settings.exaKey = '';
-  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '没有 Key 时用 Firecrawl 免 Key');
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '没有 Key 时用 Tavily 免 Key');
   settings.models[0].tools = false;
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'native', '模型不支持工具调用时回到原生搜索');
   settings.models[0].nativeSearch = false;
@@ -433,7 +436,7 @@ test('automatic search starts from the preferred external provider and skips it 
   settings.preferredExternalSearch = 'auto';
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'native', '原生搜索优先');
   settings.preferNativeSearch = false;
-  assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa', '默认顺序里 Exa 排最前');
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa', '默认顺序里只有 Exa 配了 Key');
   settings.tavilyKey = 'tavily-fixture';
   settings.preferredExternalSearch = 'tavily';
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '指定的外部搜索应排在最前');
@@ -448,6 +451,36 @@ test('automatic search starts from the preferred external provider and skips it 
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '没有 Ollama 密钥时同样跳过');
   settings.ollamaKey = 'ollama-fixture';
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'ollama', '配好密钥后优先的那家才生效');
+});
+
+test('the built-in external search order starts with Tavily and prefers providers that have a key', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'fixture', protocol: 'chat', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'fixture', contextWindow: 10000, maxOutput: 4096, vision: false, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false }];
+  // 一个 Key 都没配：内置顺序里第一个免 Key 可用的是 Tavily。
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily');
+  // 全部配齐时，按 Tavily、Exa、Ollama Cloud、AnySearch、Firecrawl 取最靠前的一家。
+  settings.tavilyKey = 'tavily-fixture';
+  settings.exaKey = 'exa-fixture';
+  settings.ollamaKey = 'ollama-fixture';
+  settings.anysearchKey = 'anysearch-fixture';
+  settings.firecrawlKey = 'firecrawl-fixture';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily');
+  settings.tavilyKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa');
+  settings.exaKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'ollama');
+  settings.ollamaKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'anysearch');
+  settings.anysearchKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl');
+  settings.firecrawlKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '都没有 Key 时回到免 Key 的 Tavily');
+  // DeepSeek 按次计费，配了密钥也不自动启用。
+  settings.deepseekKey = 'deepseek-fixture';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', 'DeepSeek 不参与自动降级链');
+  settings.preferredExternalSearch = 'deepseek';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'deepseek', '显式设为优先项时才用 DeepSeek');
 });
 
 test('a new chat can follow the webpage reader that was last used', () => {
@@ -488,10 +521,10 @@ test('deepseek search stays out of the automatic chain unless it is picked expli
   // 连接密钥即可用，但没有专用密钥时也应视为可用。
   assert.equal(deepseekWebSearchKey(settings), 'deepseek-connection-key');
   assert.equal(externalSearchAvailable('deepseek', settings), true);
-  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '自动模式不应因为配了 DeepSeek 密钥就改用它');
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '自动模式不应因为配了 DeepSeek 密钥就改用它');
   settings.deepseekKey = 'deepseek-dedicated';
   assert.equal(deepseekWebSearchKey(settings), 'deepseek-dedicated', '专用密钥优先于连接密钥');
-  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '配了密钥也仍然不进自动降级链');
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '配了密钥也仍然不进自动降级链');
   // 显式设为优先项才会被自动模式用到。
   settings.preferredExternalSearch = 'deepseek';
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'deepseek');

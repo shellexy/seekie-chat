@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { generateGemini, sanitizeStoredParts } from './gemini';
 import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
-import { deepseekWebSearchKey, effectiveProtocol, EXTERNAL_SEARCH_MODES, ollamaWebSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
+import { effectiveProtocol, EXTERNAL_SEARCH_MODES, externalSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
 import type { ChatConfig, Connection, ExternalSearchMode, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
@@ -219,7 +219,7 @@ export function buildInput(protocol: string, messages: Message[], model?: Model)
   });
 }
 function configuredSearchKey(mode: ExternalSearchMode, settings: Settings) {
-  return mode === 'exa' ? settings.exaKey : mode === 'ollama' ? ollamaWebSearchKey(settings) : mode === 'tavily' ? settings.tavilyKey : mode === 'firecrawl' ? settings.firecrawlKey : mode === 'deepseek' ? deepseekWebSearchKey(settings) : settings.anysearchKey;
+  return externalSearchKey(mode, settings);
 }
 async function externalSearch(mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) {
   const key = configuredSearchKey(mode, settings);

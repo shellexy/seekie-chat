@@ -314,10 +314,10 @@ test('Gemini retries with an external provider when a relay drops tool_config', 
     assert.deepEqual(first.toolConfig, { includeServerSideToolInvocations: true });
     assert.equal(second.toolConfig, undefined, '放弃内置工具后不再需要 opt-in');
     assert.equal(second.tools.some((tool: any) => tool.googleSearch), false);
-    // Keyless Firecrawl is the documented auto fallback when no search key is configured.
-    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['firecrawl_search', 'datetime']);
+    // Keyless Tavily is the documented auto fallback when no search key is configured.
+    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['tavily_search', 'datetime']);
     assert.equal(result.text, '现在是本机时间。');
-    assert.match(notices[0] || '', /未转发 tool_config/); assert.match(notices[0] || '', /Firecrawl/);
+    assert.match(notices[0] || '', /未转发 tool_config/); assert.match(notices[0] || '', /Tavily/);
     assert.equal(result.sources.length, 0);
   } finally { await agent.close(); }
 });
