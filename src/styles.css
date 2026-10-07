@@ -189,13 +189,15 @@ p {
   font-size: 12px;
   align-self: start;
 }
-/* 提示文字下方的一行文字链接：单独占一行，看起来像链接而不像按钮。 */
+/* 提示文字下方的一行文字链接：单独占一行，看起来像链接而不像按钮。
+   按钮天然是收缩到内容宽度的，所以靠 auto 外边距把它摆到中间。 */
 .text-link {
   display: block;
+  width: fit-content;
   background: none;
   border: 0;
   padding: 0;
-  margin-top: 8px;
+  margin: 8px auto 0;
   color: var(--accent);
   font-size: 12px;
 }
@@ -863,6 +865,16 @@ summary {
 }
 .tool-status.error {
   color: #b35247;
+}
+/* 工具名后的查询词：一行放不下就省略号截断，别把状态与耗时挤走。 */
+.tool-query {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 来源默认收成一行：搜索一次能带回十几条，全部铺开会把回答区撑得很长。点一下才展开。 */
 .sources {

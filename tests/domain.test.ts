@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -561,6 +561,20 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.deepEqual(settingsProblems(next), []);
   // 已经有默认模型时不覆盖用户的选择。
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
+});
+
+test('a search tool card shows the query it ran, and nothing when the service gave no parameters', () => {
+  assert.equal(toolQuery('tavily_search', '{"query":"广州天气"}'), '广州天气');
+  assert.equal(toolQuery('web_search', '{\n  "type": "search",\n  "query": "Electron docs"\n}'), 'Electron docs');
+  // Gemini 原生搜索给的是字符串数组，一轮可能带多个查询。
+  assert.equal(toolQuery('google_search', '["广州天气","广州 天河 天气"]'), '广州天气、广州 天河 天气');
+  // 服务端没返回参数时是一句占位中文，不是查询词。
+  assert.equal(toolQuery('web_search', '服务端没有返回显式搜索参数'), '');
+  assert.equal(toolQuery('web_search', '等待服务端返回搜索参数'), '');
+  // 非搜索工具不显示查询词：网页读取的输入是地址，日期时间没有输入。
+  assert.equal(toolQuery('web_fetch', '{"url":"https://example.com"}'), '');
+  assert.equal(toolQuery('datetime', '{}'), '');
+  assert.equal(toolQuery('tavily_search', ''), '');
 });
 
 test('tool output that happens to be JSON is indented for reading, and only for reading', () => {

@@ -269,6 +269,14 @@ export default function App() {
   async function newChat() { await commit(s => { const c = createConversation(s.settings); s.conversations.unshift(c); s.selectedId = c.id; }); setShowArchived(false); setShowSettings(false); setAtBottom(true); textareaRef.current?.focus(); }
   /** 欢迎页的一键添加：不需要 API Key 的免费体验模型，加好就能直接开始聊。 */
   async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了')).catch(e => toast(String(e))); }
+  /** 欢迎页的"找鲸鱼娘聊天"：换到鲸鱼娘这个角色，并替用户把开场白填进输入框。 */
+  async function talkToWhaleLady() {
+    const preset = state.settings.promptPresets.find(p => p.id === 'whale_lady');
+    if (!preset) { toast('角色库里没有鲸鱼娘，请先在设置里重置预设角色'); return; }
+    await commit(s => { const { b } = find(s); b.config = { ...b.config, system: preset.content }; }).catch(e => toast(String(e)));
+    draft('鲸鱼娘，来和我说说话吧。');
+    textareaRef.current?.focus();
+  }
   // Reads the state it is given, so a mutation that also changes selectedId sees its own change.
   function find(s: AppState): { c: Conversation; b: Branch } { const id = s.selectedId || stateRef.current.selectedId; const c = s.conversations.find(c => c.id === id) || s.conversations[0]; const b = c.branches.find(b => b.id === c.activeBranchId)!; return { c, b }; }
   async function switchChat(id: string) { if (scrollRef.current && branch) branch.scrollTop = scrollRef.current.scrollTop; await commit(s => { s.selectedId = id; }); setShowSettings(false); }
@@ -584,12 +592,15 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                               <Plus size={16}/>连接第一个模型</button>
                               <button className="text-link" onClick={() => void addFreeModel()}>还没有 API？点击一键添加免费体验模型</button>
                             </> : !conversation ? <button className="primary" onClick={() => newChat()}>
-                              <Plus size={16}/>开始新对话</button> : <div className="starter-grid">
+                              <Plus size={16}/>开始新对话</button> : <>
+                              <div className="starter-grid">
                                   {['帮我梳理一个项目的实现思路', '解释一个我想深入了解的概念', '一起比较几个方案的优缺点'].map(t => <button key={t} onClick={() => { draft(t); textareaRef.current?.focus(); }}>
                                       {t}
                                         <ArrowUp size={15}/>
                                         </button>)}
-                                        </div>}
+                                        </div>
+                              <button className="text-link" onClick={() => void talkToWhaleLady()}>不知道想聊什么？来和鲸鱼娘说说话吧</button>
+                            </>}
                                             <div className="welcome-foot">
                                             <GitBranch size={15}/>从任何回答创建分支，探索不同方向</div>
                                             </div> : <div className="messages">

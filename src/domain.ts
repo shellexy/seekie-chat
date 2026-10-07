@@ -435,6 +435,26 @@ export function formatToolOutput(text: string): string {
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text;
   try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { return text; }
 }
+// 只给搜索类工具取查询词：读取网页显示的是地址，日期时间没有输入，都不在这里处理。
+const SEARCH_TOOL_NAMES = new Set(['web_search', 'google_search', 'exa_search', 'ollama_web_search', 'tavily_search', 'firecrawl_search', 'anysearch_search', 'deepseek_search']);
+/**
+ * 工具卡片标题后面跟的查询词。外部搜索的输入是 {"query":"…"}，Gemini 原生搜索给的是
+ * 字符串数组，服务端没返回参数时则是一句中文占位——占位不是查询词，解析不出就返回空串。
+ */
+export function toolQuery(name: string, input: string): string {
+  if (!SEARCH_TOOL_NAMES.has(name)) return '';
+  const queries = (value: unknown): string => {
+    if (typeof value === 'string') return value.trim();
+    if (Array.isArray(value)) return value.filter(item => typeof item === 'string' && item.trim()).join('、');
+    return '';
+  };
+  try {
+    const parsed: unknown = JSON.parse(input);
+    if (Array.isArray(parsed)) return queries(parsed);
+    if (parsed && typeof parsed === 'object') return queries((parsed as { query?: unknown }).query);
+  } catch { /* 占位文字不是 JSON：没有查询词可显示。 */ }
+  return '';
+}
 export function messageDateTime(timestamp: number) {
   const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;

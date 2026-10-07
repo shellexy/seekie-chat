@@ -773,7 +773,7 @@ try {
   await page.locator('.config-popover').waitFor({ state: 'hidden' });
   const networkToggle = toolbar.getByRole('button', { name: '联网', exact: true });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
-  assert.equal(await networkToggle.innerText(), '已联网', '联网开关改为纯文字标签');
+  assert.equal(await networkToggle.innerText(), '联网搜索', '联网开关改为纯文字标签');
   assert.equal(await networkToggle.locator('.network-icon').count(), 0, '不再有地球图标');
   // 开启状态不再用强调色，状态由文字本身说明；左边留白收一点。
   const toggleStyle = await networkToggle.evaluate(el => {
@@ -789,7 +789,7 @@ try {
     return config.search === 'off' && config.webFetch === 'off';
   });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'false');
-  assert.equal(await networkToggle.innerText(), '未联网', '关闭时文字应变为"未联网"');
+  assert.equal(await networkToggle.innerText(), '联网搜索：关', '关闭时文字应变为"联网搜索：关"');
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.seekie.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -989,6 +989,10 @@ try {
     await page.locator('.message.assistant .message-content').waitFor();
     // 各协议的思考摘要都应出现在回答的推理卡片里。
     const summary = page.locator('.message.assistant').last().locator('.thinking');
+    if (protocol === 'gemini') {
+      // 原生搜索的卡片要在工具名后面显示查询词，收起时也能看出搜的是什么。
+      assert.equal(await page.locator('.message.assistant').last().locator('.tool-card .tool-query').innerText(), 'Electron docs', '搜索工具卡片应显示查询词');
+    }
     if (protocol === 'responses') {
       assert.equal(await summary.count(), 1, 'Responses 协议应显示思考摘要卡片');
       assert.match(await summary.textContent(), /推理摘要来自模拟服务。/, '思考摘要内容应来自 response.reasoning_summary_text.delta');
@@ -1490,6 +1494,16 @@ try {
   }, thinkingFixture);
   await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === false, thinkingFixture.answerId);
   await thinking.locator('summary').click(); assert.equal(await thinking.evaluate(el => el.open), true, '回答完成后仍可手动展开思考摘要');
+  console.log('stage: whale lady');
+  // 新对话页的鲸鱼娘入口：一键换角色，并替用户把开场白填进输入框。
+  // 这里不能复用前面那个 input 定位器——它绑在上一次启动的窗口上，重启后已经失效。
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await page.locator('.starter-grid').waitFor();
+  assert.equal(await page.locator('.welcome .text-link').count(), 1, '新对话页应提供鲸鱼娘入口');
+  await page.locator('.welcome .text-link').click();
+  assert.equal(await page.getByRole('textbox', { name: '消息输入' }).inputValue(), '鲸鱼娘，来和我说说话吧。', '点击后应把开场白填进输入框');
+  assert.equal(await page.locator('.header-title .role-preset').innerText(), '鲸鱼娘', '顶栏应显示当前角色是鲸鱼娘');
+  await page.screenshot({ path: join(directory, 'whale-lady.png') });
   console.log('stage: validation complete');
   console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {

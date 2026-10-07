@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Copy, FileJson, GitBranch, Paperclip, Pencil
 import Markdown from './Markdown';
 import AnswerMetaDetails from './AnswerMetaDetails';
 import { useAttachmentPayload } from './attachment_cache';
-import { formatToolOutput, messageDateTime, sameMessage } from './domain';
+import { formatToolOutput, messageDateTime, sameMessage, toolQuery } from './domain';
 import type { Attachment, Message } from './types';
 
 function ReasoningDetails({ message, text, active, duration }: { message: Message; text: string; active: boolean; duration?: number }) {
@@ -12,7 +12,9 @@ function ReasoningDetails({ message, text, active, duration }: { message: Messag
   return <details ref={details} className="thinking"><summary><Sparkles size={13}/>推理摘要{active ? <span className="thinking-status">思考中</span> : duration !== undefined ? <span className="cot-time">{(duration / 1000).toFixed(1)}s</span> : null}</summary><Markdown text={text}/></details>;
 }
 function ToolDetails({ tool }: { tool: Message['tools'][number] }) {
-  return <details className="tool-card"><summary><Search size={13}/>{tool.name}<span className={`tool-status ${tool.status}`}>{tool.status === 'pending' ? '准备中' : tool.status === 'running' ? '执行中' : tool.status === 'done' ? '完成' : '失败'}</span>{tool.elapsed !== undefined && <small>{(tool.elapsed / 1000).toFixed(1)}s</small>}</summary><div><strong>输入</strong><pre>{tool.input}</pre><strong>结果</strong><pre>{tool.output ? formatToolOutput(tool.output) : '等待结果…'}</pre></div></details>;
+  // 搜索类工具把查询词跟在名字后面，收起时也能看出搜的是什么；太长就省略号截断。
+  const query = toolQuery(tool.name, tool.input);
+  return <details className="tool-card"><summary><Search size={13}/>{tool.name}{query && <span className="tool-query" title={query}>{query}</span>}<span className={`tool-status ${tool.status}`}>{tool.status === 'pending' ? '准备中' : tool.status === 'running' ? '执行中' : tool.status === 'done' ? '完成' : '失败'}</span>{tool.elapsed !== undefined && <small>{(tool.elapsed / 1000).toFixed(1)}s</small>}</summary><div><strong>输入</strong><pre>{tool.input}</pre><strong>结果</strong><pre>{tool.output ? formatToolOutput(tool.output) : '等待结果…'}</pre></div></details>;
 }
 function GeneratingIndicator({ taskKind }: { taskKind?: string }) {
   return <div className="generating"><i/><i/><i/><span>{taskKind === 'compression' ? '正在压缩上下文' : '正在思考'}</span></div>;
