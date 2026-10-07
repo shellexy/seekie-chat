@@ -943,6 +943,22 @@ try {
     assert.equal(await bodyBlock.evaluate(el => el.hasAttribute('open')), true, '点击标题应展开');
     const expandedHeight = await blockHeight(bodyBlock);
     assert.ok(expandedHeight > collapsedHeight * 2, `展开后应显示完整内容：${expandedHeight} vs ${collapsedHeight}`);
+    // 请求头与请求体都按 JSON 着色，而且键名与字符串值必须是两种颜色——原本两者同为绿色，
+    // 整段 JSON 看上去跟没高亮一样。
+    const headerCode = debugWindow.locator('code.language-json').first();
+    assert.equal(await debugWindow.locator('code.language-json').count(), 2, '请求头与请求体各自应是一个 json 代码块');
+    const jsonColors = await headerCode.evaluate(el => {
+      const key = el.querySelector('.hljs-attr'), str = el.querySelector('.hljs-string');
+      return { key: key ? getComputedStyle(key).color : '', str: str ? getComputedStyle(str).color : '' };
+    });
+    assert.ok(jsonColors.key && jsonColors.str, `请求头里应同时有键名与字符串：${JSON.stringify(jsonColors)}`);
+    assert.notEqual(jsonColors.key, jsonColors.str, `键名与字符串值应是两种颜色：${jsonColors.key} vs ${jsonColors.str}`);
+    const bodyColors = await bodyBlock.locator('code.language-json').evaluate(el => {
+      const key = el.querySelector('.hljs-attr'), str = el.querySelector('.hljs-string');
+      return { key: key ? getComputedStyle(key).color : '', str: str ? getComputedStyle(str).color : '' };
+    });
+    assert.ok(bodyColors.key && bodyColors.str, `请求体里应同时有键名与字符串：${JSON.stringify(bodyColors)}`);
+    assert.notEqual(bodyColors.key, bodyColors.str, `请求体的键名与字符串值应是两种颜色：${bodyColors.key} vs ${bodyColors.str}`);
     assert.ok(debugText.includes('••••••••'), '请求详情应显示掩码后的密钥');
     // Header names may contain "secret"; what must never appear is the credential value itself.
     assert.ok(!debugText.includes('Bearer fixture-secret'), '请求详情不得泄露 API Key 的值');

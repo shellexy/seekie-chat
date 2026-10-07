@@ -20,6 +20,12 @@
   --on-accent: #fff;
   --bubble: #f3f5f1;
   --chat-font: 15px;
+  /* 代码块的着色。键名与字符串值要分开，否则整段 JSON 只有一种颜色，看不出是"高亮"过的。 */
+  --code-key: #3c7195;
+  --code-string: #477153;
+  --code-number: #a27037;
+  --code-keyword: #905380;
+  --code-comment: #8a918a;
 }
 :root[data-theme="dark"] {
   --bg: #202421;
@@ -31,6 +37,11 @@
   --accent: #3c64fe;
   --accent-bg: #293351;
   --bubble: #2e352d;
+  --code-key: #7cb8e6;
+  --code-string: #8fd39b;
+  --code-number: #e0a765;
+  --code-keyword: #d7a3d4;
+  --code-comment: #8a918a;
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
@@ -43,6 +54,11 @@
     --accent: #3c64fe;
     --accent-bg: #293351;
     --bubble: #2e352d;
+    --code-key: #7cb8e6;
+    --code-string: #8fd39b;
+    --code-number: #e0a765;
+    --code-keyword: #d7a3d4;
+    --code-comment: #8a918a;
   }
 }
 * {
@@ -1856,27 +1872,34 @@ input[type="range"] {
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal {
-  color: #905380;
+  color: var(--code-keyword);
 }
-.hljs-string,
+.hljs-string {
+  color: var(--code-string);
+}
+/* 键名单独一种颜色：JSON 的键与字符串值原本是同一个绿，整段看着像没高亮过。 */
 .hljs-attr {
-  color: #477153;
+  color: var(--code-key);
 }
 .hljs-number,
 .hljs-built_in {
-  color: #a27037;
+  color: var(--code-number);
 }
 .hljs-title,
 .hljs-function {
-  color: #3c7195;
+  color: var(--code-key);
 }
 .hljs-comment {
-  color: #8a918a;
+  color: var(--code-comment);
   font-style: italic;
 }
 .hljs-variable,
 .hljs-params {
   color: var(--text);
+}
+/* 括号、冒号、逗号退到背景里去，数据本身才跳出来。 */
+.hljs-punctuation {
+  color: var(--muted);
 }
 .background-usage {
   font-size: 11px;
