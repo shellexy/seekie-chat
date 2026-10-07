@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, contextMessages, createConversation, defaultModelEfforts, editMessage, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
+import { addMessage, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -14,6 +14,24 @@ test('new model thinking levels use sensible defaults when the model is unknown'
 test('GPT and DeepSeek Flash names default to vision and tool support', () => {
   for (const name of ['gpt-4o', 'GPT-5', 'openai/gpt-4.1', 'gpt-oss-120b', 'models/deepseek-flash', 'deepseek/deepseek-flash-v2', 'DeepSeek Flash']) assert.equal(shouldDefaultVisionAndTools(name), true, name);
   for (const name of ['deepseek-r1', 'local-custom-model']) assert.equal(shouldDefaultVisionAndTools(name), false, name);
+});
+test('history compression retains at least two rounds and grows the suffix to 10% or 50k tokens', () => {
+  const c = createConversation(initialState().settings), branch = c.branches[0];
+  for (let turn = 0; turn < 7; turn++) {
+    addMessage(c, branch, 'user', '问'.repeat(5000));
+    const answer = addMessage(c, branch, 'assistant', '答'.repeat(5000)); answer.status = 'complete';
+  }
+  const path = pathTo(c, branch.leafId);
+  const millionWindowCut = compressionCut(path, 1_000_000);
+  assert.equal(millionWindowCut, 4, '50k budget should retain the five most recent rounds');
+  assert.equal(path[millionWindowCut].role, 'user');
+  assert.ok(estimateTokens(path.slice(millionWindowCut)) >= 50_000);
+  const mediumWindowCut = compressionCut(path, 320_000);
+  assert.equal(mediumWindowCut, 6, '10% of a 320k context should retain four rounds');
+  assert.ok(estimateTokens(path.slice(mediumWindowCut)) >= 32_000);
+  const smallWindowCut = compressionCut(path, 100_000);
+  assert.equal(smallWindowCut, 10, 'two rounds remain even when they exceed the 10% budget');
+  assert.ok(estimateTokens(path.slice(smallWindowCut)) > 10_000);
 });
 test('forks share the selected prefix and isolate subsequent context', () => {
   const { c, b, a } = fixture(); addMessage(c, b, 'user', '原有后续');

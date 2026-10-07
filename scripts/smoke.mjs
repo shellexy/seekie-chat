@@ -54,6 +54,33 @@ async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
   }
   throw new Error('等待桌面应用状态超时');
 }
+async function lengthenActiveHistory(page) {
+  return await page.evaluate(async () => {
+    const state = await window.deepchan.load();
+    const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const messages = new Map(conversation.messages.map(message => [message.id, message]));
+    const originalLeaf = branch.leafId;
+    const path = []; let id = branch.leafId;
+    while (id) { const message = messages.get(id); path.unshift(message); id = message.parentId; }
+    const longText = role => `${role === 'user' ? '用户设定：' : '助手整理：'}${'角色名、世界规则、关系与当前剧情。'.repeat(1600)}`;
+    const model = state.settings.models.find(m => m.id === branch.config.modelId);
+    const protocol = state.settings.connections.find(c => c.id === model?.connectionId)?.protocol;
+    for (const message of path) message.text = longText(message.role);
+    let userTurns = path.filter(message => message.role === 'user').length;
+    const additionalTurns = Math.max(2, 4 - userTurns);
+    for (let turn = 0; turn < additionalTurns; turn++) {
+      const user = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: longText('user'), reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
+      const answer = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: longText('assistant'), reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', modelId: branch.config.modelId, usage: { input: 120, output: protocol === 'gemini' ? 72 : 60, cachedInput: 30, elapsedMs: 1000, firstTokenMs: 100 }, created: Date.now() };
+      conversation.messages.push(user, answer); branch.leafId = answer.id; userTurns++;
+    }
+    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    const persisted = await window.deepchan.load(), persistedConversation = persisted.conversations.find(c => c.id === state.selectedId), persistedBranch = persistedConversation.branches.find(b => b.id === branch.id);
+    const persistedMessages = new Map(persistedConversation.messages.map(message => [message.id, message])); let persistedTurns = 0, persistedId = persistedBranch.leafId;
+    while (persistedId) { const message = persistedMessages.get(persistedId); if (message.role === 'user') persistedTurns++; persistedId = message.parentId; }
+    return { selectedId: state.selectedId, conversationId: conversation.id, branchId: branch.id, originalLeaf, userTurns, persistedTurns, leafId: branch.leafId, persistedLeaf: persistedBranch.leafId };
+  });
+}
 async function assertUsageDetails(page, output = 60) {
   const answer = page.locator('.message.assistant').last();
   const id = await answer.getAttribute('data-id');
@@ -192,7 +219,7 @@ try {
     state.settings.connections = connections;
     state.settings.firecrawlKey = 'firecrawl-fixture-secret';
     state.settings.anysearchKey = 'anysearch-fixture-secret';
-    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
+    state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 65_536, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
@@ -345,8 +372,18 @@ try {
   await page.getByRole('button', { name: '保存新版本' }).click();
   assert.equal(calls.length, count);
   for (let i = 0; i < 2; i++) { await input.fill(`补充问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
+  const compressionFixture = await lengthenActiveHistory(page); assert.ok(compressionFixture.userTurns >= 4); assert.equal(compressionFixture.persistedTurns, compressionFixture.userTurns);
   await page.getByRole('button', { name: '会话选项' }).click(); await page.getByRole('button', { name: '压缩较早历史' }).click();
-  await waitFor(page, async () => (await window.deepchan.load()).conversations[0].branches.some(b => b.summary));
+  await waitFor(page, async () => {
+    const state = await window.deepchan.load(), summary = state.conversations[0].branches.some(b => b.summary);
+    const toast = document.querySelector('.toast')?.textContent;
+    return summary ? 'summary' : toast ? `error: ${toast}` : false;
+  });
+  const chatStateAfterCompression = await page.evaluate(async () => ({ summaries: (await window.deepchan.load()).conversations[0].branches.filter(b => b.summary).length, toast: document.querySelector('.toast')?.textContent }));
+  assert.ok(chatStateAfterCompression.summaries, chatStateAfterCompression.toast || 'no summary was persisted');
+  const chatCompression = calls.filter(c => c.path === '/v1/chat/completions' && c.data.messages?.[0]?.content.includes('如果内容涉及创意写作')).at(-1);
+  assert.equal(chatCompression.data.max_completion_tokens, 50_000);
+  for (const heading of ['## 世界观规则', '## 最近风格样本', '最近 1～2 段风格样本可保留原文']) assert.ok(chatCompression.data.messages[0].content.includes(heading), `compression prompt should contain ${heading}`);
   await page.screenshot({ path: join(directory, 'desktop.png') });
   for (const protocol of ['responses','anthropic','gemini']) {
     console.log('stage: protocol', protocol);
@@ -366,11 +403,25 @@ try {
     await waitFor(page, async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
     if (protocol === 'gemini') {
       for (let i = 0; i < 2; i++) { await input.fill(`Gemini 后续问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
-      await page.getByRole('button', { name: '会话选项' }).click();
-      await page.screenshot({ path: join(directory, 'gemini-options.png') });
-      await page.getByRole('button', { name: '压缩较早历史' }).click();
-      await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
     }
+    await page.getByRole('button', { name: '会话选项' }).click();
+    if (protocol === 'gemini') await page.screenshot({ path: join(directory, 'gemini-options.png') });
+    const compressionFixture = await lengthenActiveHistory(page); assert.ok(compressionFixture.userTurns >= 4); assert.equal(compressionFixture.persistedTurns, compressionFixture.userTurns);
+    await page.getByRole('button', { name: '压缩较早历史' }).click();
+    await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
+    const compressionCall = calls.filter(c => {
+      const prompt = c.data.instructions || c.data.system || c.data.systemInstruction?.parts?.[0]?.text || '';
+      return prompt.includes('如果内容涉及创意写作') && (protocol === 'gemini' ? c.path.startsWith('/v1beta/models/') : c.path === (protocol === 'responses' ? '/v1/responses' : '/v1/messages'));
+    }).at(-1);
+    assert.ok(compressionCall, `${protocol} 应发送创意写作压缩提示词`);
+    const outputLimit = protocol === 'gemini' ? compressionCall.data.generationConfig.maxOutputTokens : compressionCall.data[protocol === 'responses' ? 'max_output_tokens' : 'max_tokens'];
+    assert.equal(outputLimit, 50_000, `${protocol} 压缩输出上限应为50k token`);
+    await page.evaluate(async fixture => {
+      const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === fixture.conversationId), branch = conversation.branches.find(b => b.id === fixture.branchId);
+      branch.leafId = fixture.originalLeaf; await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    }, compressionFixture);
+    await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.leafId === id; }, compressionFixture.originalLeaf);
+    await waitFor(page, async id => [...document.querySelectorAll('.message.assistant')].at(-1)?.getAttribute('data-id') === id, compressionFixture.originalLeaf);
     assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     assert.equal(await page.locator('.message.assistant .answer-model-meta').last().getAttribute('aria-label'), `查看模型信息：模拟 ${protocol}`);
     await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
@@ -427,7 +478,9 @@ try {
   assert.ok(!saved.settings.promptPresets.some(p => p.name === '临时角色'));
   const geminiCalls = calls.filter(c => c.path.startsWith('/v1beta/models/'));
   assert.ok(geminiCalls.some(c => c.data.systemInstruction.parts[0].text.includes('生成简短标题')), 'Gemini 应支持自动标题');
-  assert.ok(geminiCalls.some(c => c.data.systemInstruction.parts[0].text.includes('压缩为')), 'Gemini 应支持历史压缩');
+  const geminiCompression = geminiCalls.find(c => c.data.systemInstruction?.parts?.[0]?.text.includes('如果内容涉及创意写作'));
+  assert.ok(geminiCompression, 'Gemini 应使用完整的创意写作压缩提示词');
+  assert.equal(geminiCompression.data.generationConfig.maxOutputTokens, 50_000);
   assert.ok(geminiCalls.some(c => c.data.contents.some(m => m.role === 'model' && m.parts.some(p => p.thoughtSignature === 'fixture-signature'))), 'Gemini 多轮请求应保留思考签名');
   const branched = saved.conversations.find(c => c.branches.length > 1);
   assert.equal(branched.branches[0].config.system, '当前分支定制提示词。');

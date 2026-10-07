@@ -5,7 +5,7 @@ import { Store, validateState, SECRET_MARKER } from './store';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { contextMessages, estimateTokens, pathTo, summaryValid } from '../src/domain';
+import { compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
 const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
@@ -37,10 +37,32 @@ function get(id: string, branchId: string) {
   return { conversation, branch };
 }
 function plainMessage(text: string, role: Message['role'] = 'user'): Message { return { id: crypto.randomUUID(), parentId: null, role, text, attachments: [], tools: [], sources: [], reasoning: '', status: 'complete', created: Date.now() }; }
+const HISTORY_COMPRESSION_PROMPT = `将聊天历史压缩为可供后续对话使用的摘要。保留目标、事实、约束、偏好、结论、待办、引用。不得添加原文没有的事实。对图片仅保留附件引用，不猜测未提供的内容。只输出摘要。
+
+如果内容涉及创意写作，额外保留并更新以下部分：
+## 世界观规则
+## 主要角色及性格
+## 人物关系
+## 时间线
+## 当前场景/地点
+## 已发生关键事件
+## 未解决伏笔
+## 风格、视角、语气
+## 用户明确偏好与禁忌
+## 最近风格样本
+要求：
+- 摘要事实和设定，不要重写正文。
+- 保留角色名、专名、数字、关键对白风格。
+- 最近 1～2 段风格样本可保留原文。
+- 如果设定冲突，以最新确认版本为准，并标注“已更新”。`;
 async function compress(conversation: Conversation, branch: Branch, signal: AbortSignal, leaf = branch.leafId) {
   const path = pathTo(conversation, leaf);
-  let cut = Math.max(0, path.length - 4); if (path[cut]?.role === 'assistant') cut--;
-  if (cut < 2) throw new Error('历史太短，至少保留最近两轮；请增加上下文窗口或减少输入');
+  const chatModel = resolve(branch.config.modelId).model;
+  const cut = compressionCut(path, chatModel.contextWindow);
+  if (cut < 2) {
+    const targetTokens = Math.min(MAX_COMPRESSION_RETAINED_TOKENS, Math.ceil(chatModel.contextWindow * 0.1));
+    throw new Error(`保留最近两轮和 ${targetTokens} token 后，没有更早历史可压缩（当前 ${path.filter(m => m.role === 'user').length} 轮）`);
+  }
   const modelId = state.settings.compressionModel || branch.config.modelId;
   const { connection, model } = resolve(modelId);
   const prefix = path.slice(0, cut);
@@ -49,7 +71,7 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   if (!remaining.length) return;
   const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
   if (material.length / 2 + 2048 > model.contextWindow) throw new Error('压缩模型上下文不足以处理这些历史，请选择更大窗口的模型');
-  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 4096) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: '将聊天历史压缩为可供后续对话使用的摘要。保留目标、事实、约束、偏好、结论、待办、引用。不得添加原文没有的事实。对图片仅保留附件引用，不猜测未提供的内容。只输出摘要。' }, [plainMessage(material)], state.settings, signal);
+  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, MAX_COMPRESSION_RETAINED_TOKENS) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: HISTORY_COMPRESSION_PROMPT }, [plainMessage(material)], state.settings, signal);
   if (!result.text.trim()) throw new Error('压缩模型未返回摘要');
   if (!state.conversations.some(c => c.id === conversation.id)) return;
   conversation.backgroundUsage = [...(conversation.backgroundUsage || []), { kind: 'compression', modelId, usage: result.usage, created: Date.now() }];
@@ -92,7 +114,8 @@ async function runChat(request: RunRequest) {
       let context = contextMessages(conversation, branch, message.parentId);
       await convertUnsupportedAttachments(context.messages, connection.protocol, model);
       const estimatedInputTokens = () => estimateTokens(context.messages, config.system + context.summary);
-      if (state.settings.autoCompress && estimatedInputTokens() > model.contextWindow * state.settings.compressionThreshold && context.messages.length > 5) {
+      const historyPath = pathTo(conversation, message.parentId);
+      if (state.settings.autoCompress && estimatedInputTokens() > model.contextWindow * state.settings.compressionThreshold && historyPath.filter(m => m.role === 'user').length > 2) {
         await compress(conversation, branch, controller.signal, message.parentId); context = contextMessages(conversation, branch, message.parentId);
         await convertUnsupportedAttachments(context.messages, connection.protocol, model);
       }

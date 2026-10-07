@@ -116,7 +116,36 @@ export function firstLine(text: string) {
   return first.replace(/^[#>*\-\s]+/, '').replace(/[`*_]/g, '').slice(0, 80) || '';
 }
 export function estimateTokens(messages: Message[], system = '') {
-  const text = system + messages.map(m => m.text + m.attachments.map(a => a.markdown || '').join('\n') + m.tools.map(t => t.output).join('')).join('\n');
-  const nonAscii = [...text].filter(ch => ch.charCodeAt(0) > 127).length;
-  return Math.ceil(nonAscii + (text.length - nonAscii) / 3.5) + messages.reduce((n, m) => n + m.attachments.length * 1600 + 12, 0);
+  let ascii = 0, nonAscii = 0;
+  const addText = (text: string) => { for (const ch of text) { if (ch.charCodeAt(0) > 127) nonAscii++; else ascii++; } };
+  addText(system);
+  messages.forEach((m, index) => {
+    if (index) ascii++;
+    addText(m.text + m.attachments.map(a => a.markdown || '').join('\n') + m.tools.map(t => t.output).join(''));
+  });
+  return Math.ceil(nonAscii + ascii / 3.5) + messages.reduce((n, m) => n + m.attachments.length * 1600 + 12, 0);
+}
+export const MAX_COMPRESSION_RETAINED_TOKENS = 50_000;
+export function compressionCut(path: Message[], contextWindow: number, maxRetainedTokens = MAX_COMPRESSION_RETAINED_TOKENS) {
+  const turns: number[] = [];
+  path.forEach((message, index) => { if (message.role === 'user') turns.push(index); });
+  if (turns.length <= 2) return 0;
+
+  const targetTokens = Math.max(1, Math.min(maxRetainedTokens, Math.ceil(contextWindow * 0.1)));
+  let turnIndex = turns.length - 2, cut = turns[turnIndex];
+  let ascii = 0, nonAscii = 0, attachments = 0, messageCount = 0;
+  const addText = (text: string) => { for (const ch of text) { if (ch.charCodeAt(0) > 127) nonAscii++; else ascii++; } };
+  const addMessage = (message: Message) => {
+    if (messageCount) ascii++;
+    addText(message.text + message.attachments.map(a => a.markdown || '').join('\n') + message.tools.map(t => t.output).join(''));
+    attachments += message.attachments.length; messageCount++;
+  };
+  const tokens = () => Math.ceil(nonAscii + ascii / 3.5) + attachments * 1600 + messageCount * 12;
+  for (let index = path.length - 1; index >= cut; index--) addMessage(path[index]);
+  while (turnIndex > 0 && tokens() < targetTokens) {
+    const previousCut = turns[turnIndex - 1];
+    for (let index = cut - 1; index >= previousCut; index--) addMessage(path[index]);
+    cut = previousCut; turnIndex--;
+  }
+  return cut;
 }
