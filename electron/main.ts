@@ -10,6 +10,7 @@ import { appendAssistantSegment, appendReasoningDuration, compressionCut, contex
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
+import { broadcastDelay } from './broadcast';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
 const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
@@ -24,9 +25,10 @@ const redact = (error: unknown) => {
   for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey, state?.settings.firecrawlKey, state?.settings.anysearchKey]) if (key) text = text.split(key).join('[已隐藏]');
   return text.slice(0, 1600);
 };
-function emit(immediate = false) {
+function emit(immediate = false, streamingChars = 0) {
   const send = () => { broadcastTimer = undefined; if (win && !win.isDestroyed()) win.webContents.send('event', { state: store.public(state), tasks: [...tasks].map(([conversationId, t]) => ({ conversationId, branchId: t.branchId, kind: t.kind })) }); };
-  if (immediate) { clearTimeout(broadcastTimer); send(); } else if (!broadcastTimer) broadcastTimer = setTimeout(send, 80);
+  // `streamingChars` is the length of the answer being streamed: long answers refresh less often.
+  if (immediate) { clearTimeout(broadcastTimer); send(); } else if (!broadcastTimer) broadcastTimer = setTimeout(send, broadcastDelay(streamingChars));
   if (!persistTimer) persistTimer = setTimeout(() => { persistTimer = undefined; try { store.save(state); } catch (e) { notify(redact(e)); } }, 800);
 }
 function notify(error: string) { win?.webContents.send('event', { error }); }
@@ -110,6 +112,7 @@ async function runChat(request: RunRequest) {
   message.modelId = model.id; message.modelName = model.name; message.connectionName = connection.name; message.config = config; emit(true);
   void (async () => {
     let reasoningStarted: number | undefined, reasoningElapsed = 0;
+    const emitStream = () => emit(false, message.text.length + message.reasoning.length);
     const finishReasoning = () => {
       if (reasoningStarted === undefined) return;
       const elapsed = performance.now() - reasoningStarted;
@@ -131,9 +134,9 @@ async function runChat(request: RunRequest) {
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');
       const started = performance.now(), requestStartedAt = Date.now(); let firstTokenMs: number | undefined;
       const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
-        text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emit(); }, reasoning: s => { if (s) { if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emit(); },
-        tool: t => { finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emit(); },
-        sources: sources => { message.sources = sources; emit(); },
+        text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emitStream(); }, reasoning: s => { if (s) { if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emitStream(); },
+        tool: t => { finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emitStream(); },
+        sources: sources => { message.sources = sources; emitStream(); },
         notice: message => notify(message),
         record: entry => { requestLog.add(message.id, entry); store.saveRequests(message.id, requestLog.get(message.id)); }
       }, webFetch);
