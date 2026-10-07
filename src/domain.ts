@@ -1,4 +1,4 @@
-import type { AppState, Branch, ChatConfig, Conversation, Message, PromptPreset, Settings } from './types';
+import type { AppState, Branch, ChatConfig, Conversation, Message, PromptPreset, Protocol, Settings } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
 export function defaultPromptPresets(): PromptPreset[] {
   return [
@@ -14,6 +14,11 @@ export function normalizePromptSettings(settings: Settings) {
   if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
 }
 export const uid = () => crypto.randomUUID();
+export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
+  if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
+  if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim())) return ['low', 'medium', 'high', 'max'];
+  return ['minimal', 'low', 'medium', 'high'];
+}
 export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
 export function ollamaWebSearchKey(settings: Settings): string {
   if (settings.ollamaKey) return settings.ollamaKey;

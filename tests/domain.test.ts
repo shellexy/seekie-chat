@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, contextMessages, createConversation, editMessage, fork, initialState, pathTo, removeBranch } from '../src/domain';
+import { addMessage, contextMessages, createConversation, defaultModelEfforts, editMessage, fork, initialState, pathTo, removeBranch } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
   return { c, b, u, a };
 }
+test('new model thinking levels use sensible defaults when the model is unknown', () => {
+  assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'medium', 'high', 'max']);
+  assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['minimal', 'low', 'medium', 'high']);
+});
 test('forks share the selected prefix and isolate subsequent context', () => {
   const { c, b, a } = fixture(); addMessage(c, b, 'user', '原有后续');
   const first = fork(c, a.id, 'Electron'); addMessage(c, first, 'user', '讨论 Electron');

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, ChevronRight, ExternalLink, Plus, Trash2, Wifi } from 'lucide-react';
 import { api } from './api';
-import { uid } from './domain';
+import { defaultModelEfforts, uid } from './domain';
 import type { Connection, Model, Settings as SettingsType } from './types';
 const saved = '••••••••';
 const templates = [
@@ -32,17 +32,16 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
     } : t.name === 'Ollama Cloud' ? {
       id: uid(), connectionId: c.id, name: 'gemma4:31b', model: 'gemma4:31b',
       contextWindow: 256_000, maxOutput: 256_000, vision: true, tools: true,
-      nativeSearch: false, videoInput: true, audioInput: false, pdfInput: false, reasoning: 'none', efforts: [], temperature: true, outputTokenField: 'max_tokens'
+      nativeSearch: false, videoInput: true, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: defaultModelEfforts(c.protocol, 'gemma4:31b'), temperature: true, outputTokenField: 'max_tokens'
     } : undefined;
     change({ connections: [...draft.connections, c], ...(presetModel ? { models: [...draft.models, presetModel], defaultModel: draft.defaultModel || presetModel.id } : {}) });
     setSelected(c.id); setFound([]); setHeadersEditing(false);
   }
   function addModel(model = '') {
     if (!connection) return;
-    const supportsMax = /^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim());
     const gemini = connection.protocol === 'gemini';
     const qwen = /^qwen(?:\d|[-/]|$)/i.test(model.trim());
-    const efforts = gemini ? ['minimal', 'low', 'medium', 'high'] : ['low', 'medium', 'high', ...(supportsMax ? ['max'] : [])];
+    const efforts = defaultModelEfforts(connection.protocol, model);
     const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: gemini || qwen, tools: true, nativeSearch: gemini || qwen, videoInput: gemini || qwen, audioInput: gemini, pdfInput: gemini, reasoning: 'effort', efforts, temperature: true };
     change({ models: [...draft.models, m], defaultModel: draft.defaultModel || m.id });
   }
@@ -50,7 +49,10 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
     if (m.id !== id) return m;
     const next = { ...m, ...values };
     if (typeof values.model === 'string') {
-      if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim()) && !next.efforts.includes('max')) next.efforts = [...next.efforts, 'max'];
+      const previousDefaults = defaultModelEfforts(connection?.protocol || 'chat', m.model);
+      const stillUsingDefaults = m.efforts.length === previousDefaults.length && m.efforts.every((effort, index) => effort === previousDefaults[index]);
+      if (stillUsingDefaults) next.efforts = defaultModelEfforts(connection?.protocol || 'chat', values.model);
+      else if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim()) && !next.efforts.includes('max')) next.efforts = [...next.efforts, 'max'];
       if (/^qwen(?:\d|[-/]|$)/i.test(values.model.trim())) Object.assign(next, { vision: true, tools: true, nativeSearch: true, videoInput: true });
     }
     return next;

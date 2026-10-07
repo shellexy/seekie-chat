@@ -32,9 +32,9 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型包含 `max` 等级。
 
-Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
+Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `minimal, low, medium, high`。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
-手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，上下文窗口为 1,000,000 token，最大输出为 65,536 token。可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
+手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，未知模型默认支持 `minimal, low, medium, high`；GPT 和 DeepSeek 保留 `max` 等已知等级。上下文窗口默认为 1,000,000 token，最大输出为 65,536 token，可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 
