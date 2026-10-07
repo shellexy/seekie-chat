@@ -282,8 +282,11 @@ async function openWindow() {
     if (choice === 0) event.preventDefault(); else { for (const task of tasks.values()) task.controller.abort(); for (const task of titles.values()) task.abort(); for (const c of state.conversations) for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; store.save(state); }
   });
 }
-app.setName('Seekie Chat');
-app.setPath('userData', process.env.SEEKIE_DATA_DIR ? join(process.env.SEEKIE_DATA_DIR, 'profile') : join(app.getPath('appData'), 'Seekie Chat'));
+// 程序内部的标识一律用小写连字符：安装目录 /opt/seekie-chat 与配置目录 ~/.config/seekie-chat
+// 都要能在命令行里直接写出来，不该逼用户转义空格。给人看的名字（窗口标题、桌面项、
+// 关于页、侧栏）另有明确来源，不依赖这个名字。
+app.setName('seekie-chat');
+app.setPath('userData', process.env.SEEKIE_DATA_DIR ? join(process.env.SEEKIE_DATA_DIR, 'profile') : join(app.getPath('appData'), 'seekie-chat'));
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { win?.show(); win?.focus(); });

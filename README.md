@@ -121,10 +121,10 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 默认保存在 Electron `userData` 下的 `data/`，常见路径为：
 
 ```text
-~/.config/Seekie Chat/data/chat.sqlite
-~/.config/Seekie Chat/data/attachments/
-~/.config/Seekie Chat/data/requests/
-~/.config/Seekie Chat/data/credentials.json
+~/.config/seekie-chat/data/chat.sqlite
+~/.config/seekie-chat/data/attachments/
+~/.config/seekie-chat/data/requests/
+~/.config/seekie-chat/data/credentials.json
 ```
 
 实际路径受 Linux 的 XDG 配置及 Electron 行为影响。可以指定隔离的数据目录：
@@ -149,11 +149,11 @@ npm run dist:appimage   # seekie-chat-<版本>-x86_64.AppImage
 npm run dist:win        # seekie-chat-<版本>-setup.exe
 ```
 
-deb 安装后：
+deb 装到 `/opt/seekie-chat/`，并创建 `/usr/bin/seekie-chat` 软链接，命令行直接敲 `seekie-chat` 就能启动。除此之外：
 
 - 程序图标取自 `build/icon.png`，随包装进 `usr/share/icons/hicolor/512x512/apps/seekie-chat.png`，任务栏与应用菜单都能命中。
 - 桌面项由 electron-builder 生成，`Name=Seekie Chat`、`Comment=Seekie Chat with DeepSeek LLM`、`StartupWMClass=com.github.shellexy.seekie-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
-- 应用数据仍在 `~/.config/Seekie Chat`（或 `SEEKIE_DATA_DIR` 指定的位置），与从源码运行完全一致。
+- 应用数据仍在 `~/.config/seekie-chat`（或 `SEEKIE_DATA_DIR` 指定的位置），与从源码运行完全一致。
 
 AppImage 是单个可执行文件，`chmod +x` 后直接运行，不需要安装；桌面项与图标都打包在文件内部，同样的 `Name`、`StartupWMClass` 与分类。
 
