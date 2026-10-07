@@ -639,7 +639,10 @@ try {
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 1, '重置后通用助手应被补回');
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).count(), 1, '用户添加的角色不应受影响');
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '角色库更新后的提示词。', '用户角色连改过的提示词都不应被重置');
-  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '你是一位严谨、友善的助手。使用用户的语言回答。', '内置角色应恢复默认提示词');
+    assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '你是一位严谨、友善的助手。使用用户的语言回答。', '内置角色应恢复默认提示词');
+  // 角色库里已经有"通用助手"时，下拉里不能再出现第二个同名的内置兜底项。
+  const roleOptions = await page.getByLabel(/^新对话默认角色/).locator('option').allTextContents();
+  assert.equal(roleOptions.filter(text => text.includes('通用助手')).length, 1, `下拉里应只有一个"通用助手"，实际：${roleOptions.join(' / ')}`);
   await page.screenshot({ path: join(directory, 'prompt-library.png') });
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });

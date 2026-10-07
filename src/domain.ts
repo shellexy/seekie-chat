@@ -16,6 +16,9 @@ export function normalizePromptSettings(settings: Settings) {
   // Only missing libraries get defaults; an intentionally empty library stays empty.
   if (!Array.isArray(settings.promptPresets)) settings.promptPresets = defaultPromptPresets();
   if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
+  // 角色库里有"通用助手"时，"用内置提示词"与它内容相同，统一指向角色本身，避免下拉里出现
+  // 两个同名项。
+  if (settings.defaultPromptPresetId === '' && settings.promptPresets.some(p => p.id === 'general')) settings.defaultPromptPresetId = 'general';
 }
 /**
  * 恢复程序预设的角色。内置角色按固定 id 识别：存在就重置回默认的名称与提示词，被删掉的

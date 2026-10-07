@@ -151,6 +151,25 @@ test('old settings receive a prompt library without changing existing conversati
   assert.equal(settings.promptPresets.length, 0);
 });
 
+test('the built-in general role replaces the duplicate fallback entry in the default role list', async () => {
+  const { normalizePromptSettings } = await import('../src/domain');
+  const settings = initialState().settings;
+  // 库里有"通用助手"时，空值（用内置提示词）与它内容相同，统一指向角色本身。
+  settings.defaultPromptPresetId = '';
+  normalizePromptSettings(settings);
+  assert.equal(settings.defaultPromptPresetId, 'general');
+  // 库里没有"通用助手"时，空值仍然表示"用内置提示词"，不能改。
+  settings.promptPresets = settings.promptPresets.filter(p => p.id !== 'general');
+  settings.defaultPromptPresetId = '';
+  normalizePromptSettings(settings);
+  assert.equal(settings.defaultPromptPresetId, '');
+  // 指向已被删除的角色的默认值不受影响：它只是失效后回落到内置提示词。
+  settings.promptPresets = defaultPromptPresets();
+  settings.defaultPromptPresetId = 'deleted-role';
+  normalizePromptSettings(settings);
+  assert.equal(settings.defaultPromptPresetId, 'deleted-role');
+});
+
 test('each reasoning segment records its own duration', () => {
   const state = initialState(), c = createConversation(state.settings), b = c.branches[0], m = addMessage(c, b, 'assistant', '');
   appendAssistantSegment(m, { type: 'reasoning', text: '第一段' });
