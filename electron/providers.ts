@@ -12,6 +12,7 @@ export type WebFetch = (url: string, signal: AbortSignal, settings: Settings, mo
 const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {} };
 const CODEX_CLI_VERSION = '0.162.1';
 const CLAUDE_CODE_VERSION = '2.1.296';
+const CODEX_ORIGINATOR = 'codex_cli_rs';
 export function endpoint(connection: Connection, path: string) {
   const base = connection.baseUrl.replace(/\/+$/, '');
   const url = new URL(base);
@@ -21,19 +22,23 @@ export function endpoint(connection: Connection, path: string) {
 }
 function modelUserAgent(modelNames: string[]) {
   const matches = (pattern: RegExp) => modelNames.some(name => pattern.test(name.trim()));
-  if (matches(/(?:^|\/)gpt(?:[-_/\s]|$)/i)) {
+  if (isCodexModel(modelNames)) {
     const architecture = ({ x64: 'x86_64', arm64: 'aarch64' } as Record<string, string>)[os.arch()] || os.arch();
     return `codex_cli_rs/${CODEX_CLI_VERSION} (${os.type()} ${os.release()}; ${architecture})`;
   }
   if (matches(/(?:^|\/)claude(?:[-_/\s]|$)/i)) return `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`;
   return undefined;
 }
+function isCodexModel(modelNames: string[]) { return modelNames.some(name => /(?:^|\/)gpt(?:[-_/\s]|$)/i.test(name.trim())); }
+function hasHeader(headers: Record<string, string>, name: string) { return Object.keys(headers).some(key => key.toLowerCase() === name.toLowerCase()); }
 export function authHeaders(connection: Connection, model?: string | Pick<Model, 'model' | 'name'>) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...connection.headers };
-  const hasCustomUserAgent = Object.keys(connection.headers).some(name => name.toLowerCase() === 'user-agent');
   const modelNames = typeof model === 'string' ? [model] : model ? [model.model, model.name] : [];
-  const userAgent = !hasCustomUserAgent ? modelUserAgent(modelNames) : undefined;
+  const codexModel = isCodexModel(modelNames);
+  const userAgent = !hasHeader(connection.headers, 'user-agent') ? modelUserAgent(modelNames) : undefined;
   if (userAgent) headers['User-Agent'] = userAgent;
+  if (codexModel && !hasHeader(connection.headers, 'originator')) headers.originator = CODEX_ORIGINATOR;
+  if (codexModel && connection.protocol === 'responses' && !hasHeader(connection.headers, 'openai-beta')) headers['OpenAI-Beta'] = 'responses=experimental';
   if (connection.protocol === 'anthropic') { headers['anthropic-version'] = '2023-06-01'; if (connection.apiKey) headers['x-api-key'] = connection.apiKey; }
   else if (connection.protocol === 'gemini') { if (connection.apiKey) headers['x-goog-api-key'] = connection.apiKey; }
   else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
