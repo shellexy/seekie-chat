@@ -2,7 +2,7 @@ import { _electron as electron } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import electronPath from 'electron';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -492,9 +492,11 @@ try {
   assert.equal(saved.conversations.length, 4);
   assert.equal(logs.length, 0, logs.join('\n'));
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '关闭前所有标题已完成');
-  const db = readFileSync(join(directory,'chat.sqlite'));
+  // With WAL enabled the newest writes live beside the database, so both files are searched.
+  const db = Buffer.concat([readFileSync(join(directory,'chat.sqlite')), existsSync(join(directory,'chat.sqlite-wal')) ? readFileSync(join(directory,'chat.sqlite-wal')) : Buffer.alloc(0)]);
   // Header names are kept on purpose so the debug view can show what was sent; credential values
-  // must never reach the file, whether through the state JSON or the persisted request records.
+  // must never reach the file, whether through the state JSON, the normalised tables or the
+  // persisted request records.
   assert.ok(!db.includes(Buffer.from('Bearer fixture-secret')), '数据库不得包含 API Key 的值');
   assert.ok(!db.includes(Buffer.from('"header-secret"')), '数据库不得包含自定义请求头的值');
   const messageCount = saved.conversations.reduce((n,c) => n+c.messages.length,0);

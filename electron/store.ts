@@ -1,14 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
 import { safeStorage } from 'electron';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
-import type { AppState, Attachment, RequestRecord } from '../src/types';
+import type { AppState, Attachment, Conversation, Message, RequestRecord } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, migrateRequestTable, saveRequests } from './request_store';
+import { dropBlobState, hasBlobState, initStateSchema, loadState, normalizedIsEmpty, primeCache, readBlobState, saveMessage, saveState, type StateCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
   private secrets = new Map<string, string>();
+  // Row payloads as last written, so a save only touches what changed.
+  private cache: StateCache = new Map();
   secure = false;
   constructor(public directory: string) {}
   init() {
@@ -21,8 +24,10 @@ export class Store {
     this.db.exec('PRAGMA synchronous = FULL');
     this.db.exec('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
     this.secureFiles();
+    initStateSchema(this.db);
     // Request records moved from the old database table into their own files.
     initRequestDirectory(this.directory); migrateRequestTable(this.db, this.directory);
+    this.migrateBlob();
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
     if (this.secure) for (const row of this.db.prepare('SELECT id,payload FROM secrets').all() as { id: string; payload: string }[]) { try { this.secrets.set(row.id, safeStorage.decryptString(Buffer.from(row.payload, 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
     const credentials = join(this.directory, 'credentials.json');
@@ -35,8 +40,11 @@ export class Store {
     }
   }
   load(): AppState {
-    const row = this.db.prepare('SELECT payload FROM state WHERE id=1').get() as { payload: string } | undefined;
-    const state: AppState = row ? JSON.parse(row.payload) : initialState();
+    const stored = loadState(this.db);
+    const state: AppState = stored || initialState();
+    // Prime from exactly what the database holds: the repairs below are then persisted once, and a
+    // save that changes nothing writes nothing.
+    if (stored) primeCache(this.db, stored, this.cache);
     normalizeSettings(state.settings);
     state.settings.secureStorage = this.secure;
     if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
@@ -102,9 +110,8 @@ export class Store {
       const file = join(this.directory, 'attachments', name);
       if (!existsSync(file)) writeFileSync(file, a.data, { mode: 0o600 }); a.data = '';
     }
-    // A single row update: SQLite writes the changed pages itself, so a save no longer rewrites and
-    // re-serialises the entire database.
-    this.db.prepare('INSERT OR REPLACE INTO state (id,payload) VALUES (1,?)').run(JSON.stringify(copy));
+    // Only the rows whose payload changed are written; SQLite then writes just those pages.
+    saveState(this.db, copy, this.cache);
     this.secureFiles();
     const credentials = join(this.directory, 'credentials.json');
     if (copy.settings.secretPolicy === 'file') {
@@ -119,6 +126,30 @@ export class Store {
   loadRequests(messageId: string) { return loadRequests(this.directory, messageId); }
   deleteRequests(messageIds: string[]) { deleteRequests(this.directory, messageIds); }
   clearRequests() { clearRequests(this.directory); }
+  // One document became one row per entity. The old blob stays in the file until the new tables are
+  // written successfully, and a copy of the pre-migration database is kept for inspection.
+  private migrateBlob() {
+    if (!hasBlobState(this.db) || !normalizedIsEmpty(this.db)) return;
+    const stored = readBlobState(this.db);
+    if (!stored) return;
+    try {
+      this.db.exec('PRAGMA wal_checkpoint(FULL)');
+      const file = join(this.directory, 'chat.sqlite'), backup = `${file}.pre-normalize`;
+      if (!existsSync(backup)) copyFileSync(file, backup);
+    } catch { /* the migration itself is transactional */ }
+    this.db.exec('BEGIN');
+    try { saveState(this.db, stored, new Map()); dropBlobState(this.db); this.db.exec('COMMIT'); }
+    catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  /** Streaming writes one message row; everything else is reconciled by the next full save. */
+  saveStreamingMessage(conversation: Conversation, message: Message) {
+    const position = conversation.messages.indexOf(message);
+    if (position < 0) return false;
+    const copy = structuredClone(message);
+    for (const a of copy.attachments) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = ''; }
+    saveMessage(this.db, this.cache, conversation.id, position, copy);
+    return true;
+  }
   private saveSecret(id: string, value: string, policy: string) {
     if (!value) return; this.secrets.set(id, value);
     if (this.secure && policy === 'encrypted') this.db.prepare('INSERT OR REPLACE INTO secrets (id,payload) VALUES (?,?)').run(id, safeStorage.encryptString(value).toString('base64'));

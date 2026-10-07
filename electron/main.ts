@@ -20,6 +20,8 @@ const requestLog = new RequestLog();
 const titles = new Map<string, AbortController>();
 let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
+// The answer currently streaming: while it is set, the debounced persist writes only that row.
+let streaming: { conversation: Conversation; message: Message } | null = null;
 const redact = (error: unknown) => {
   let text = error instanceof Error ? error.message : String(error);
   for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey, state?.settings.firecrawlKey, state?.settings.anysearchKey]) if (key) text = text.split(key).join('[已隐藏]');
@@ -29,7 +31,14 @@ function emit(immediate = false, streamingChars = 0) {
   const send = () => { broadcastTimer = undefined; if (win && !win.isDestroyed()) win.webContents.send('event', { state: store.public(state), tasks: [...tasks].map(([conversationId, t]) => ({ conversationId, branchId: t.branchId, kind: t.kind })) }); };
   // `streamingChars` is the length of the answer being streamed: long answers refresh less often.
   if (immediate) { clearTimeout(broadcastTimer); send(); } else if (!broadcastTimer) broadcastTimer = setTimeout(send, broadcastDelay(streamingChars));
-  if (!persistTimer) persistTimer = setTimeout(() => { persistTimer = undefined; try { store.save(state); } catch (e) { notify(redact(e)); } }, 800);
+  if (!persistTimer) persistTimer = setTimeout(() => {
+    persistTimer = undefined;
+    try {
+      // While an answer streams, only its own row changes; every other change waits for the full
+      // save that each task runs when it ends.
+      if (!streaming || !store.saveStreamingMessage(streaming.conversation, streaming.message)) store.save(state);
+    } catch (e) { notify(redact(e)); }
+  }, 800);
 }
 function notify(error: string) { win?.webContents.send('event', { error }); }
 function resolve(modelId: string): { connection: Connection; model: Model } {
@@ -109,7 +118,7 @@ async function runChat(request: RunRequest) {
   if (!message || message.role !== 'assistant' || message.status !== 'streaming' || branch.leafId !== message.id) throw new Error('生成目标消息无效');
   const config = structuredClone(branch.config); const { connection, model } = resolve(config.modelId);
   const controller = new AbortController(); tasks.set(conversation.id, { controller, branchId: branch.id, messageId: message.id, kind: 'chat' });
-  message.modelId = model.id; message.modelName = model.name; message.connectionName = connection.name; message.config = config; emit(true);
+  message.modelId = model.id; message.modelName = model.name; message.connectionName = connection.name; message.config = config; streaming = { conversation, message }; emit(true);
   void (async () => {
     let reasoningStarted: number | undefined, reasoningElapsed = 0;
     const emitStream = () => emit(false, message.text.length + message.reasoning.length);
@@ -146,7 +155,7 @@ async function runChat(request: RunRequest) {
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';
       void generateTitle(conversation, config, pathTo(conversation, message.id));
     } catch (error) { message.status = controller.signal.aborted ? 'interrupted' : 'error'; message.error = controller.signal.aborted ? '已停止生成' : redact(error); }
-    finally { finishReasoning(); for (const t of message.tools) if (t.status === 'running' || t.status === 'pending') { if (t.status === 'running') t.elapsed = Date.now() - t.started; t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state); emit(true); }
+    finally { streaming = null; finishReasoning(); for (const t of message.tools) if (t.status === 'running' || t.status === 'pending') { if (t.status === 'running') t.elapsed = Date.now() - t.started; t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state); emit(true); }
   })().catch(error => notify(redact(error)));
 }
 function register() {
