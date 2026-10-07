@@ -11,7 +11,7 @@ function fixture() {
 }
 test('new model thinking levels use sensible defaults when the model is unknown', () => {
   assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['minimal', 'low', 'medium', 'high']);
-  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'high', 'max'], 'DeepSeek 按官方新版的三档，不再跟随 GPT');
   assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['minimal', 'low', 'medium', 'high']);
 });
 test('GPT and DeepSeek Flash names default to vision and tool support', () => {
@@ -173,7 +173,7 @@ test('each reasoning segment records its own duration', () => {
 test('GPT thinking levels include xhigh and Gemini names default to vision and tools', () => {
   assert.deepEqual(defaultModelEfforts('chat', 'gpt-6-luna'), ['low', 'medium', 'high', 'xhigh', 'max']);
   assert.deepEqual(defaultModelEfforts('responses', 'gpt-5.1'), ['low', 'medium', 'high', 'xhigh', 'max']);
-  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-flash'), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-flash'), ['low', 'high', 'max']);
   assert.deepEqual(defaultModelEfforts('chat', 'gemini-3.1-pro'), ['minimal', 'low', 'medium', 'high']);
   assert.equal(shouldDefaultVisionAndTools('gemini-3.1-pro'), true);
   assert.equal(shouldDefaultVisionAndTools('models/gemini-3.8-flash'), true);

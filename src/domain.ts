@@ -95,7 +95,11 @@ export function newChatModelId(settings: Settings): string {
 }
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
-  if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim())) return ['low', 'medium', 'high', 'xhigh', 'max'];
+  const name = model.trim();
+  // DeepSeek 早期只说会对思考档位做自动映射，所以当时按 GPT 的档位给；官方新版给出了自己的
+  // 三档，这里按官方来，不再与 GPT 保持一致。
+  if (/^deepseek(?:[-/]|$)/i.test(name)) return ['low', 'high', 'max'];
+  if (/^gpt(?:[-/]|$)/i.test(name)) return ['low', 'medium', 'high', 'xhigh', 'max'];
   return ['minimal', 'low', 'medium', 'high'];
 }
 export function shouldDefaultVisionAndTools(...names: string[]): boolean {
