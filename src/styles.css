@@ -1824,6 +1824,13 @@ input[type="range"] {
 .reasoning-selector select:disabled {
   color: var(--muted);
 }
+/* 折叠状态的当前值是弱化的层级提示，保持 --muted；展开后的选项列表要能看清，单独提到正文色。
+   option 另给 --panel 背景：原生下拉弹层在深色主题下不一定跟着页面走，只改文字色会和
+   系统弹层底色撞成浅字浅底。 */
+.reasoning-selector select option {
+  color: var(--text);
+  background-color: var(--panel);
+}
 .search-toggle {
   border: 0;
   padding: 5px;

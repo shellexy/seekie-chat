@@ -419,6 +419,16 @@ try {
   await page.locator('.header-title small').innerText();
   assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
+  // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
+  // 因为原生下拉弹层在无头环境里画不出来。
+  const effortColors = await page.locator('.reasoning-selector select').first().evaluate(el => ({
+    closed: getComputedStyle(el).color, open: getComputedStyle(el.querySelector('option')).color, background: getComputedStyle(el.querySelector('option')).backgroundColor,
+    muted: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(), text: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(), panel: getComputedStyle(document.documentElement).getPropertyValue('--panel').trim()
+  }));
+  const rgbOf = hex => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+  assert.equal(effortColors.closed, rgbOf(effortColors.muted), '思考等级框当前值仍为 --muted');
+  assert.equal(effortColors.open, rgbOf(effortColors.text), '下拉列表文字为 --text');
+  assert.equal(effortColors.background, rgbOf(effortColors.panel), '下拉列表底色与正文成对');
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
   await toolbar.getByRole('button', { name: '会话选项' }).click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
