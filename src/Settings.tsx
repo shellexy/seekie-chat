@@ -12,9 +12,10 @@ const templates = [
   // OpenAI Chat，搜索改用显式的 DeepSeek Search（按次计费、可见、可控）；仍想要服务端
   // 搜索的人再选旁边的 Anthropic 预设。
   { name: 'DeepSeek', protocol: 'chat', baseUrl: 'https://api.deepseek.com/' },
-  { name: 'DeepSeek · Anthropic（内置搜索）', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
-  { name: 'OpenAI · Responses', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
-  { name: 'OpenAI · Chat Completions', protocol: 'chat', baseUrl: 'https://api.openai.com/v1' },
+  { name: 'DeepSeek · Anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
+  // OpenAI 预设默认走 Responses：推理摘要等新特性只有它有。想用 Chat Completions 的人
+  // 可以在连接里改协议。
+  { name: 'OpenAI', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
   { name: 'Gemini', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
   { name: 'Ollama', protocol: 'chat', baseUrl: 'http://localhost:11434/v1' },
@@ -33,13 +34,13 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   function addConnection(index: number) {
     const t = templates[index];
     const c: Connection = { name: t.name, protocol: t.protocol, baseUrl: t.baseUrl, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '' };
-    const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic（内置搜索）';
+    const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic';
     const presetModel: Model | undefined = deepSeekPreset ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       // 上下文与最大输出取服务端 /models 报告的值：1048576 / 393216（384K）。
       contextWindow: 1_048_576, maxOutput: 393_216, vision: true, tools: true,
       // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。
-      nativeSearch: t.name === 'DeepSeek · Anthropic（内置搜索）',
+      nativeSearch: t.name === 'DeepSeek · Anthropic',
       // 思考等级跟随官方新版：none / low / high / max，没有 medium 也没有 xhigh。none 是明确
       // 关闭思考；等级里没有 medium 时 defaultModelEffort 会落到首项，因此预设显式指定
       // high——官方文档说明默认档位也正是 high。
@@ -132,6 +133,8 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       {!!draft.connections.length && <div className="connection-tabs">{draft.connections.map(c => <button key={c.id} className={`${selected === c.id ? 'active' : ''}${c.disabled ? ' stopped' : ''}`} title={c.disabled ? `${c.name}（已禁用）` : c.name} onClick={() => { setSelected(c.id); setFound([]); setHeadersEditing(false); }}>{c.name}{c.disabled && <span className="stopped-dot"/>}</button>)}</div>}
       {connection ? <><div className="settings-card"><div className="card-heading"><h3>连接配置</h3><div className="card-actions"><button className="icon-button danger" title="删除连接及其模型" onClick={() => { if (!confirm('删除该连接及其模型？已有消息仍保留。')) return; change({ connections: draft.connections.filter(c => c.id !== selected), models: draft.models.filter(m => m.connectionId !== selected) }); setSelected(draft.connections.find(c => c.id !== selected)?.id || ''); }}><Trash2 size={16}/></button><button className={`icon-button connection-toggle${connection?.disabled ? ' on' : ''}`} aria-label={connection?.disabled ? '启用连接' : '禁用连接'} title={connection?.disabled ? '启用该连接，其模型重新出现在模型选择器中' : '禁用该连接：配置与模型保留，但不再参与模型选择'} onClick={() => updateConnection({ disabled: !connection?.disabled })}>{connection?.disabled ? <PowerOff size={16}/> : <Power size={16}/>}</button></div></div>
       <div className="form-grid"><label className="field">连接名称<input value={connection.name} onChange={e => updateConnection({ name: e.target.value })}/></label><label className="field">接口协议<select value={connection.protocol} onChange={e => updateConnection({ protocol: e.target.value as Connection['protocol'] })}><option value="responses">OpenAI Responses</option><option value="chat">OpenAI Chat Completions</option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini GenerateContent</option></select></label></div>
+      {connection.protocol === 'chat' && <label className="toggle-row">GPT 模型自动使用 Responses 协议<input type="checkbox" checked={connection.responsesForGpt === true} onChange={e => updateConnection({ responsesForGpt: e.target.checked })}/></label>}
+      {connection.protocol === 'chat' && <p className="muted" style={{ marginTop: -12, marginBottom: 16 }}>模型 ID 形如 <code>gpt-4o</code>、<code>gpt-5.1</code> 的模型改用 Responses 协议，以支持推理摘要等新特性；<code>gpt-oss</code> 等不匹配的模型仍走 Chat Completions。</p>}
       <label className="field">Base URL<input value={connection.baseUrl} onChange={e => updateConnection({ baseUrl: e.target.value })} placeholder="https://api.openai.com/v1"/><small>使用服务根地址或包含 /v1、/v1beta 的地址，不包含具体端点。Gemini 官方地址为 https://generativelanguage.googleapis.com/v1beta。</small></label>
       <label className="field">API Key<input type="password" autoComplete="off" value={connection.apiKey === saved ? '' : connection.apiKey} placeholder={connection.apiKey === saved ? '已设置，留空保持；输入新值替换' : '可选：本地服务可以不需要密钥'} onChange={e => updateConnection({ apiKey: e.target.value })}/>{connection.apiKey === saved && <button className="text-button" onClick={() => updateConnection({ apiKey: '' })}>清除已保存的密钥</button>}<small>请求将发送到 {connection.baseUrl || '上述地址'}。</small></label>
       <div className="form-grid"><label className="field">超时（秒）<input type="number" min="10" max="600" value={connection.timeout} onChange={e => updateConnection({ timeout: Number(e.target.value) })}/></label><label className="field">HTTP / HTTPS 代理<input placeholder="http://127.0.0.1:7890" value={connection.proxy} onChange={e => updateConnection({ proxy: e.target.value })}/></label></div>
@@ -170,7 +173,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     {tab === 'roles' && <><h2>模型与上下文</h2><div className="settings-card">{chooseModel('默认聊天模型', 'defaultModel')}{chooseModel('对话标题生成模型', 'titleModel', true)}{chooseModel('历史压缩模型', 'compressionModel', true)}<p className="muted">标题和压缩请求会发送到对应模型的连接，并产生独立 API 用量。修改默认聊天模型仅影响新会话。</p></div><div className="settings-card"><h3>新对话的模型</h3><label className="toggle-row">新对话使用最近使用的模型<input type="checkbox" checked={draft.useRecentModel} onChange={e => change({ useRecentModel: e.target.checked })}/></label><p className="muted">开启后新建对话会接着你最近用过的模型（切换模型即记入，一次回答跑完再置顶）；此时“默认聊天模型”只在还没有任何使用记录时生效。关闭后每个新对话都从“默认聊天模型”开始。已有会话不受影响。</p></div><div className="settings-card"><label className="toggle-row">自动压缩历史<input type="checkbox" checked={draft.autoCompress} onChange={e => change({ autoCompress: e.target.checked })}/></label><label className="field">触发阈值：上下文窗口的 {Math.round(draft.compressionThreshold * 100)}%<input type="range" min="0.4" max="0.9" step="0.05" value={draft.compressionThreshold} onChange={e => change({ compressionThreshold: Number(e.target.value) })}/></label><p className="muted">按估算 token 预算触发；压缩后至少保留最近两轮，并按当前聊天模型上下文窗口额外保留到 10% 预算，最多 50k token。原始聊天记录始终保存在本地。</p></div></>}
     {tab === 'prompts' && <><h2>系统提示词库 / 角色预设</h2><p className="muted">在聊天输入框的“会话选项”中选择角色。提示词会复制到当前分支，可继续编辑；修改或删除库中的角色不会改变已有分支。</p>
       <div className="settings-card"><label className="field">新对话默认角色<select value={draft.defaultPromptPresetId} onChange={e => change({ defaultPromptPresetId: e.target.value })}><option value="">通用助手（内置提示词）</option>{draft.promptPresets.map(p => <option key={p.id} value={p.id}>{p.name || '未命名角色'}</option>)}</select></label></div>
-      <div className="section-heading"><h3>角色预设</h3><button onClick={() => change({ promptPresets: [...draft.promptPresets, { id: uid(), name: '新角色', content: '' }] })}><Plus size={15}/>添加角色</button></div>
+      <div className="section-heading"><h3>角色预设</h3><button onClick={() => change({ promptPresets: [{ id: uid(), name: '新角色', content: '' }, ...draft.promptPresets] })}><Plus size={15}/>添加角色</button></div>
       {draft.promptPresets.map(p => <div className="settings-card" key={p.id}><div className="card-heading"><h3>{p.name || '新角色'}</h3><button className="icon-button danger" title={`删除角色：${p.name}`} onClick={() => change({ promptPresets: draft.promptPresets.filter(x => x.id !== p.id), defaultPromptPresetId: draft.defaultPromptPresetId === p.id ? '' : draft.defaultPromptPresetId })}><Trash2 size={16}/></button></div>
         <label className="field">角色名称<input aria-label="角色名称" value={p.name} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, name: e.target.value } : x) })}/></label>
         <label className="field">角色系统提示词<textarea aria-label="角色系统提示词" rows={6} value={p.content} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, content: e.target.value } : x) })} placeholder="描述这个角色的职责、回答风格和约束…"/></label>

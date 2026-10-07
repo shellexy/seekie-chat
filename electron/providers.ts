@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { generateGemini, sanitizeStoredParts } from './gemini';
 import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
-import { deepseekWebSearchKey, EXTERNAL_SEARCH_MODES, ollamaWebSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
+import { deepseekWebSearchKey, effectiveProtocol, EXTERNAL_SEARCH_MODES, ollamaWebSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
 import type { ChatConfig, Connection, ExternalSearchMode, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
@@ -255,6 +255,10 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {
+  // 连接勾选了"gpt 自动使用 Responses"时，gpt-数字* 的模型改走 Responses 协议。整段请求逻辑
+  // 都按生效后的协议走，所以直接换掉 connection：请求路径、请求体、流式解析与工具回放
+  // 会一并切到 Responses 的形状。
+  connection = { ...connection, protocol: effectiveProtocol(connection, model) };
   config = {
     ...config,
     webFetch: config.webFetch || (config.search === 'off' ? 'off' : 'auto'),

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
+import { addMessage, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -139,7 +139,8 @@ export default function App() {
   const chatSearchResults = searchMessages(messages, chatSearchQuery);
   const activeSearchIndex = chatSearchResults.length ? ((chatSearchIndex % chatSearchResults.length) + chatSearchResults.length) % chatSearchResults.length : 0;
   const model = state.settings.models.find(m => m.id === branch?.config.modelId);
-  const modelProtocol = state.settings.connections.find(c => c.id === model?.connectionId)?.protocol;
+  const modelConnection = state.settings.connections.find(c => c.id === model?.connectionId);
+  const modelProtocol = modelConnection ? effectiveProtocol(modelConnection, model) : 'chat';
   const samplingSupported = !!model?.temperature && !(['responses', 'anthropic'].includes(modelProtocol || '') && model?.reasoning !== 'none');
   const samplingHelp = !model?.temperature ? '当前模型未配置温度和 top_p 能力' : samplingSupported ? '控制当前回答的采样参数' : '当前协议的思考模式不接受温度和 top_p 参数';
   const effectiveSearch = branch ? resolveSearch(state.settings, branch.config.modelId, branch.config.search) : 'off';

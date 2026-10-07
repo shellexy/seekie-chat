@@ -6,7 +6,7 @@ import { validateState } from '../src/validation';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
+import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
@@ -149,12 +149,15 @@ async function runChat(request: RunRequest) {
     };
     try {
       let context = contextMessages(conversation, branch, message.parentId);
-      await convertUnsupportedAttachments(context.messages, connection.protocol, model);
+      // 附件能否原样发送看的是实际使用的协议：连接勾了"gpt 自动使用 Responses"时，
+      // gpt-数字* 的模型走的是 Responses。
+      const protocol = effectiveProtocol(connection, model);
+      await convertUnsupportedAttachments(context.messages, protocol, model);
       const estimatedInputTokens = () => estimateTokens(context.messages, config.system + context.summary);
       const historyPath = pathTo(conversation, message.parentId);
       if (state.settings.autoCompress && estimatedInputTokens() > model.contextWindow * state.settings.compressionThreshold && historyPath.filter(m => m.role === 'user').length > 2) {
         await compress(conversation, branch, controller.signal, message.parentId); context = contextMessages(conversation, branch, message.parentId);
-        await convertUnsupportedAttachments(context.messages, connection.protocol, model);
+        await convertUnsupportedAttachments(context.messages, protocol, model);
       }
       if (estimatedInputTokens() > model.contextWindow) throw new Error('预计输入上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');

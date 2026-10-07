@@ -195,7 +195,7 @@ try {
   assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
   // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
-  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic（内置搜索）', 'OpenAI · Responses', 'OpenAI · Chat Completions', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
+  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic', 'OpenAI', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
   }
@@ -232,7 +232,7 @@ try {
   for (const name of ['图片输入', '工具调用']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), false, 'OpenAI 兼容协议不提供服务端原生搜索');
   // Anthropic 预设保留，仍带原生搜索。
-  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek · Anthropic（内置搜索）', exact: true }).click();
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek · Anthropic', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), true, 'Anthropic 协议提供服务端原生搜索');
@@ -244,7 +244,18 @@ try {
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.getByLabel('模型 ID', { exact: true }).fill('custom-fixture');
-  await page.locator('.preset-row').getByRole('button', { name: 'OpenAI · Responses', exact: true }).click();
+  // “GPT 模型自动使用 Responses 协议”只在 OpenAI 兼容协议下出现。
+  await page.locator('.preset-row').getByRole('button', { name: 'OpenAI', exact: true }).click();
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'responses', 'OpenAI 预设默认走 Responses 协议');
+  assert.equal(await page.getByLabel('GPT 模型自动使用 Responses 协议').count(), 0, 'Responses 协议下不显示该选项');
+  await page.locator('.preset-row').getByRole('button', { name: '自定义兼容服务', exact: true }).click();
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'chat');
+  const gptOption = page.getByLabel('GPT 模型自动使用 Responses 协议');
+  assert.equal(await gptOption.count(), 1, 'OpenAI 兼容协议下应显示该选项');
+  assert.equal(await gptOption.isChecked(), false, '默认不开启');
+  await gptOption.check();
+  assert.equal(await gptOption.isChecked(), true);
+  await page.locator('.preset-row').getByRole('button', { name: 'OpenAI', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
@@ -309,10 +320,13 @@ try {
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
-  await page.getByLabel('角色名称', { exact: true }).last().fill('测试研究助手');
-  assert.equal(await page.getByLabel('角色名称', { exact: true }).last().evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '角色名称与单行文本框并排');
-  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('你是测试研究助手，优先使用证据回答。');
-  const roleId = await page.getByLabel(/^新对话默认角色/).locator('option').last().getAttribute('value');
+  // 新角色排在已有角色卡片之前，所以它的字段是第一个而不是最后一个。
+  assert.equal(await page.locator('.settings-card h3').first().innerText(), '新角色', '新角色应排在已有角色卡片前面');
+  await page.getByLabel('角色名称', { exact: true }).first().fill('测试研究助手');
+  assert.equal(await page.getByLabel('角色名称', { exact: true }).first().evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '角色名称与单行文本框并排');
+  await page.getByLabel('角色系统提示词', { exact: true }).first().fill('你是测试研究助手，优先使用证据回答。');
+  const roleId = await page.getByLabel(/^新对话默认角色/).locator('option', { hasText: '测试研究助手' }).getAttribute('value');
+  assert.ok(roleId, '新角色应出现在"新对话默认角色"下拉里');
   await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
@@ -610,10 +624,11 @@ try {
   });
   await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
-  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('角色库更新后的提示词。');
+  // 按角色名定位卡片，不依赖它在列表里的位置——新角色现在排在最前。
+  await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).getByLabel('角色系统提示词', { exact: true }).fill('角色库更新后的提示词。');
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
-  await page.getByLabel('角色名称', { exact: true }).last().fill('临时角色');
-  await page.getByLabel('角色系统提示词', { exact: true }).last().fill('仅用于测试删除。');
+  await page.getByLabel('角色名称', { exact: true }).first().fill('临时角色');
+  await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '临时角色' }) }).getByLabel('角色系统提示词', { exact: true }).fill('仅用于测试删除。');
   await page.getByTitle('删除角色：临时角色', { exact: true }).click();
   await page.screenshot({ path: join(directory, 'prompt-library.png') });
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
@@ -765,6 +780,28 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
   await page.evaluate(async connectionId => { const s = await window.deepchan.load(); s.settings.connections.forEach(c => { if (c.id === connectionId) c.disabled = false; }); await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, stopped.connectionId);
+  // 连接勾选"gpt 自动使用 Responses"后，gpt-数字* 的模型要改走 Responses 协议。
+  const gptSwitch = await page.evaluate(async () => {
+    const s = await window.deepchan.load();
+    const chat = s.settings.connections.find(c => c.protocol === 'chat');
+    const model = { id: 'gpt-fixture', connectionId: chat.id, name: 'gpt-fixture', model: 'gpt-4o', contextWindow: 128000, maxOutput: 4096, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false };
+    s.settings.models.push(model);
+    chat.responsesForGpt = true;
+    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+    return { modelId: model.id, connectionId: chat.id };
+  });
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 4);
+  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
+  await page.evaluate(async modelId => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); b.config.modelId = modelId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, gptSwitch.modelId);
+  await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.config.modelId === id; }, gptSwitch.modelId);
+  const callsBeforeGpt = calls.length;
+  await input.fill('gpt 走哪条协议？'); await page.getByTitle('发送消息', { exact: true }).click();
+  // 调用记录留在 Node 侧的模拟服务器里，页面里读不到，所以在这里轮询。
+  for (let i = 0; i < 80 && !calls.slice(callsBeforeGpt).some(c => c.path === '/v1/responses'); i++) await new Promise(resolve => setTimeout(resolve, 250));
+  assert.ok(calls.slice(callsBeforeGpt).some(c => c.path === '/v1/responses' && c.data.model === 'gpt-4o'), 'gpt 模型应改走 Responses 协议');
+  assert.ok(!calls.slice(callsBeforeGpt).some(c => c.path === '/v1/chat/completions'), '该次请求不应再走 Chat Completions');
+  await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.settings.connections.forEach(c => { if (c.id === fixture.connectionId) c.responsesForGpt = false; }); s.settings.models = s.settings.models.filter(m => m.id !== fixture.modelId); await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, gptSwitch);
   // Leave the app on the conversation the following stages expect, and drop the two throwaway chats
   // so the final conversation count still means "no extra conversation leaked".
   await page.evaluate(async payload => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, { keep: resume, drop: throwaway });

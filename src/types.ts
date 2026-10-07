@@ -10,6 +10,8 @@ export interface Connection {
   // 临时停用：配置与模型都保留，只是不再出现在模型选择器里，新对话也不会选它。已有会话
   // 仍可继续使用，因为历史消息引用的是模型而不是连接。
   disabled?: boolean;
+  // 以 OpenAI 兼容协议连接时，gpt-数字* 的模型改走 Responses 协议。
+  responsesForGpt?: boolean;
 }
 export interface Model {
   id: string; connectionId: string; name: string; model: string;

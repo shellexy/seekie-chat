@@ -33,8 +33,11 @@ export function normalizeSettings(settings: Settings) {
   if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) settings.preferredExternalSearch = 'auto';
   if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) settings.defaultWebFetch = 'auto';
   if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
-  // 停用开关是后加的：旧数据没有该字段，一律视为启用。
-  for (const c of settings.connections) if (typeof c.disabled !== 'boolean') c.disabled = false;
+  // 停用开关与"gpt 自动用 Responses"都是后加的：旧数据没有这些字段，一律取默认值。
+  for (const c of settings.connections) {
+    if (typeof c.disabled !== 'boolean') c.disabled = false;
+    if (typeof c.responsesForGpt !== 'boolean') c.responsesForGpt = false;
+  }
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
@@ -94,8 +97,19 @@ export function rememberRecentModel(settings: Settings, modelId: string, promote
  * 新对话的起始模型：开启"最近使用"时优先最近用过的，记录里已被删除的模型直接跳过；
  * 没有可用记录才回到设置里的默认聊天模型。
  */
-/** 停用的连接不算候选。`disabled` 缺省视为启用，所以旧备份导入后全部可用。 */
-export function connectionEnabled(settings: Settings, connectionId: string): boolean {
+/**
+ * 连接勾选了"gpt 自动使用 Responses"时，gpt-数字* 的模型改走 Responses 协议：推理摘要等
+ * 新特性只有 Responses 才有。只匹配 gpt 后跟数字的模型，gpt-oss 之类仍走原协议。
+ */
+export function usesResponsesProtocol(connection: Connection, model?: Model): boolean {
+  if (!model || connection.protocol !== 'chat' || connection.responsesForGpt !== true) return false;
+  return /^gpt[-_]?\d/i.test(model.model.trim());
+}
+/** 连接上勾选了该选项时的实际协议，其余情况就是连接自身的协议。 */
+export function effectiveProtocol(connection: Connection, model?: Model): Protocol {
+  return usesResponsesProtocol(connection, model) ? 'responses' : connection.protocol;
+}
+/** 停用的连接不算候选。`disabled` 缺省视为启用，所以旧备份导入后全部可用。 */export function connectionEnabled(settings: Settings, connectionId: string): boolean {
   return settings.connections.find(c => c.id === connectionId)?.disabled !== true;
 }
 /** 可以被选中的模型：所属连接没有停用。模型选择器与新对话都用它。 */
