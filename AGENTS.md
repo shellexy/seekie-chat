@@ -24,7 +24,7 @@
 
 - `electron/` 主进程：网络、密钥、SQLite、工具执行、任务生命周期。
 - `src/domain.ts` 两端共用的纯逻辑。新能力优先做成这里的纯函数 + 单测。
-- `src/App.tsx` 只做状态与编排；UI 拆在 `Composer` / `MessageRow` / `Sidebar` / `OutlinePanel` / `Settings`。
+- `src/App.tsx` 只做状态与编排；UI 拆在 `Composer` / `MessageRow` / `Sidebar` / `OutlinePanel` / `Settings`，浮层行为在 `usePopover`。
 - `tests/` 单测；`scripts/smoke.mjs` 是桌面回归。
 - `docs/screenshots/` 是 README 与 `docs/screenshots.md` 用的界面图，由 `node scripts/screenshots.mjs` 用模拟数据重新生成（不含真实数据）；改了 UI 记得重跑。
 - `build/` 图标素材；`dist/`、`dist-electron/`、`release/` 都是生成物，不要手改。
@@ -56,6 +56,7 @@
 - `scripts/smoke.mjs` 是单个约 1500 行的文件，所有断言在同一个作用域里。别用 `layout` / `tools` / `state` / `input` 这类常见名——撞名会直接语法错误、整个冒烟跑不起来。加新断言用带前缀的名字（如 `aboutLayout`）。
 - 冒烟脚本中途会关掉应用再重启。**重启前抓的 locator 会失效**，之后必须从 `page` 重新取，不能复用之前的 `const`。
 - `.chat-header` 与 `.settings-header` 的高度要彼此对齐，也和窗口控件对齐；改一个记得看另外两个。
+- `MessageRow` 用自定义 `propsEqual`（消息本身靠 `sameMessage` 逐字段比较），`Markdown` 用默认浅比较、只认 `text`。**新增 `Message` 字段或给消息行加 prop 时，必须同时加进 `sameMessage` / `propsEqual`**，否则那一行不会更新——表现是界面停在旧内容而不是报错，很难联想到 memo。
 - 若冒烟偶发失败在**悬停 / 浮层**类断言上，先重跑一次：本机 GPU 进程会反复崩，渲染节流会让这类断言抖动。
 - 发版时三处要一起改：`package.json` 的 `version`、README 顶部的版本徽章（静态徽章不会自动更新）、README 里出现版本号的路径示例。
 
