@@ -6,6 +6,11 @@ const bridge: Bridge = {
   compress: (id, branch) => ipcRenderer.invoke('compress', id, branch), test: c => ipcRenderer.invoke('test', c), title: id => ipcRenderer.invoke('title', id),
   exportData: (format, id) => ipcRenderer.invoke('export', format, id), importData: () => ipcRenderer.invoke('import'),
   openExternal: url => ipcRenderer.invoke('external', url),
+  minimizeWindow: () => ipcRenderer.invoke('window-minimize'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('window-toggle-maximize'),
+  isWindowMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  closeWindow: () => ipcRenderer.invoke('window-close'),
+  onWindowState: callback => { const listener = (_: unknown, state: { maximized: boolean }) => callback(!!state.maximized); ipcRenderer.on('window-state', listener); return () => ipcRenderer.removeListener('window-state', listener); },
   onEvent: callback => { const listener = (_: unknown, event: AppEvent) => callback(event); ipcRenderer.on('event', listener); return () => ipcRenderer.removeListener('event', listener); }
 };
 contextBridge.exposeInMainWorld('deepchan', bridge);

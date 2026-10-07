@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, GitBranch, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, GitBranch, ImagePlus, List, MessageSquare, Minus, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { addMessage, createConversation, editMessage, firstLine, fork, initialState, normalizePromptSettings, ollamaWebSearchKey, pathTo, removeBranch, resolveSearch, uid } from './domain';
 import type { AppState, Attachment, Branch, Conversation, Message, Model, Settings as SettingsType } from './types';
@@ -21,6 +21,7 @@ export default function App() {
   const [renamingConversation, setRenamingConversation] = useState<string | null>(null), [renameValue, setRenameValue] = useState('');
   const [editing, setEditing] = useState<string | null>(null), [editText, setEditText] = useState('');
   const [activeMessage, setActiveMessage] = useState(''), [atBottom, setAtBottom] = useState(true), [summaryOpen, setSummaryOpen] = useState(false);
+  const [windowMaximized, setWindowMaximized] = useState(false);
   const [composerHeight, setComposerHeight] = useState(56);
   const composerDrag = useRef<{ y: number; height: number } | null>(null);
   const [leftWidth, setLeftWidth] = useState(258), [rightWidth, setRightWidth] = useState(230);
@@ -58,6 +59,12 @@ export default function App() {
     const off = api.onEvent(event => { if (event.state) receive(event.state); if (event.tasks) setTasks(event.tasks); if (event.error) toast(event.error); });
     const reload = () => { draftCache.current.clear(); void api.load().then(apply); }; window.addEventListener('deepchan-reload', reload);
     return () => { alive = false; off(); window.removeEventListener('deepchan-reload', reload); };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    void api.isWindowMaximized().then(value => { if (alive) setWindowMaximized(value); }).catch(() => {});
+    const off = api.onWindowState(setWindowMaximized);
+    return () => { alive = false; off(); };
   }, []);
   useEffect(() => { document.documentElement.dataset.theme = state.settings.theme; document.documentElement.style.setProperty('--chat-font', `${state.settings.fontSize}px`); }, [state.settings.theme, state.settings.fontSize]);
   const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -226,6 +233,14 @@ export default function App() {
   const grouped = conversationsForView.filter(c => c.title.toLowerCase().includes(query.toLowerCase())).sort((a,b) => b.updated - a.updated);
   if (!loaded) return <div className="loading"><Sparkles size={28}/><p>正在打开 DeepChan-chat…</p></div>;
   return <div className="app-shell">
+    <div className="window-titlebar">
+      <div className="window-title-drag"><span className="window-title-mark"><GitBranch size={14}/></span><span>DeepChan-chat</span></div>
+      <div className="window-controls" role="toolbar" aria-label="窗口控件">
+        <button className="window-control" type="button" title="最小化窗口" aria-label="最小化窗口" onClick={() => void api.minimizeWindow()}><Minus size={15}/></button>
+        <button className="window-control" type="button" title={windowMaximized ? '还原窗口' : '最大化窗口'} aria-label={windowMaximized ? '还原窗口' : '最大化窗口'} onClick={() => { void api.toggleMaximizeWindow().then(setWindowMaximized).catch(error => toast(String(error))); }}>{windowMaximized ? <Copy size={13}/> : <Square size={13}/>}</button>
+        <button className="window-control window-close" type="button" title="关闭窗口" aria-label="关闭窗口" onClick={() => void api.closeWindow()}><X size={16}/></button>
+      </div>
+    </div>
     {left && <><aside className="sidebar" style={{ width: leftWidth }}><div className="sidebar-top"><div className="brand"><span className="brand-mark"><GitBranch size={19}/></span>DeepChan-chat</div><button className="icon-button" title="收起侧栏" onClick={() => setLeft(false)}><PanelLeftClose size={18}/></button></div><button className="new-chat" onClick={() => newChat()}><Plus size={18}/>新建对话<span>Ctrl N</span></button><div className="search-input"><Search size={15}/><input aria-label="搜索对话" placeholder="搜索对话" value={query} onChange={e => setQuery(e.target.value)}/></div><div className="sidebar-label">{showArchived ? '已归档' : '你的对话'} <span>{conversationsForView.length}</span></div><div className="conversation-list" onScroll={() => { if (conversationMenu) { setConversationMenu(null); setConversationMenuAnchor(null); setConversationMenuPosition(null); } }}>{grouped.map(c => <div key={c.id} className={`conversation-item ${c.id === state.selectedId && !showSettings ? 'active' : ''}`}><button className="conversation-select" onClick={() => switchChat(c.id)} title={c.title}><MessageSquare size={15}/><span>{c.title}</span>{tasks.some(t => t.conversationId === c.id) && <i className="status-dot"/>}</button><button className="conversation-more icon-button" title="会话操作" aria-haspopup="menu" aria-expanded={conversationMenu === c.id} onClick={e => {
   if (conversationMenu === c.id) { setConversationMenu(null); setConversationMenuAnchor(null); setConversationMenuPosition(null); }
   else { const rect = e.currentTarget.getBoundingClientRect(); setConversationMenuAnchor({ top: rect.top, bottom: rect.bottom, right: rect.right }); setConversationMenuPosition(null); setConversationMenu(c.id); }

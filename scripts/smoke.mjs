@@ -89,10 +89,16 @@ async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
-  await page.getByText('DeepChan-chat', { exact: true }).waitFor(); return page;
+  await page.locator('.window-titlebar').waitFor(); return page;
 }
 try {
   let page = await launch();
+  const windowControls = page.getByRole('toolbar', { name: '窗口控件' });
+  assert.equal(await windowControls.getByRole('button').count(), 3);
+  await windowControls.getByRole('button', { name: '最大化窗口' }).click();
+  await waitFor(page, async () => window.deepchan.isWindowMaximized());
+  await windowControls.getByRole('button', { name: '还原窗口' }).click();
+  await waitFor(page, async () => !(await window.deepchan.isWindowMaximized()));
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();

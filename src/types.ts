@@ -72,6 +72,8 @@ export interface Bridge {
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;
+  minimizeWindow(): Promise<void>; toggleMaximizeWindow(): Promise<boolean>; isWindowMaximized(): Promise<boolean>; closeWindow(): Promise<void>;
+  onWindowState(callback: (maximized: boolean) => void): () => void;
   onEvent(callback: (event: AppEvent) => void): () => void;
 }
 declare global { interface Window { deepchan?: Bridge } }

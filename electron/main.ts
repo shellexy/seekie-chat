@@ -167,6 +167,10 @@ function register() {
     try { return await listModels(connection); } catch (e) { let detail = redact(e); for (const secret of [connection.apiKey, ...Object.values(connection.headers)]) if (secret) detail = detail.split(secret).join('[已隐藏]'); throw new Error(detail); }
   });
   handle('external', (url: string) => { const parsed = new URL(url); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('链接协议不受支持'); return shell.openExternal(parsed.href); });
+  handle('window-minimize', () => win?.minimize());
+  handle('window-toggle-maximize', () => { if (!win) return false; if (win.isMaximized()) win.unmaximize(); else win.maximize(); return win.isMaximized(); });
+  handle('window-is-maximized', () => !!win?.isMaximized());
+  handle('window-close', () => win?.close());
   handle('export', async (format: string, id?: string) => {
     const copy = structuredClone(state); copy.conversations = id ? copy.conversations.filter(c => c.id === id) : copy.conversations;
     for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = '';
@@ -187,8 +191,10 @@ function register() {
   });
 }
 async function openWindow() {
-  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', backgroundColor: '#ffffff', autoHideMenuBar: true,
+  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const sendWindowState = () => { if (win && !win.isDestroyed()) win.webContents.send('window-state', { maximized: win.isMaximized() }); };
+  win.on('maximize', sendWindowState); win.on('unmaximize', sendWindowState);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== win?.webContents.getURL()) event.preventDefault(); });
   const devUrl = process.env.DEEPCHAN_DEV_URL;
