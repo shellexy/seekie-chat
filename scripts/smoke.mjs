@@ -89,7 +89,7 @@ async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
-  await page.locator('.window-titlebar').waitFor(); return page;
+  await page.locator('.window-controls').waitFor(); return page;
 }
 try {
   let page = await launch();
@@ -99,9 +99,12 @@ try {
   await waitFor(page, async () => window.deepchan.isWindowMaximized());
   await windowControls.getByRole('button', { name: '还原窗口' }).click();
   await waitFor(page, async () => !(await window.deepchan.isWindowMaximized()));
+  assert.equal(await page.locator('.window-titlebar').count(), 0);
+  assert.equal(await page.locator('.chat-header').evaluate(el => el.getBoundingClientRect().top), 0);
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();
+  assert.equal(await page.getByRole('toolbar', { name: '窗口控件' }).count(), 1);
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');

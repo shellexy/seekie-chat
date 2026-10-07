@@ -3,6 +3,7 @@ import { ArrowLeft, Check, ChevronRight, ExternalLink, Plus, Trash2, Wifi } from
 import { api } from './api';
 import { defaultModelEfforts, uid } from './domain';
 import type { Connection, Model, Settings as SettingsType } from './types';
+import WindowControls from './WindowControls';
 const saved = '••••••••';
 const templates = [
   { name: 'DeepSeek·anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
@@ -14,7 +15,7 @@ const templates = [
   { name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/v1' },
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
-export default function Settings({ settings, onSave, onClose, toast }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void }) {
+export default function Settings({ settings, onSave, onClose, toast, windowMaximized, onWindowMaximized }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void; windowMaximized: boolean; onWindowMaximized: (maximized: boolean) => void }) {
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
   const [testing, setTesting] = useState(false), [found, setFound] = useState<string[]>([]), [saving, setSaving] = useState(false);
@@ -70,7 +71,7 @@ export default function Settings({ settings, onSave, onClose, toast }: { setting
     } catch (e) { toast(String(e instanceof Error ? e.message : e)); } finally { setSaving(false); }
   }
   const chooseModel = (label: string, key: 'defaultModel' | 'titleModel' | 'compressionModel', inherit = false) => <label className="field">{label}<select value={draft[key]} onChange={e => change({ [key]: e.target.value })}>{inherit && <option value="">继承当前聊天模型</option>}{!inherit && <option value="">请选择模型</option>}{draft.models.map(m => <option key={m.id} value={m.id}>{m.name} · {draft.connections.find(c => c.id === m.connectionId)?.name}</option>)}</select></label>;
-  return <div className="settings-page"><header className="settings-header"><button className="icon-button" onClick={onClose} title="返回聊天"><ArrowLeft size={20}/></button><div><h1>设置</h1><p>连接你的模型，调整你的工作方式。</p></div><button className="primary" onClick={save} disabled={saving}><Check size={16}/>{saving ? '保存中…' : '保存设置'}</button></header>
+  return <div className="settings-page"><header className="settings-header"><button className="icon-button" onClick={onClose} title="返回聊天"><ArrowLeft size={20}/></button><div><h1>设置</h1><p>连接你的模型，调整你的工作方式。</p></div><button className="primary" onClick={save} disabled={saving}><Check size={16}/>{saving ? '保存中…' : '保存设置'}</button><WindowControls maximized={windowMaximized} onMaximizedChange={onWindowMaximized} onError={toast}/></header>
     <div className="settings-body"><nav className="settings-nav">{[['connections', '连接与模型'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私']].map(([id, name]) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}>{name}<ChevronRight size={15}/></button>)}</nav><main className="settings-content">
     {tab === 'connections' && <><h2>连接与模型</h2><p className="muted">选择接口协议，添加模型 ID。兼容服务的能力需要按实际情况配置。</p><div className="preset-row">{templates.map((t, i) => <button key={t.name} onClick={() => addConnection(i)}><Plus size={14}/>{t.name}</button>)}</div>
       {!!draft.connections.length && <div className="connection-tabs">{draft.connections.map(c => <button key={c.id} className={selected === c.id ? 'active' : ''} onClick={() => { setSelected(c.id); setFound([]); setHeadersEditing(false); }}>{c.name}</button>)}</div>}
