@@ -146,9 +146,28 @@ test('old settings receive a prompt library without changing existing conversati
   const { normalizePromptSettings } = await import('../src/domain');
   const settings = initialState().settings, c = createConversation(settings); c.branches[0].config.system = '用户自己的旧提示词';
   delete (settings as any).promptPresets; delete (settings as any).defaultPromptPresetId;
-  normalizePromptSettings(settings); assert.equal(settings.promptPresets.length, 4); assert.equal(c.branches[0].config.system, '用户自己的旧提示词');
+  normalizePromptSettings(settings); assert.equal(settings.promptPresets.length, 5); assert.equal(c.branches[0].config.system, '用户自己的旧提示词');
   settings.promptPresets = []; settings.defaultPromptPresetId = ''; normalizePromptSettings(settings);
   assert.equal(settings.promptPresets.length, 0);
+});
+
+test('the whale role reaches new users through the defaults and old users through a reset', async () => {
+  const { normalizePromptSettings, resetBuiltInPresets } = await import('../src/domain');
+  // 新用户：没有角色库，加载时按内置列表填充，因此直接看到鲸鱼娘。
+  const fresh = initialState().settings;
+  delete (fresh as any).promptPresets; delete (fresh as any).defaultPromptPresetId;
+  normalizePromptSettings(fresh);
+  assert.ok(fresh.promptPresets.some(p => p.id === 'whale' && p.name === '鲸鱼娘'), '新用户应看到鲸鱼娘');
+  assert.ok(fresh.promptPresets.find(p => p.id === 'whale')!.content.startsWith('【PERSONA_LOAD】\nCETACEA_LOLI\n'));
+  // 旧用户：角色库已经存在，升级不动它——不自动补新角色。
+  const existing = initialState().settings;
+  existing.promptPresets = defaultPromptPresets().filter(p => p.id !== 'whale');
+  normalizePromptSettings(existing);
+  assert.ok(!existing.promptPresets.some(p => p.id === 'whale'), '升级不应自动给旧用户加新角色');
+  // 旧用户点一次"重置预设角色"就补上。
+  const reset = resetBuiltInPresets(existing.promptPresets);
+  assert.ok(reset.some(p => p.id === 'whale' && p.name === '鲸鱼娘'), '重置预设角色应补上鲸鱼娘');
+  assert.equal(reset.length, existing.promptPresets.length + 1);
 });
 
 test('the built-in general role replaces the duplicate fallback entry in the default role list', async () => {
@@ -543,7 +562,7 @@ test('resetting the built-in roles restores them and leaves user roles alone', (
     { id: 'coding', name: '编程助手', content: '也被我改过。' }
   ];
   const reset = resetBuiltInPresets(library);
-  assert.deepEqual(reset.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator'], '用户角色位置不变，缺失的内置角色补在末尾');
+  assert.deepEqual(reset.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator', 'whale'], '用户角色位置不变，缺失的内置角色补在末尾');
   assert.deepEqual(reset[0], userRole, '用户添加的角色原样保留');
   assert.equal(reset[1].name, '通用助手', '内置角色的名称恢复默认');
   assert.equal(reset[1].content, builtIns[0].content, '内置角色的提示词恢复默认');
@@ -552,7 +571,7 @@ test('resetting the built-in roles restores them and leaves user roles alone', (
   assert.equal(library[1].content, '被我改过的提示词。');
   // 一个内置角色都没了时，四个全部补回。
   const all = resetBuiltInPresets([userRole]);
-  assert.deepEqual(all.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator']);
+  assert.deepEqual(all.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator', 'whale']);
   // 库是空的也照常补回。
-  assert.deepEqual(resetBuiltInPresets([]).map(p => p.id), ['general', 'coding', 'writing', 'translator']);
+  assert.deepEqual(resetBuiltInPresets([]).map(p => p.id), ['general', 'coding', 'writing', 'translator', 'whale']);
 });

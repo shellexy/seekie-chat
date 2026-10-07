@@ -673,6 +673,8 @@ try {
   acceptDialogs = true;
   await page.getByRole('button', { name: '重置预设角色', exact: true }).click();
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 1, '重置后通用助手应被补回');
+  // 新增的内置角色不随升级自动补进旧库，重置时才补上。
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '鲸鱼娘' }) }).count(), 1, '重置后应补上新增的内置角色');
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).count(), 1, '用户添加的角色不应受影响');
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '角色库更新后的提示词。', '用户角色连改过的提示词都不应被重置');
     assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '你是一位严谨、友善的助手。使用用户的语言回答。', '内置角色应恢复默认提示词');
