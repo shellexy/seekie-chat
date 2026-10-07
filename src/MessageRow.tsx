@@ -53,8 +53,10 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, 
     onContextMenu={event => { event.preventDefault(); onContextMenu(message, { x: event.clientX, y: event.clientY }); }}>
     {editing ? <div className="edit-box">
       <div className="edit-bodies">{editTexts.map((text, index) => <textarea key={index} aria-label={`第 ${index + 1} 段正文`} value={text} onChange={e => onEditTextChange(index, e.target.value)} rows={3}/>)}</div>
-      <div className="button-row"><button onClick={onCancelEdit}>取消</button><button className="primary" onClick={() => onSubmitEdit(message)}>{role === 'user' ? '保存并生成' : '保存新版本'}</button></div>
-      <small>{role === 'user' ? '原版本及后续消息会保留。' : '每段正文单独编辑并自动适应高度；清空某一段即可删除它。原版本及后续消息会保留。'}</small>
+      <div className="edit-footer">
+        <small>{role === 'user' ? '原版本及后续消息会保留。' : '每段正文单独编辑并自动适应高度；清空某一段即可删除它。原版本及后续消息会保留。'}</small>
+        <div className="button-row"><button onClick={onCancelEdit}>取消</button><button className="primary" onClick={() => onSubmitEdit(message)}>{role === 'user' ? '保存并生成' : '保存新版本'}</button></div>
+      </div>
     </div> : <>
       <div className="message-attachments">{message.attachments.map(attachment => <AttachmentPreview key={attachment.id} attachment={attachment} onOpen={onOpenAttachment}/>)}</div>
       {role === 'assistant' ? <AssistantContent message={message} taskKind={taskKind}/> : message.text ? <div className="message-content"><Markdown text={message.text}/></div> : null}

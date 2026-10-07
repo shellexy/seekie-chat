@@ -928,15 +928,27 @@ summary {
   width: 100%;
   font-size: 14px;
 }
-.edit-box .button-row {
+/* The hint and the buttons share one row: the hint takes the free space and the buttons stay right,
+   wrapping onto their own line only when the window is too narrow for both. */
+.edit-box .edit-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
   margin-top: 10px;
-  justify-content: flex-end;
 }
-.edit-box small {
+.edit-box .edit-footer small {
   display: block;
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0 0 0 8px;
   color: var(--muted);
-  margin-top: -20px;
-  margin-left: 8px;
+}
+.edit-box .edit-footer .button-row {
+  margin-top: 0;
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
 .composer-area {
   position: relative;

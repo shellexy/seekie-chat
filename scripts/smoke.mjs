@@ -745,6 +745,20 @@ try {
   assert.ok(editLayout.actionsBottom <= editLayout.scrollBottom, '取消和保存按钮应留在可视区域内');
   assert.ok(Math.abs(editLayout.networkHeight - editLayout.optionsHeight) < 1, '联网按钮与会话选项按钮应等高');
   assert.ok(Math.abs(editLayout.networkIconSize - editLayout.optionsIconSize) < 1, '联网图标与会话选项图标应等大');
+  // The hint and the buttons share a row; shrinking the window to its minimum must not overlap them.
+  const previousSize = await desktop.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; const size = window.getSize(); window.setSize(800, size[1]); return size; });
+  await page.waitForTimeout(200);
+  const footerLayout = await page.evaluate(() => {
+    const footer = document.querySelector('.edit-box .edit-footer');
+    const hint = footer?.querySelector('small'), actions = footer?.querySelector('.button-row');
+    if (!footer || !hint || !actions) throw new Error('编辑区的提示或按钮缺失');
+    const hintRect = hint.getBoundingClientRect(), actionsRect = actions.getBoundingClientRect();
+    return { windowWidth: innerWidth, sameLine: Math.abs(hintRect.top - actionsRect.top) < 12, hintRight: hintRect.right, hintBottom: hintRect.bottom, actionsLeft: actionsRect.left, actionsTop: actionsRect.top };
+  });
+  assert.ok(footerLayout.windowWidth <= 820, `窗口应已收窄到最小宽度，实际 ${footerLayout.windowWidth}`);
+  assert.ok(footerLayout.sameLine ? footerLayout.hintRight <= footerLayout.actionsLeft + 1 : footerLayout.hintBottom <= footerLayout.actionsTop + 1, `提示与按钮不得重叠：${JSON.stringify(footerLayout)}`);
+  await desktop.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), previousSize);
+  await page.waitForTimeout(200);
   const editorHeight = (await editorArea.boundingBox()).height;
   assert.ok(editorHeight >= 300, '回答编辑框仍应有足够高度');
   assert.ok(editorHeight <= (await page.evaluate(() => innerHeight)) - 300, '回答编辑框应保持在视口可用高度内');
