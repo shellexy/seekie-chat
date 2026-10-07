@@ -1,26 +1,30 @@
-import initSqlJs, { type Database } from 'sql.js';
+import { DatabaseSync } from 'node:sqlite';
 import { safeStorage } from 'electron';
-import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, RequestRecord } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, migrateRequestTable, saveRequests } from './request_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
-  private db!: Database;
+  private db!: DatabaseSync;
   private secrets = new Map<string, string>();
   secure = false;
   constructor(public directory: string) {}
-  async init() {
+  init() {
     mkdirSync(join(this.directory, 'attachments'), { recursive: true, mode: 0o700 });
-    const SQL = await initSqlJs({ locateFile: () => join(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm') });
-    const file = join(this.directory, 'chat.sqlite');
-    this.db = existsSync(file) ? new SQL.Database(readFileSync(file)) : new SQL.Database();
-    this.db.run('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    // The database file is an ordinary SQLite file: it keeps working across this driver change.
+    this.db = new DatabaseSync(join(this.directory, 'chat.sqlite'));
+    // WAL keeps each save to the pages that changed instead of rewriting the whole file, and FULL
+    // sync trades a little speed for durability of settings, credentials and chat history.
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = FULL');
+    this.db.exec('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+    this.secureFiles();
     // Request records moved from the old database table into their own files.
     initRequestDirectory(this.directory); migrateRequestTable(this.db, this.directory);
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
-    if (this.secure) for (const row of this.db.exec('SELECT id,payload FROM secrets')[0]?.values || []) { try { this.secrets.set(String(row[0]), safeStorage.decryptString(Buffer.from(String(row[1]), 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
+    if (this.secure) for (const row of this.db.prepare('SELECT id,payload FROM secrets').all() as { id: string; payload: string }[]) { try { this.secrets.set(row.id, safeStorage.decryptString(Buffer.from(row.payload, 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
     const credentials = join(this.directory, 'credentials.json');
     if (existsSync(credentials)) {
       let file: { version: number; secrets: Record<string, string> };
@@ -31,8 +35,8 @@ export class Store {
     }
   }
   load(): AppState {
-    const rows = this.db.exec('SELECT payload FROM state WHERE id=1');
-    const state: AppState = rows.length ? JSON.parse(String(rows[0].values[0][0])) : initialState();
+    const row = this.db.prepare('SELECT payload FROM state WHERE id=1').get() as { payload: string } | undefined;
+    const state: AppState = row ? JSON.parse(row.payload) : initialState();
     normalizeSettings(state.settings);
     state.settings.secureStorage = this.secure;
     if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
@@ -78,7 +82,7 @@ export class Store {
     // no blob to send and providers answer with an opaque 400).
     for (const a of attachments(state)) if (validId(a.id) && !a.data) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     const copy = structuredClone(state);
-    this.secrets.clear(); this.db.run('DELETE FROM secrets');
+    this.secrets.clear(); this.db.exec('DELETE FROM secrets');
     for (const c of copy.settings.connections) { this.saveSecret(c.id, c.apiKey, copy.settings.secretPolicy); this.saveSecret('headers:' + c.id, JSON.stringify(c.headers), copy.settings.secretPolicy); c.apiKey = ''; c.headers = {}; }
     this.saveSecret('exa', copy.settings.exaKey, copy.settings.secretPolicy); copy.settings.exaKey = '';
     this.saveSecret('ollama', copy.settings.ollamaKey, copy.settings.secretPolicy); copy.settings.ollamaKey = '';
@@ -98,8 +102,10 @@ export class Store {
       const file = join(this.directory, 'attachments', name);
       if (!existsSync(file)) writeFileSync(file, a.data, { mode: 0o600 }); a.data = '';
     }
-    this.db.run('INSERT OR REPLACE INTO state (id,payload) VALUES (1,?)', [JSON.stringify(copy)]);
-    const file = join(this.directory, 'chat.sqlite'); writeFileSync(file + '.tmp', this.db.export(), { mode: 0o600 }); renameSync(file + '.tmp', file);
+    // A single row update: SQLite writes the changed pages itself, so a save no longer rewrites and
+    // re-serialises the entire database.
+    this.db.prepare('INSERT OR REPLACE INTO state (id,payload) VALUES (1,?)').run(JSON.stringify(copy));
+    this.secureFiles();
     const credentials = join(this.directory, 'credentials.json');
     if (copy.settings.secretPolicy === 'file') {
       writeFileSync(credentials + '.tmp', JSON.stringify({ version: 1, secrets: Object.fromEntries(this.secrets) }, null, 2), { mode: 0o600 });
@@ -115,7 +121,20 @@ export class Store {
   clearRequests() { clearRequests(this.directory); }
   private saveSecret(id: string, value: string, policy: string) {
     if (!value) return; this.secrets.set(id, value);
-    if (this.secure && policy === 'encrypted') this.db.run('INSERT INTO secrets (id,payload) VALUES (?,?)', [id, safeStorage.encryptString(value).toString('base64')]);
+    if (this.secure && policy === 'encrypted') this.db.prepare('INSERT OR REPLACE INTO secrets (id,payload) VALUES (?,?)').run(id, safeStorage.encryptString(value).toString('base64'));
+  }
+  // WAL and shared-memory files are created next to the database; keep them as private as the
+  // database itself, and fold the log back into it when the app closes.
+  private secureFiles() {
+    for (const name of ['chat.sqlite', 'chat.sqlite-wal', 'chat.sqlite-shm']) {
+      const file = join(this.directory, name);
+      if (existsSync(file)) try { chmodSync(file, 0o600); } catch { /* permissions are best effort */ }
+    }
+  }
+  close() {
+    try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* already closed or read-only */ }
+    try { this.db.close(); } catch { /* ignore */ }
+    this.secureFiles();
   }
 }
 function validId(id: string) { return /^[a-f0-9-]{36}$/.test(id); }

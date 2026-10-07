@@ -252,5 +252,5 @@ else {
     const directory = process.env.DEEPCHAN_DATA_DIR || join(app.getPath('userData'), 'data');
     store = new Store(directory); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('DeepChan-chat 启动失败', error.message); app.quit(); });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { clearTimeout(persistTimer); if (state && store) store.save(state); });
+  app.on('before-quit', () => { clearTimeout(persistTimer); if (state && store) { store.save(state); store.close(); } });
 }

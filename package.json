@@ -13,6 +13,7 @@
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "test:dev": "node scripts/check-dev.mjs",
+    "test:upgrade": "npm run build && node scripts/check-upgrade.mjs",
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
@@ -25,14 +26,12 @@
     "react-markdown": "^10.0.0",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.0",
-    "sql.js": "^1.13.0",
     "undici": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/sql.js": "^1.4.9",
     "@vitejs/plugin-react": "^4.4.0",
     "electron": "^44.7.0",
     "esbuild": "^0.25.0",

@@ -5,8 +5,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
-const server = await createServer(); await server.listen();
-const env = { ...process.env, DEEPCHAN_DEV_URL: 'http://127.0.0.1:5173', DEEPCHAN_DATA_DIR: mkdtempSync(join(tmpdir(), 'deepchan-dev-check-')) }; delete env.ELECTRON_RUN_AS_NODE;
+// Any free port: a dev server may already be running on the configured one, and this check only
+// needs the development page to be served by Vite.
+const server = await createServer({ server: { port: 0, strictPort: false } }); await server.listen();
+const devUrl = (server.resolvedUrls?.local?.[0] || 'http://127.0.0.1:5173').replace(/\/$/, '');
+const env = { ...process.env, DEEPCHAN_DEV_URL: devUrl, DEEPCHAN_DATA_DIR: mkdtempSync(join(tmpdir(), 'deepchan-dev-check-')) }; delete env.ELECTRON_RUN_AS_NODE;
 let desktop;
 try {
   desktop = await _electron.launch({ executablePath: electronPath, args: ['.'], env });
