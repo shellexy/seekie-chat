@@ -177,12 +177,19 @@ export default function App() {
   }, [messages.map(m => m.text.length + m.reasoning.length + m.tools.length).join(','), atBottom]);
   // 分支上的模型可能已经失效了：对话是在还没有任何模型时建的，或者那个模型在设置里被删了。
   // 这时把分支改指到一个可用的模型，否则按钮是空的，用户连第一句话都发不出去。改的是分支
-  // 自己的配置，所以主进程发请求时拿到的也是这个模型。
+  // 自己的配置，所以主进程发请求时拿到的也是这个模型。换模型这件事要说一声，不然老对话忽然
+  // 换了模型，用户只看到按钮上的名字变了，不知道发生了什么。
   useEffect(() => {
     if (!branch || state.settings.models.some(m => m.id === branch.config.modelId)) return;
     const modelId = fallbackModelId(state.settings);
     if (!modelId) return;
-    void commit(s => { const { b } = find(s); if (!s.settings.models.some(m => m.id === b.config.modelId)) b.config.modelId = modelId; }).catch(() => {});
+    const original = branch.config.modelId, target = state.settings.models.find(m => m.id === modelId);
+    void commit(s => {
+      const { b } = find(s);
+      if (s.settings.models.some(m => m.id === b.config.modelId)) return;
+      b.config.modelId = modelId;
+      toast(original ? `原有模型暂不可用，已自动切换到 ${target?.name || '可用模型'}` : `已自动选择模型 ${target?.name || ''}`);
+    }).catch(() => {});
   }, [branch, state.settings.models]);
   useEffect(() => {
     setEditing(null); setBranchMenu(false); setChatSearchOpen(false); setSummaryOpen(false);

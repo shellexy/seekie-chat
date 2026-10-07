@@ -631,6 +631,13 @@ try {
   const healedTitle = await modelSelector.getAttribute('title');
   assert.ok(healedTitle && healedTitle !== '选择模型', `模型被删后按钮应显示某个模型，实际：${healedTitle}`);
   assert.ok(!healedTitle.includes(victim.name), `按钮不该再显示被删掉的模型，实际：${healedTitle}`);
+  // 换了模型要说一声：老对话忽然换了模型，用户得知道为什么。
+  const notice = page.locator('.toast');
+  await notice.waitFor({ timeout: 5000 });
+  const noticeText = (await notice.innerText()).trim();
+  assert.match(noticeText, /原有模型暂不可用，已自动切换到/, `应提示原有模型不可用并已自动切换，实际：${noticeText}`);
+  assert.ok(!noticeText.includes(victim.name), `提示里不该再提被删掉的模型，实际：${noticeText}`);
+  await page.screenshot({ path: join(directory, 'model-switched-notice.png') });
   // 复原整份状态，后面的阶段还要用这些模型。
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, snapshot);
   await waitFor(page, async id => {
