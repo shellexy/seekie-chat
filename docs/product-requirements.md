@@ -174,7 +174,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 - 展示工具名、状态、开始时间、耗时、可读输入、结果摘要和错误；详细结果折叠。
 - 引用显示来源标题、URL，能定位关联引用并在系统浏览器打开。
-- 工具结果和网页内容视为外部资料，不能改变应用权限、执行命令或读取本地文件。
+- 工具结果和网页内容视为外部资料，不能改变应用权限、执行命令或读取本地文件。该提示写在搜索与读取网页两个工具的描述里（`UNTRUSTED_CONTENT_NOTE`），四种协议一致；系统提示词按用户所写原样发送，不追加任何工具或联网相关片段，因此改提示词不会把这层防护删掉。
 - 读取网页默认自动按 Exa Contents、Ollama Cloud `api/web_fetch`、Tavily Extract、Firecrawl Scrape、AnySearch Extract 的顺序调用已配置密钥的服务；然后尝试 Firecrawl、AnySearch、Tavily 的免 Key API。服务失败时继续尝试下一个；都不可用或都失败时回退到本地读取网页。Tavily 免 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 与 AnySearch 不发送 Authorization。Ollama Cloud 可复用连接配置中的 API Key。
 - 用户可在会话选项中为读取网页指定自动、任一供应商、本地读取网页或关闭。无 Key 的 Tavily、Firecrawl 和 AnySearch 仍可选用。旧会话没有此字段时，若原搜索模式为关闭则读取网页保持关闭，否则按自动处理。
 - `web_fetch` 通过 Electron 主进程提供。供应商读取网页 API 返回 Markdown；AnySearch 返回 HTML 时使用 Defuddle 转换。本地读取网页使用 Electron `net.fetch`（Chromium 网络栈）并服从默认 session 的代理配置，请求优先声明 `text/markdown`，HTML 使用 Defuddle 提取并转换为 Markdown。

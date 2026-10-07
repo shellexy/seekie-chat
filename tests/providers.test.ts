@@ -413,7 +413,8 @@ test('datetime is offered outside search and returns the machine clock without s
   const tools: string[] = [];
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => tools.push(t.status), sources() {} });
   assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['datetime']);
-  assert.match(firstBody.messages[0].content, /datetime/, 'the system prompt must ask for the tool instead of recalled dates');
+  assert.equal(firstBody.messages[0].content, c.branches[0].config.system, '系统提示原样发送，不追加片段');
+  assert.match(firstBody.tools[0].function.description, /不要凭记忆回答/, '要求调用 datetime 避免凭记忆作答，改由工具描述承担');
   const returned = secondBody.messages.at(-1);
   assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'clock-1');
   assert.match(returned.content, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期[日一二三四五六] \| .+ UTC[+-]\d{2}:\d{2} \| UTC \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
@@ -422,6 +423,28 @@ test('datetime is offered outside search and returns the machine clock without s
   await agent.close();
 });
 
+for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${protocol} declares search and web_fetch as untrusted content`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent); let body: any;
+  const events = protocol === 'chat' ? [{ choices: [{ delta: { content: '好。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }]
+    : protocol === 'responses' ? [{ type: 'response.output_text.delta', delta: '好。' }, { type: 'response.completed', response: { output: [], usage: { input_tokens: 1, output_tokens: 1 } } }]
+    : [{ type: 'message_start', message: { usage: { input_tokens: 1 } } }, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '好。' } }, { type: 'content_block_stop', index: 0 }, { type: 'message_delta', usage: { output_tokens: 1 } }, { type: 'message_stop' }];
+  const path = protocol === 'chat' ? 'chat/completions' : protocol === 'responses' ? 'responses' : 'messages';
+  agent.get('https://fixture.invalid').intercept({ path: `/v1/${path}`, method: 'POST' }).reply(200, options => {
+    body = JSON.parse(String(options.body)); return events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'exa-fixture';
+  const c = createConversation(state.settings), b = c.branches[0]; addMessage(c, b, 'user', '查一下');
+  await generate(connection(protocol), model, { ...b.config, search: 'exa', webFetch: 'exa' }, c.messages, state.settings, new AbortController().signal, undefined,
+    async url => ({ url, title: 'Page', content: 'body', contentType: 'text/html', truncated: false, provider: 'exa' }));
+  // 系统提示由用户随意改写，外部资料提示必须长在工具描述里，改提示词才删不掉它。
+  const declared = body.tools.map((tool: any) => tool.function ?? tool);
+  const names = declared.map((tool: any) => tool.name);
+  assert.ok(names.includes('exa_search') && names.includes('web_fetch'), `两种工具都应被声明：${names}`);
+  const guarded = declared.filter((tool: any) => tool.name === 'exa_search' || tool.name === 'web_fetch');
+  assert.equal(guarded.length, 2, `搜索与抓取工具都应被声明：${names}`);
+  for (const tool of guarded) assert.match(tool.description, /外部资料/, `${protocol} 的 ${tool.name} 描述缺少外部资料提示`);
+  await agent.close();
+});
 test('unknown tools are rejected softly once, then stop a repeating request', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
