@@ -27,6 +27,10 @@ export interface Settings {
   promptPresets: PromptPreset[]; defaultPromptPresetId: string;
   connections: Connection[]; models: Model[]; defaultModel: string; titleModel: string;
   compressionModel: string; theme: 'light' | 'dark' | 'system'; fontSize: number;
+  // 模型收藏与最近使用。收藏由用户手动标记；最近使用按"切换即记、成功置顶"维护。
+  favoriteModels: string[]; recentModels: string[]; useRecentModel: boolean;
+  // 新对话的搜索起点，以及自动模式下模型原生搜索是否优先于外部搜索服务。
+  defaultSearch: SearchMode; preferNativeSearch: boolean;
   exaKey: string; ollamaKey: string; tavilyKey: string; firecrawlKey: string; anysearchKey: string;
   exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;

@@ -65,6 +65,15 @@ async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
   }
   throw new Error('等待桌面应用状态超时');
 }
+// The model selector is a drawn listbox rather than a native select, so choosing a model means
+// opening it and clicking a row. The option reads "name | connection", so match on the model name
+// only; .first() because a favourited model is listed in more than one section.
+async function pickModel(page, name) {
+  await page.getByRole('button', { name: '聊天模型' }).first().click();
+  await page.locator('.model-picker-popover').waitFor();
+  await page.locator('.model-picker-popover').getByRole('option', { name }).first().click();
+  await page.locator('.model-picker-popover').waitFor({ state: 'hidden' });
+}
 async function lengthenActiveHistory(page) {
   return await page.evaluate(async () => {
     const state = await window.deepchan.load();
@@ -256,6 +265,19 @@ try {
   assert.equal(await page.getByRole('heading', { name: 'Firecrawl', exact: true }).count(), 1);
   assert.equal(await page.getByRole('heading', { name: 'AnySearch', exact: true }).count(), 1);
   assert.equal(await page.getByLabel('API Key（可选）').count(), 3);
+  // Search preferences are global defaults; they only change the fallback order of the auto mode.
+  assert.deepEqual(await page.getByLabel('新对话的搜索模式').locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '关闭']);
+  assert.equal(await page.getByLabel('新对话的搜索模式').inputValue(), 'auto');
+  assert.equal(await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).isChecked(), true, '默认原生搜索优先');
+  await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).uncheck();
+  await page.getByLabel('新对话的搜索模式').selectOption('tavily');
+  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  await page.locator('.settings-page').waitFor({ state: 'hidden' });
+  assert.deepEqual(await page.evaluate(async () => { const s = await window.deepchan.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch]; }), ['tavily', false]);
+  await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.defaultSearch = 'auto'; s.settings.preferNativeSearch = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+  // Saving closes the settings page, so open it again for the steps that follow.
+  await page.getByRole('button', { name: /^设置/ }).click();
+  await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
   await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
@@ -276,11 +298,28 @@ try {
   const input = page.getByRole('textbox', { name: '消息输入' });
   await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
   const toolbar = page.locator('.composer-bottom');
-  assert.equal(await toolbar.getByRole('combobox', { name: '聊天模型' }).count(), 1);
-  const modelSelector = toolbar.getByRole('combobox', { name: '聊天模型' });
-  // The selector lists models by name, so the expectation is in alphabetical order.
-  assert.deepEqual(await modelSelector.locator('option').allTextContents(), ['选择模型', '模拟 anthropic | 本地模拟 anthropic', '模拟 chat | 本地模拟 chat', '模拟 gemini | 本地模拟 gemini', '模拟 responses | 本地模拟 responses']);
+  assert.equal(await toolbar.getByRole('button', { name: '聊天模型' }).count(), 1);
+  const modelSelector = toolbar.getByRole('button', { name: '聊天模型' });
   assert.equal(await modelSelector.getAttribute('title'), '模拟 chat | 本地模拟 chat');
+  // The drawn list keeps the native select's alphabetical order, and the full list stays complete.
+  await modelSelector.click();
+  await page.locator('.model-picker-popover').waitFor();
+  assert.equal(await page.locator('.model-picker-popover').getByRole('option').count(), 4, '每个模型都应出现在完整列表里');
+  assert.deepEqual(await page.locator('.model-picker-popover [role="option"]').allTextContents(), ['模拟 anthropic | 本地模拟 anthropic', '模拟 chat | 本地模拟 chat', '模拟 gemini | 本地模拟 gemini', '模拟 responses | 本地模拟 responses']);
+  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['全部模型'], '还没有收藏时只显示完整列表');
+  // Starring a model adds a 收藏 section above the list and takes the model out of 最近使用.
+  await page.locator('.model-picker-popover').getByRole('button', { name: '收藏 模拟 chat' }).first().click();
+  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['收藏', '全部模型']);
+  // A favourited model is starred in both places it is listed: the shortcut section above and the
+  // complete list below, which stays complete on purpose.
+  assert.equal(await page.locator('.model-picker-star.on').count(), 2);
+  assert.deepEqual(await page.locator('.model-picker-section').first().locator('[role="option"]').allTextContents(), ['模拟 chat | 本地模拟 chat']);
+  assert.equal(await page.locator('.model-picker-popover [role="option"]').count(), 5, '收藏区 1 条加上完整列表 4 条');
+  await page.locator('.model-picker-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
+  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['全部模型']);
+  assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.favoriteModels.length), 0, '取消收藏应写回设置');
+  await page.keyboard.press('Escape');
+  await page.locator('.model-picker-popover').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.header-title small').innerText(), '模拟 chat | 本地模拟 chat');
   assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
@@ -468,7 +507,9 @@ try {
     await page.getByRole('button', { name: /新建对话/ }).first().click();
     await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, expectedCount);
     const modelId = await page.evaluate(async protocol => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 ' + protocol).id, protocol);
-    await page.getByRole('combobox', { name: '聊天模型' }).selectOption(modelId);
+    await pickModel(page, `模拟 ${protocol}`);
+    // Switching a model records it straight away, before any answer exists.
+    assert.equal(await page.evaluate(async id => (await window.deepchan.load()).settings.recentModels.includes(id), modelId), true, `切换到 ${protocol} 就应记入最近使用`);
     if (protocol === 'gemini') {
       await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
       await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.titleModel = ''; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
@@ -518,6 +559,26 @@ try {
     await debugWindow.waitFor({ state: 'hidden' });
     console.log('stage: protocol complete', protocol);
   }
+  // The finished answer promoted its model to the front, and a new chat now starts from it.
+  const resume = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
+  const geminiModel = await page.evaluate(async () => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 gemini').id);
+  assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.recentModels[0]), geminiModel, '回答跑完后应把它的模型置顶');
+  const chatCount = await page.evaluate(async () => (await window.deepchan.load()).conversations.length);
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 1);
+  const throwaway = [await page.evaluate(async () => (await window.deepchan.load()).selectedId)];
+  const activeModel = async () => await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.modelId; });
+  assert.equal(await activeModel(), geminiModel, '新对话应接着最近使用过的模型');
+  // Turning the preference off sends new chats back to the configured default model.
+  await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.useRecentModel = false; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 2);
+  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
+  assert.equal(await activeModel(), await page.evaluate(async () => (await window.deepchan.load()).settings.defaultModel), '关闭开关后新对话回到默认聊天模型');
+  // Leave the app on the conversation the following stages expect, and drop the two throwaway chats
+  // so the final conversation count still means "no extra conversation leaked".
+  await page.evaluate(async payload => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, { keep: resume, drop: throwaway });
+  await waitFor(page, async id => { const s = await window.deepchan.load(); return s.selectedId === id && s.conversations.length === 4; }, resume);
   // Right click menus, and the timestamp shown on user messages.
   await page.locator('.conversation-item').first().click({ button: 'right' });
   const listMenu = page.locator('.conversation-popover');

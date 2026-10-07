@@ -1,4 +1,4 @@
-import { normalizeSettings } from './domain';
+import { normalizeSettings, SEARCH_MODES } from './domain';
 import type { AppState, Settings } from './types';
 
 // Settings and state validation live here, outside the Electron layer, so the settings page, the
@@ -13,6 +13,16 @@ export function settingsProblems(settings: Settings): string[] {
     else presetIds.add(preset.id);
   }
   if (settings.defaultPromptPresetId && !presetIds.has(settings.defaultPromptPresetId)) problems.push('默认系统提示词预设不存在');
+  const idList = (values: unknown) => Array.isArray(values) && values.every(value => typeof value === 'string' && !!value);
+  const modelIds = new Set<string>();
+  for (const model of settings.models) {
+    if (!model.model?.trim()) problems.push('请填写每个模型的模型 ID');
+    if (!Number.isFinite(model.maxOutput) || model.maxOutput < 1 || !Number.isFinite(model.contextWindow) || model.contextWindow < model.maxOutput) problems.push('上下文窗口不能小于最大输出 token');
+    modelIds.add(model.id);
+  }
+  if (!idList(settings.favoriteModels) || !idList(settings.recentModels)) problems.push('模型收藏或最近使用记录无效');
+  else for (const id of [...settings.favoriteModels, ...settings.recentModels]) if (!modelIds.has(id)) problems.push('模型收藏或最近使用指向已删除的模型');
+  if (!SEARCH_MODES.includes(settings.defaultSearch)) problems.push('默认联网搜索模式无效');
   for (const connection of settings.connections) {
     if (!connection.name?.trim()) problems.push('请填写连接名称');
     if (!validId(connection.id) || !['chat', 'responses', 'anthropic', 'gemini'].includes(connection.protocol) || typeof connection.apiKey !== 'string' || !Number.isFinite(connection.timeout) || connection.timeout < 10 || connection.timeout > 600) problems.push('连接配置无效');
@@ -21,10 +31,6 @@ export function settingsProblems(settings: Settings): string[] {
       if (!['https:', 'http:'].includes(url.protocol)) problems.push('连接地址无效');
     } catch { problems.push('连接地址无效'); }
     if (connection.proxy && !/^https?:\/\//.test(connection.proxy)) problems.push('当前版本的代理需使用 HTTP/HTTPS 地址');
-  }
-  for (const model of settings.models) {
-    if (!model.model?.trim()) problems.push('请填写每个模型的模型 ID');
-    if (!Number.isFinite(model.maxOutput) || model.maxOutput < 1 || !Number.isFinite(model.contextWindow) || model.contextWindow < model.maxOutput) problems.push('上下文窗口不能小于最大输出 token');
   }
   return problems;
 }

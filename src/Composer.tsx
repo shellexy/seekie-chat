@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { defaultModelEffort, modelLabel } from './domain';
+import { defaultModelEffort, SEARCH_MODE_LABELS } from './domain';
+import ModelPicker from './ModelPicker';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
 // A draft image may still be in flight from the main process when a saved draft is restored.
@@ -13,18 +14,18 @@ function DraftImage({ attachment }: { attachment: Attachment }) {
 // session options popover, the networking toggle, the send/stop button and its own height handle.
 export default function Composer({ branch, model, models, connections, busy, pending, atBottom, messageCount, height, textareaRef,
   networkingEnabled, networkUnavailable, effectiveSearch, webFetchMode, samplingSupported, samplingHelp, ollamaSearchConfigured,
-  hasExaKey, promptPresets, backgroundUsage, userTurnCount,
-  onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onScrollToBottom, onNewChat, onNotice
+  hasExaKey, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch,
+  onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onToggleFavorite, onScrollToBottom, onNewChat, onNotice
 }: {
   branch: Branch | null; model?: Model; models: Model[]; connections: Connection[]; busy: boolean; pending: boolean;
   atBottom: boolean; messageCount: number; height: number; textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   networkingEnabled: boolean; networkUnavailable: boolean; effectiveSearch: string; webFetchMode: string; samplingSupported: boolean; samplingHelp: string; ollamaSearchConfigured: boolean;
   hasExaKey: boolean; promptPresets: PromptPreset[]; backgroundUsage?: Conversation['backgroundUsage']; userTurnCount: number;
+  favoriteModels: string[]; recentModels: string[]; defaultSearch: Branch['config']['search'];
   onHeightChange: (height: number) => void; onDraftChange: (text: string) => void; onRemoveAttachment: (attachment: Attachment) => void; onAttach: (files: File[]) => void;
-  onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onScrollToBottom: () => void; onNewChat: () => void; onNotice: (message: string) => void;
+  onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onToggleFavorite: (modelId: string) => void;
+  onScrollToBottom: () => void; onNewChat: () => void; onNotice: (message: string) => void;
 }) {
-  // The selector is a browsing surface, so the models are listed by name instead of by creation order.
-  const sortedModels = [...models].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
   const composerDrag = useRef<{ y: number; height: number } | null>(null);
   const composing = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null), optionsPopoverRef = useRef<HTMLDivElement>(null);
@@ -70,12 +71,12 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 <input hidden ref={fileRef} type="file" multiple onChange={e => { onAttach([...e.target.files || []]); e.target.value = ''; }}/>
                 <div className="composer-meta">
                   <div className="model-selector">
-                    <select aria-label="聊天模型" title={model ? modelLabel(model, connections) : '选择模型'} value={branch.config.modelId} disabled={busy} onChange={e => { const m = models.find(x => x.id === e.target.value); onUpdateConfig({ modelId: e.target.value, effort: m?.efforts.includes(branch.config.effort) ? branch.config.effort : defaultModelEffort(m), budget: Math.min(branch.config.budget, Math.max(1024, (m?.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : 'auto' }); }}>
-                      <option value="">选择模型</option>
-                      {sortedModels.map(m => <option key={m.id} value={m.id}>
-                        {modelLabel(m, connections)}
-                      </option>)}
-                    </select>
+                    <ModelPicker model={model} models={models} connections={connections} favorites={favoriteModels} recent={recentModels} disabled={busy}
+                      onSelect={m => onUpdateConfig({ modelId: m.id, effort: m.efforts.includes(branch.config.effort) ? branch.config.effort : defaultModelEffort(m),
+                        // Switching model keeps an explicit "off" but otherwise returns to the
+                        // user's preferred search mode: the old provider may not suit the new model.
+                        budget: Math.min(branch.config.budget, Math.max(1024, (m.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : defaultSearch })}
+                      onToggleFavorite={onToggleFavorite}/>
                   </div>
                   <div className="reasoning-selector">
                     {model?.reasoning === 'budget' ? <select aria-label="思考等级" title="思考预算（token）" value={branch.config.budget} disabled={busy} onChange={e => onUpdateConfig({ budget: Number(e.target.value) })}>
@@ -115,14 +116,14 @@ export default function Composer({ branch, model, models, connections, busy, pen
                         {samplingSupported ? '采样设置仅影响当前分支后续回答。' : samplingHelp}
                       </p>
                       <label className="field inline-config-field">联网搜索<select value={branch.config.search} disabled={busy} onChange={e => onUpdateConfig({ search: e.target.value as Branch['config']['search'] })}>
-                          <option value="auto">自动联网（默认）</option>
-                          <option value="native" disabled={!model?.nativeSearch || connections.find(c => c.id === model.connectionId)?.protocol === 'chat'}>模型原生</option>
-                          <option value="exa" disabled={!model?.tools || !hasExaKey}>Exa</option>
-                          <option value="ollama" disabled={!model?.tools || !ollamaSearchConfigured}>Ollama Cloud</option>
-                          <option value="tavily" disabled={!model?.tools}>Tavily</option>
-                          <option value="firecrawl" disabled={!model?.tools}>Firecrawl</option>
-                          <option value="anysearch" disabled={!model?.tools}>AnySearch</option>
-                          <option value="off">关闭</option>
+                          <option value="auto">{SEARCH_MODE_LABELS.auto}</option>
+                          <option value="native" disabled={!model?.nativeSearch || connections.find(c => c.id === model.connectionId)?.protocol === 'chat'}>{SEARCH_MODE_LABELS.native}</option>
+                          <option value="exa" disabled={!model?.tools || !hasExaKey}>{SEARCH_MODE_LABELS.exa}</option>
+                          <option value="ollama" disabled={!model?.tools || !ollamaSearchConfigured}>{SEARCH_MODE_LABELS.ollama}</option>
+                          <option value="tavily" disabled={!model?.tools}>{SEARCH_MODE_LABELS.tavily}</option>
+                          <option value="firecrawl" disabled={!model?.tools}>{SEARCH_MODE_LABELS.firecrawl}</option>
+                          <option value="anysearch" disabled={!model?.tools}>{SEARCH_MODE_LABELS.anysearch}</option>
+                          <option value="off">{SEARCH_MODE_LABELS.off}</option>
                         </select>
                       </label>
                       <label className="field inline-config-field">读取网页<select aria-label="读取网页" value={webFetchMode} disabled={busy} onChange={e => onUpdateConfig({ webFetch: e.target.value as Branch['config']['webFetch'] })}>
@@ -158,7 +159,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                     </div>}
                   </div>
                 </div>
-                <button className={`search-toggle ${networkingEnabled ? 'enabled' : ''} ${networkUnavailable ? 'unavailable' : ''}`} aria-label="联网" aria-pressed={networkingEnabled} disabled={busy} title={networkUnavailable ? '自动联网搜索未配置，并且当前模型不支持工具调用；请配置搜索服务或启用模型工具调用。' : !networkingEnabled ? '点击同时启用联网搜索和读取网页' : branch.config.search === 'off' ? '读取网页已启用；点击关闭联网搜索和读取网页' : effectiveSearch === 'native' ? '原生搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'exa' ? 'Exa 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'ollama' ? 'Ollama Cloud Web Search 已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'tavily' ? 'Tavily 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'firecrawl' ? 'Firecrawl 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'anysearch' ? 'AnySearch 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : '联网搜索和读取网页已启用；点击全部关闭'} onClick={() => onUpdateConfig(networkingEnabled ? { search: 'off', webFetch: 'off' } : { search: 'auto', webFetch: 'auto' })}>
+                <button className={`search-toggle ${networkingEnabled ? 'enabled' : ''} ${networkUnavailable ? 'unavailable' : ''}`} aria-label="联网" aria-pressed={networkingEnabled} disabled={busy} title={networkUnavailable ? '自动联网搜索未配置，并且当前模型不支持工具调用；请配置搜索服务或启用模型工具调用。' : !networkingEnabled ? '点击同时启用联网搜索和读取网页' : branch.config.search === 'off' ? '读取网页已启用；点击关闭联网搜索和读取网页' : effectiveSearch === 'native' ? '原生搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'exa' ? 'Exa 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'ollama' ? 'Ollama Cloud Web Search 已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'tavily' ? 'Tavily 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'firecrawl' ? 'Firecrawl 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'anysearch' ? 'AnySearch 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : '联网搜索和读取网页已启用；点击全部关闭'} onClick={() => onUpdateConfig(networkingEnabled ? { search: 'off', webFetch: 'off' } : { search: defaultSearch, webFetch: 'auto' })}>
                   <span className={'network-icon ' + (!networkingEnabled ? 'off' : '')}>
                     <Globe2 size={14}/>
                   </span>

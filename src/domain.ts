@@ -1,4 +1,4 @@
-import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, Message, Model, PromptPreset, Protocol, Settings, Usage } from './types';
+import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, Message, Model, PromptPreset, Protocol, SearchMode, Settings, Usage } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
 export function defaultPromptPresets(): PromptPreset[] {
   return [
@@ -17,8 +17,42 @@ export function normalizeSettings(settings: Settings) {
   normalizePromptSettings(settings);
   if (typeof settings.firecrawlKey !== 'string') settings.firecrawlKey = '';
   if (typeof settings.anysearchKey !== 'string') settings.anysearchKey = '';
+  // 旧数据没有收藏、最近使用和搜索偏好；缺省值取这次改动之前的行为，只有"新对话使用最近
+  // 使用的模型"默认开启，因为它就是新对话该有的行为，没有任何最近使用记录时结果不变。
+  if (!Array.isArray(settings.favoriteModels)) settings.favoriteModels = [];
+  if (!Array.isArray(settings.recentModels)) settings.recentModels = [];
+  if (typeof settings.useRecentModel !== 'boolean') settings.useRecentModel = true;
+  if (!SEARCH_MODES.includes(settings.defaultSearch)) settings.defaultSearch = 'auto';
+  if (typeof settings.preferNativeSearch !== 'boolean') settings.preferNativeSearch = true;
 }
 export const uid = () => crypto.randomUUID();
+export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'off'];
+// 最近使用只用于挑模型，不值得无限增长；收藏没有上限，删除模型后的残留由保存时清理。
+export const MAX_RECENT_MODELS = 8;
+/** 搜索偏好只影响自动模式的降级顺序；会话里显式选定的模式一律按用户的指定执行。 */
+export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
+  auto: '自动联网（默认）', off: '关闭', native: '模型原生', exa: 'Exa',
+  ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch'
+};
+/**
+ * "切换即记，成功置顶"：在输入框选中模型时把它记进列表末尾（已经记过的保持原位，
+ * 否则反复切换会把顺序搅乱），一次回答真正跑完再由调用方把它挪到最前。
+ */
+export function rememberRecentModel(settings: Settings, modelId: string, promote = false) {
+  const current = (settings.recentModels || []).filter(id => id && id !== modelId);
+  if (promote) { settings.recentModels = [modelId, ...current].slice(0, MAX_RECENT_MODELS); return; }
+  if ((settings.recentModels || []).includes(modelId)) return;
+  settings.recentModels = [...current, modelId].slice(-MAX_RECENT_MODELS);
+}
+/**
+ * 新对话的起始模型：开启"最近使用"时优先最近用过的，记录里已被删除的模型直接跳过；
+ * 没有可用记录才回到设置里的默认聊天模型。
+ */
+export function newChatModelId(settings: Settings): string {
+  const ids = new Set(settings.models.map(m => m.id));
+  if (settings.useRecentModel) for (const id of settings.recentModels || []) if (ids.has(id)) return id;
+  return ids.has(settings.defaultModel) ? settings.defaultModel : settings.models[0]?.id || '';
+}
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
   if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim())) return ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -40,7 +74,12 @@ export function defaultModelEffort(model?: Model): string {
   if (model.efforts.includes('medium')) return 'medium';
   return model.efforts[0] || 'auto';
 }
-export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', webFetch: 'auto', effort: defaultModelEffort(settings.models.find(m => m.id === settings.defaultModel)), budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
+export const defaultConfig = (settings: Settings): ChatConfig => {
+  const modelId = newChatModelId(settings), model = settings.models.find(m => m.id === modelId);
+  return { modelId, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT,
+    search: SEARCH_MODES.includes(settings.defaultSearch) ? settings.defaultSearch : 'auto', webFetch: 'auto',
+    effort: defaultModelEffort(model), budget: Math.min(4096, Math.max(1024, (model?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 };
+};
 export function ollamaWebSearchKey(settings: Settings): string {
   if (settings.ollamaKey) return settings.ollamaKey;
   return settings.connections.find(connection => {
@@ -52,17 +91,23 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   if (mode !== 'auto') return mode;
   const model = settings.models.find(m => m.id === modelId);
   const connection = settings.connections.find(c => c.id === model?.connectionId);
-  if (model?.nativeSearch && connection && connection.protocol !== 'chat') return 'native';
-  if (model?.tools && settings.exaKey) return 'exa';
-  if (model?.tools && ollamaWebSearchKey(settings)) return 'ollama';
-  if (model?.tools && settings.firecrawlKey) return 'firecrawl';
-  if (model?.tools && settings.anysearchKey) return 'anysearch';
-  if (model?.tools && settings.tavilyKey) return 'tavily';
-  if (model?.tools) return 'firecrawl';
-  return 'off';
+  // 原生搜索要求模型勾选了原生搜索且协议不是 Chat Completions；外部搜索要求模型支持工具调用，
+  // 没有配置任何 Key 时用 Firecrawl 免 Key 兜底。这两条都拿不出来才真的关闭联网。
+  const native = (): Exclude<ChatConfig['search'], 'auto'> | undefined => model?.nativeSearch && connection && connection.protocol !== 'chat' ? 'native' : undefined;
+  const external = (): Exclude<ChatConfig['search'], 'auto'> | undefined => {
+    if (!model?.tools) return undefined;
+    if (settings.exaKey) return 'exa';
+    if (ollamaWebSearchKey(settings)) return 'ollama';
+    if (settings.firecrawlKey) return 'firecrawl';
+    if (settings.anysearchKey) return 'anysearch';
+    if (settings.tavilyKey) return 'tavily';
+    return 'firecrawl';
+  };
+  // 设置里关掉"优先使用内置搜索"时，自动模式改为外部服务优先，原生只作最后兜底。
+  return settings.preferNativeSearch === false ? external() ?? native() ?? 'off' : native() ?? external() ?? 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

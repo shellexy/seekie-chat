@@ -972,13 +972,80 @@ summary {
   color: var(--muted);
   min-width: 0;
 }
-.model-selector select {
+.model-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   border: 0;
-  font-size: 11px;
   padding: 4px 2px;
-  max-width: 250px;
-  color: var(--text);
   background: transparent;
+  color: var(--text);
+  font-size: 11px;
+}
+.model-picker-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The panel is drawn over the page (usePopover positions it in viewport coordinates), so it needs
+   a fixed position, a scroll area for long lists and a stacking level above the composer. */
+.model-picker-popover {
+  position: fixed;
+  z-index: 90;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: min(420px, 60vh);
+  padding: 5px;
+  overflow-y: auto;
+}
+.model-picker-section + .model-picker-section {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.model-picker-heading {
+  padding: 7px 8px 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.model-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.model-picker-row > .model-picker-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.model-picker-row > .model-picker-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-picker-row > .model-picker-name[aria-selected="true"] {
+  color: var(--accent);
+}
+/* Star sits on the right of every row, so a model can be favourited straight from the list. */
+.model-picker-star {
+  flex: 0 0 auto;
+  color: var(--muted);
+  opacity: 0;
+}
+.model-picker-row:hover .model-picker-star,
+.model-picker-star:focus-visible,
+.model-picker-star.on {
+  opacity: 1;
+}
+.model-picker-star.on {
+  color: var(--accent);
 }
 .composer-option {
   border: 0;
@@ -1697,9 +1764,8 @@ input[type="range"] {
   padding: 0;
   min-width: 0;
 }
-.model-selector select {
-  max-width: 145px;
-  font-size: 11px;
+.model-selector {
+  max-width: 250px;
 }
 .reasoning-selector {
   display: flex;

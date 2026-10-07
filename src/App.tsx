@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, applyBodies, assistantBody, createConversation, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
+import { addMessage, applyBodies, assistantBody, createConversation, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -66,6 +66,9 @@ export default function App() {
   const [composerHeight, setComposerHeight] = useState(56);
   const [leftWidth, setLeftWidth] = useState(258), [rightWidth, setRightWidth] = useState(230);
   const scrollRef = useRef<HTMLDivElement>(null), textareaRef = useRef<HTMLTextAreaElement>(null), conversationMenuRef = useRef<HTMLDivElement>(null), chatSearchAnchorRef = useRef<HTMLDivElement>(null), chatSearchInputRef = useRef<HTMLInputElement>(null);
+  // The answer currently streaming per conversation; its model moves to the front of the recent list
+  // only after the run ends with a complete answer, so a stop or an error does not count as usage.
+  const running = useRef(new Map<string, string>());
   const draftCache = useRef(new Map<string, { draft: string; attachments: Attachment[] }>());
   const persistDraftTimer = useRef<ReturnType<typeof setTimeout>>(undefined), queue = useRef(Promise.resolve()), saveSequence = useRef(0), pendingWrites = useRef(0);
   function toast(s: string) { setNotice(s); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 6500); }
@@ -147,6 +150,20 @@ export default function App() {
   const networkUnavailable = searchUnavailable && !webFetchAvailable;
   const task = tasks.find(t => t.conversationId === conversation?.id), busy = !!task;
   const pending = messages.some(m => m.status === 'streaming');
+  // Task changes are what this effect reacts to; the joined string keeps it from running on every
+  // streaming broadcast, which carries a fresh tasks array each time.
+  const taskKey = tasks.map(item => `${item.conversationId}:${item.kind}`).join(',');
+  useEffect(() => {
+    const live = new Set(tasks.map(item => item.conversationId));
+    const finished = [...running.current].filter(([conversationId]) => !live.has(conversationId));
+    if (!finished.length) return;
+    for (const [conversationId] of finished) running.current.delete(conversationId);
+    const promoted = finished.map(([conversationId, messageId]) => stateRef.current.conversations.find(c => c.id === conversationId)?.messages.find(m => m.id === messageId))
+      .filter(answer => answer?.status === 'complete' && answer.modelId).map(answer => answer!.modelId!);
+    // One save for the whole batch: two commits in the same tick would both start from the state
+    // this component last applied, and the second would drop the first one's entry.
+    if (promoted.length) void commit(s => { for (const modelId of promoted) rememberRecentModel(s.settings, modelId, true); }).catch(() => {});
+  }, [taskKey]);
   useEffect(() => {
     if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages.map(m => m.text.length + m.reasoning.length + m.tools.length).join(','), atBottom]);
@@ -265,6 +282,8 @@ export default function App() {
     clearTimeout(persistDraftTimer.current); persistDraftTimer.current = setTimeout(() => { void commit(() => {}).catch(() => {}); }, 450);
   }
   async function begin(id: string, branchId: string, messageId: string) {
+    // Remember which answer is streaming, so its model can be promoted once the run really finishes.
+    running.current.set(id, messageId);
     try { await api.run({ conversationId: id, branchId, messageId }); }
     catch (e) { toast(String(e instanceof Error ? e.message : e)); await commit(s => { const m = s.conversations.find(c => c.id === id)?.messages.find(m => m.id === messageId); if (m) { m.status = 'error'; m.error = String(e); } }); }
   }
@@ -367,7 +386,17 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     const els = [...el.querySelectorAll<HTMLElement>('.message')]; const top = el.getBoundingClientRect().top;
     const active = els.find(node => node.getBoundingClientRect().bottom > top + 80); if (active) setActiveMessage(active.dataset.id || '');
   }
-  function updateConfig(values: Partial<Branch['config']>) { void commit(s => { const { b } = find(s); b.config = { ...b.config, ...values }; }).catch(() => {}); }
+  function updateConfig(values: Partial<Branch['config']>) {
+    void commit(s => {
+      const { b } = find(s);
+      b.config = { ...b.config, ...values };
+      // Switching the model records it straight away, so the list is useful before any answer runs.
+      if (values.modelId) rememberRecentModel(s.settings, values.modelId);
+    }).catch(() => {});
+  }
+  function toggleFavorite(modelId: string) {
+    void commit(s => { s.settings.favoriteModels = s.settings.favoriteModels.includes(modelId) ? s.settings.favoriteModels.filter(id => id !== modelId) : [...s.settings.favoriteModels, modelId]; }).catch(() => {});
+  }
   const menuConversation = state.conversations.find(c => c.id === conversationMenu);
   const archiveCount = state.conversations.filter(c => c.archived).length;
   const conversationsForView = state.conversations.filter(c => !!c.archived === showArchived);
@@ -554,6 +583,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       samplingSupported={samplingSupported} samplingHelp={samplingHelp} ollamaSearchConfigured={ollamaSearchConfigured}
       hasExaKey={!!state.settings.exaKey} promptPresets={state.settings.promptPresets} backgroundUsage={conversation?.backgroundUsage}
       userTurnCount={messages.filter(m => m.role === 'user').length}
+      favoriteModels={state.settings.favoriteModels} recentModels={state.settings.recentModels} defaultSearch={state.settings.defaultSearch} onToggleFavorite={toggleFavorite}
       onHeightChange={setInputHeight} onDraftChange={text => draft(text)} onRemoveAttachment={attachment => { if (branch) draft(branch.draft, branch.draftAttachments.filter(item => item.id !== attachment.id)); }}
       onAttach={files => void attach(files)} onSend={() => void send().catch(error => toast(String(error)))} onStop={() => void api.cancel(conversation!.id)}
       onCompress={() => { if (conversation && branch) void api.compress(conversation.id, branch.id).catch(error => toast(String(error))); }}

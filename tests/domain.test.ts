@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
-import type { Message } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import type { Message, Settings } from '../src/types';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -290,4 +290,69 @@ test('every text block of an answer is editable, not only the last one', () => {
   assert.equal(answer.text, '只留这一段。');
   applyBodies(question, ['改后的问题']);
   assert.equal(question.text, '改后的问题');
+});
+
+test('settings written before favourites and search preferences keep the previous behaviour', () => {
+  // Destructuring the new fields away is what an older release's settings object looks like here.
+  const { favoriteModels, recentModels, useRecentModel, defaultSearch, preferNativeSearch, ...before } = initialState().settings;
+  const settings = before as Settings;
+  normalizeSettings(settings);
+  assert.deepEqual(settings.favoriteModels, [], '旧数据应补上空的收藏列表');
+  assert.deepEqual(settings.recentModels, []);
+  assert.equal(settings.useRecentModel, true, '新对话默认接着最近用过的模型');
+  assert.equal(settings.defaultSearch, 'auto', '新对话默认仍是自动联网');
+  assert.equal(settings.preferNativeSearch, true, '自动模式默认原生搜索优先，与改动前一致');
+  settings.defaultSearch = 'nonsense' as typeof settings.defaultSearch;
+  normalizeSettings(settings);
+  assert.equal(settings.defaultSearch, 'auto', '无法识别的搜索模式退回自动');
+});
+
+test('new chats start from the most recently used model, and the switch can be turned off', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'fixture', protocol: 'chat', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  const model = (id: string): Model => ({ id, connectionId: 'c', name: id, model: id, contextWindow: 10000, maxOutput: 4096, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false });
+  settings.models = [model('first'), model('second')];
+  settings.defaultModel = 'first';
+  assert.equal(newChatModelId(settings), 'first', '没有使用记录时用默认聊天模型');
+  rememberRecentModel(settings, 'second');
+  assert.equal(newChatModelId(settings), 'second', '最近使用过的模型优先');
+  assert.equal(createConversation(settings).branches[0].config.modelId, 'second');
+  settings.useRecentModel = false;
+  assert.equal(newChatModelId(settings), 'first', '关闭开关后严格按默认聊天模型');
+  settings.useRecentModel = true;
+  settings.models = [model('first')];
+  assert.equal(newChatModelId(settings), 'first', '记录里的模型已被删除时不能选它');
+});
+
+test('recent models are recorded on switch and moved to the front only after a finished answer', () => {
+  const settings = initialState().settings;
+  rememberRecentModel(settings, 'a');
+  rememberRecentModel(settings, 'b');
+  assert.deepEqual(settings.recentModels, ['a', 'b'], '切换只按顺序追加');
+  rememberRecentModel(settings, 'b');
+  assert.deepEqual(settings.recentModels, ['a', 'b'], '再次切换同一个模型不改变它的位置');
+  rememberRecentModel(settings, 'a', true);
+  assert.deepEqual(settings.recentModels, ['a', 'b'], '置顶的模型已经在最前面');
+  rememberRecentModel(settings, 'b', true);
+  assert.deepEqual(settings.recentModels, ['b', 'a'], '回答跑完把它的模型置顶');
+  for (let index = 0; index < 20; index++) rememberRecentModel(settings, `m${index}`, true);
+  assert.equal(settings.recentModels.length, MAX_RECENT_MODELS, '最近使用列表有上限');
+  assert.equal(settings.recentModels[0], 'm19');
+});
+
+test('automatic search prefers external providers when native search is not preferred', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'fixture', protocol: 'responses', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'fixture', contextWindow: 10000, maxOutput: 4096, vision: false, tools: true, nativeSearch: true, reasoning: 'none', efforts: [], temperature: false }];
+  settings.exaKey = 'exa-fixture';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'native', '默认原生搜索优先');
+  settings.preferNativeSearch = false;
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa', '关掉后外部服务优先，原生只作兜底');
+  settings.exaKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '没有 Key 时用 Firecrawl 免 Key');
+  settings.models[0].tools = false;
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'native', '模型不支持工具调用时回到原生搜索');
+  settings.models[0].nativeSearch = false;
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'off', '两侧都拿不出来才真的关闭');
+  assert.equal(resolveSearch(settings, 'm', 'tavily'), 'tavily', '会话里显式指定的模式不受偏好影响');
 });
