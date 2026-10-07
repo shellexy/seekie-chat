@@ -53,9 +53,9 @@ export async function* sse(body: AsyncIterable<Uint8Array>) {
   const tail = buffer.trim();
   if (tail.startsWith('data:') && tail.slice(5).trim() !== '[DONE]') yield JSON.parse(tail.slice(5).trim());
 }
-type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily'>;
-function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily'; }
-function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : 'tavily_search'; }
+type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch'>;
+function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily' || mode === 'firecrawl' || mode === 'anysearch'; }
+function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search'; }
 function externalSearchTool(mode: ExternalSearchMode) { return { name: searchToolName(mode), description: '搜索互联网获取当前信息。结果包含标题、URL 和正文片段。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } }; }
 const webFetchTool = { name: 'web_fetch', description: '抓取公开网页正文并转换为 Markdown。输入应是搜索结果或用户提供的完整网页 URL。', parameters: { type: 'object', properties: { url: { type: 'string', description: '要抓取的 HTTP 或 HTTPS 网页 URL' } }, required: ['url'], additionalProperties: false } };
 function searchParameters(value: unknown) {
@@ -95,15 +95,15 @@ export function buildInput(protocol: string, messages: Message[], model?: Model)
   });
 }
 function configuredSearchKey(mode: ExternalSearchMode, settings: Settings) {
-  return mode === 'exa' ? settings.exaKey : mode === 'tavily' ? settings.tavilyKey : ollamaWebSearchKey(settings);
+  return mode === 'exa' ? settings.exaKey : mode === 'ollama' ? ollamaWebSearchKey(settings) : mode === 'tavily' ? settings.tavilyKey : mode === 'firecrawl' ? settings.firecrawlKey : settings.anysearchKey;
 }
 async function externalSearch(mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) {
   const key = configuredSearchKey(mode, settings);
-  if (!key) throw new Error(`请在设置中配置${mode === 'exa' ? ' Exa' : mode === 'tavily' ? ' Tavily' : ' Ollama Cloud'} API Key`);
+  if (!key && (mode === 'exa' || mode === 'ollama')) throw new Error(`请在设置中配置${mode === 'exa' ? ' Exa' : ' Ollama Cloud'} API Key`);
   let parsed: any;
   try { parsed = JSON.parse(args); } catch { throw new Error('搜索参数格式无效'); }
   const query = parsed?.query;
-  if (typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('搜索查询无效');
+  if (typeof query !== 'string' || !query.trim() || query.length > (mode === 'firecrawl' ? 500 : 2000)) throw new Error('搜索查询无效');
   const count = Math.min(10, Math.max(1, Number(settings.exaResults) || 5));
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let url: string, body: unknown;
@@ -113,14 +113,27 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   } else if (mode === 'ollama') {
     url = 'https://ollama.com/api/web_search'; headers.Authorization = `Bearer ${key}`;
     body = { query, max_results: count };
-  } else {
-    url = 'https://api.tavily.com/search'; headers.Authorization = `Bearer ${key}`;
+  } else if (mode === 'tavily') {
+    url = 'https://api.tavily.com/search';
+    if (key) headers.Authorization = `Bearer ${key}`; else headers['X-Tavily-Access-Mode'] = 'keyless';
     body = { query, search_depth: 'basic', max_results: count, topic: 'general', include_answer: false, include_raw_content: false };
+  } else if (mode === 'firecrawl') {
+    url = 'https://api.firecrawl.dev/v2/search'; if (key) headers.Authorization = `Bearer ${key}`;
+    body = { query, limit: count, sources: [{ type: 'web' }], scrapeOptions: { formats: ['markdown'], onlyMainContent: true } };
+  } else {
+    url = 'https://api.anysearch.com/v1/search'; if (key) headers.Authorization = `Bearer ${key}`;
+    body = { query, max_results: count, format: 'markdown' };
   }
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]) });
-  if (!response.ok) throw new Error(`${mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : 'Tavily'} 搜索失败 (${response.status})`);
+  if (!response.ok) throw new Error(`${mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : mode === 'tavily' ? 'Tavily' : mode === 'firecrawl' ? 'Firecrawl' : 'AnySearch'} 搜索失败 (${response.status})`);
   const data: any = await response.json();
-  return (Array.isArray(data.results) ? data.results : []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url || ''), text: String(r.text || r.content || '').slice(0, 2500) })).filter((r: Source) => /^https?:\/\//.test(r.url));
+  if (mode === 'anysearch' && data?.code !== 0) throw new Error('AnySearch 搜索失败');
+  if (mode === 'firecrawl' && data?.success === false) throw new Error('Firecrawl 搜索失败');
+  const results = mode === 'firecrawl' ? data?.data?.web : mode === 'anysearch' ? data?.data?.results : data?.results;
+  return (Array.isArray(results) ? results : []).map((r: any) => ({
+    title: String(r.title || r.url || ''), url: String(r.url || ''),
+    text: String(r.text || r.markdown || r.content || r.description || r.snippet || (Array.isArray(r.highlights) ? r.highlights.join('\n') : '')).slice(0, 2500)
+  })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {
   config = {
@@ -133,7 +146,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
   if (isExternalSearch(config.search) && !model.tools) throw new Error('外部联网搜索需要支持工具调用的模型');
   if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请改用已配置的外部搜索服务');
-  if (isExternalSearch(config.search) && !configuredSearchKey(config.search, settings)) throw new Error(`请先配置${config.search === 'exa' ? ' Exa' : config.search === 'ollama' ? ' Ollama Cloud' : ' Tavily'} API Key`);
+  if ((config.search === 'exa' || config.search === 'ollama') && !configuredSearchKey(config.search, settings)) throw new Error(`请先配置${config.search === 'exa' ? ' Exa' : ' Ollama Cloud'} API Key`);
   await convertUnsupportedAttachments(messages, connection.protocol, model);
   if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, webFetch: model.tools ? webFetch : undefined, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;

@@ -77,21 +77,28 @@ for (const fail of [false, true]) test(`Gemini Exa ${fail ? 'failures are explic
     else { assert.equal(returned.response.results[0].text, 'Desktop docs'); assert.equal(result.sources.length, 1); }
   } finally { await agent.close(); }
 });
-for (const provider of ['ollama', 'tavily'] as const) test(`Gemini can call ${provider} search and continue with its results`, async () => {
+for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) test(`Gemini can call ${provider} search and continue with its results`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   try {
-    const pool = agent.get('https://gemini.fixture.invalid'), toolName = provider === 'ollama' ? 'ollama_web_search' : 'tavily_search';
+    const pool = agent.get('https://gemini.fixture.invalid');
+    const toolName = provider === 'ollama' ? 'ollama_web_search' : provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
     let first: any, second: any;
     pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => {
       first = JSON.parse(String(options.body));
       return frames([{ candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: `call-${provider}`, name: toolName, args: { query: 'Gemini web search' } } }] }, finishReason: 'STOP' }] }]);
     });
-    const host = provider === 'ollama' ? 'https://ollama.com' : 'https://api.tavily.com';
-    const path = provider === 'ollama' ? '/api/web_search' : '/search';
-    agent.get(host).intercept({ path, method: 'POST' }).reply(200, { results: [{ title: 'Search result', url: 'https://example.com/gemini', content: 'Gemini search snippet' }] });
+    const host = provider === 'ollama' ? 'https://ollama.com' : provider === 'tavily' ? 'https://api.tavily.com' : provider === 'firecrawl' ? 'https://api.firecrawl.dev' : 'https://api.anysearch.com';
+    const path = provider === 'ollama' ? '/api/web_search' : provider === 'firecrawl' ? '/v2/search' : provider === 'anysearch' ? '/v1/search' : '/search';
+    agent.get(host).intercept({ path, method: 'POST' }).reply(200,
+      provider === 'firecrawl' ? { success: true, data: { web: [{ title: 'Search result', url: 'https://example.com/gemini', markdown: 'Gemini search snippet' }] } }
+      : provider === 'anysearch' ? { code: 0, data: { results: [{ title: 'Search result', url: 'https://example.com/gemini', content: 'Gemini search snippet' }] } }
+      : { results: [{ title: 'Search result', url: 'https://example.com/gemini', content: 'Gemini search snippet' }] });
     pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('搜索结果已处理。')]); });
     const { state, conversation, branch } = fixture();
-    if (provider === 'ollama') state.settings.ollamaKey = 'ollama-fixture'; else state.settings.tavilyKey = 'tavily-fixture';
+    if (provider === 'ollama') state.settings.ollamaKey = 'ollama-fixture';
+    else if (provider === 'tavily') state.settings.tavilyKey = 'tavily-fixture';
+    else if (provider === 'firecrawl') state.settings.firecrawlKey = 'firecrawl-fixture';
+    else state.settings.anysearchKey = 'anysearch-fixture';
     const result = await generate(connection, model, { ...branch.config, search: provider, effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
     assert.equal(first.tools[0].functionDeclarations[0].name, toolName);
     const returned = second.contents.at(-1).parts[0].functionResponse;

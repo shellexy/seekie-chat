@@ -2,7 +2,7 @@ import initSqlJs, { type Database } from 'sql.js';
 import { safeStorage } from 'electron';
 import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdirSync, unlinkSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import { initialState, normalizePromptSettings } from '../src/domain';
+import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment } from '../src/types';
 export const SECRET_MARKER = '••••••••';
 export class Store {
@@ -30,13 +30,15 @@ export class Store {
   load(): AppState {
     const rows = this.db.exec('SELECT payload FROM state WHERE id=1');
     const state: AppState = rows.length ? JSON.parse(String(rows[0].values[0][0])) : initialState();
-    normalizePromptSettings(state.settings);
+    normalizeSettings(state.settings);
     state.settings.secureStorage = this.secure;
     if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
     for (const c of state.settings.connections) { c.apiKey = this.secrets.get(c.id) || ''; c.headers = JSON.parse(this.secrets.get('headers:' + c.id) || '{}'); }
     state.settings.exaKey = this.secrets.get('exa') || '';
     state.settings.ollamaKey = this.secrets.get('ollama') || '';
     state.settings.tavilyKey = this.secrets.get('tavily') || '';
+    state.settings.firecrawlKey = this.secrets.get('firecrawl') || '';
+    state.settings.anysearchKey = this.secrets.get('anysearch') || '';
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
     return state;
@@ -50,6 +52,8 @@ export class Store {
     if (state.settings.exaKey === SECRET_MARKER) state.settings.exaKey = this.secrets.get('exa') || '';
     if (state.settings.ollamaKey === SECRET_MARKER) state.settings.ollamaKey = this.secrets.get('ollama') || '';
     if (state.settings.tavilyKey === SECRET_MARKER) state.settings.tavilyKey = this.secrets.get('tavily') || '';
+    if (state.settings.firecrawlKey === SECRET_MARKER) state.settings.firecrawlKey = this.secrets.get('firecrawl') || '';
+    if (state.settings.anysearchKey === SECRET_MARKER) state.settings.anysearchKey = this.secrets.get('anysearch') || '';
     state.settings.secureStorage = this.secure;
     if (state.settings.secretPolicy === 'encrypted' && !this.secure) throw new Error('系统安全存储不可用，请选择保存到数据目录');
   }
@@ -59,6 +63,8 @@ export class Store {
     if (copy.settings.exaKey) copy.settings.exaKey = SECRET_MARKER;
     if (copy.settings.ollamaKey) copy.settings.ollamaKey = SECRET_MARKER;
     if (copy.settings.tavilyKey) copy.settings.tavilyKey = SECRET_MARKER;
+    if (copy.settings.firecrawlKey) copy.settings.firecrawlKey = SECRET_MARKER;
+    if (copy.settings.anysearchKey) copy.settings.anysearchKey = SECRET_MARKER;
     return copy;
   }
   save(state: AppState) {
@@ -70,6 +76,8 @@ export class Store {
     this.saveSecret('exa', copy.settings.exaKey, copy.settings.secretPolicy); copy.settings.exaKey = '';
     this.saveSecret('ollama', copy.settings.ollamaKey, copy.settings.secretPolicy); copy.settings.ollamaKey = '';
     this.saveSecret('tavily', copy.settings.tavilyKey, copy.settings.secretPolicy); copy.settings.tavilyKey = '';
+    this.saveSecret('firecrawl', copy.settings.firecrawlKey, copy.settings.secretPolicy); copy.settings.firecrawlKey = '';
+    this.saveSecret('anysearch', copy.settings.anysearchKey, copy.settings.secretPolicy); copy.settings.anysearchKey = '';
     const keep = new Set<string>();
     for (const a of attachments(copy)) {
       if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');
@@ -97,7 +105,7 @@ function attachments(state: AppState): Attachment[] { return state.conversations
 export function validateState(value: unknown): asserts value is AppState {
   const s = value as AppState;
   if (!s || !s.settings || !Array.isArray(s.settings.connections) || !Array.isArray(s.settings.models) || !Array.isArray(s.conversations)) throw new Error('备份或设置格式无效');
-  normalizePromptSettings(s.settings);
+  normalizeSettings(s.settings);
   const presetIds = new Set<string>();
   for (const preset of s.settings.promptPresets) {
     if (!preset || typeof preset.id !== 'string' || !preset.id || presetIds.has(preset.id) || typeof preset.name !== 'string' || !preset.name.trim() || typeof preset.content !== 'string' || !preset.content.trim()) throw new Error('系统提示词预设无效');

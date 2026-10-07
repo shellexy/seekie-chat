@@ -1,5 +1,5 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
-export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily';
+export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
 export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily';
 export type Role = 'user' | 'assistant';
 export interface Connection {
@@ -23,7 +23,8 @@ export interface Settings {
   promptPresets: PromptPreset[]; defaultPromptPresetId: string;
   connections: Connection[]; models: Model[]; defaultModel: string; titleModel: string;
   compressionModel: string; theme: 'light' | 'dark' | 'system'; fontSize: number;
-  exaKey: string; ollamaKey: string; tavilyKey: string; exaResults: number; autoCompress: boolean; compressionThreshold: number;
+  exaKey: string; ollamaKey: string; tavilyKey: string; firecrawlKey: string; anysearchKey: string;
+  exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;
 }
 export interface Attachment { id: string; name: string; mime: string; size: number; data: string; markdown?: string }

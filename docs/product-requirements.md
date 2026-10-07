@@ -150,10 +150,10 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 ### 5.2 搜索模式
 
-联网搜索和网页阅读分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search 和 Tavily 六种模式。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Tavily 的顺序选择已配置的外部提供方；没有可用方式时提示待配置，不虚构搜索已启用。原生搜索取决于模型及协议支持；三种外部搜索由桌面主进程编排，并保存真实来源。
+联网搜索和网页阅读分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Firecrawl 的免 Key 搜索。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
 
 - 模型原生搜索：传递供应商要求的工具或参数，消费返回的搜索事件和引用。
-- Exa、Ollama Cloud Web Search 和 Tavily：在联网搜索设置中配置各自的 API Key 与结果数量；Ollama 搜索可复用 Ollama Cloud 连接密钥。Exa、Ollama 和 Tavily 均由模型工具调用触发，因此要求所选模型支持工具调用，并在设置中说明。
+- Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch：在联网搜索设置中配置可选 API Key 与结果数量；Ollama 搜索可复用 Ollama Cloud 连接密钥。Tavily 无 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 和 AnySearch 无 Key 时使用官方匿名请求。所有外部搜索均由模型工具调用触发，因此要求所选模型支持工具调用，并在设置中说明。
 - 后续可增加强制搜索模式，在推理前主动检索；不要混淆其与模型自主搜索的行为。
 - 默认一次请求只选一种搜索模式，避免重复调用；工具执行次数、耗时和返回长度有上限。
 - 搜索失败可有限重试；继续回答时标明没有成功获得搜索结果，不伪造引用。
@@ -200,7 +200,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 ## 8. 本地数据、隐私与安全
 
 - 使用 SQLite 保存会话、分支、消息、工具事件、摘要及任务状态；附件单独存放。
-- API Key、Exa Key 和自定义请求头默认保存到数据目录的 credentials.json，采用原子写入及 0600 文件权限，重启自动加载；界面说明其为明文保存。仍可选择仅当前运行或使用系统安全存储加密保存。
+- API Key、Exa、Ollama、Tavily、Firecrawl、AnySearch Key 和自定义请求头默认保存到数据目录的 credentials.json，采用原子写入及 0600 文件权限，重启自动加载；界面说明其为明文保存。仍可选择仅当前运行或使用系统安全存储加密保存。
 - 日志、错误面板和导出默认脱敏 API Key、认证请求头及其他秘密。
 - 渲染进程不直接管理密钥和网络；Electron 启用上下文隔离、关闭页面 Node 集成，通过受限 IPC 调用主进程。
 - 消息 HTML、Markdown 链接、图片路径及工具返回值经过校验；外链只允许明确支持的协议。

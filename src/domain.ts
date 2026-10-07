@@ -13,6 +13,11 @@ export function normalizePromptSettings(settings: Settings) {
   if (!Array.isArray(settings.promptPresets)) settings.promptPresets = defaultPromptPresets();
   if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
 }
+export function normalizeSettings(settings: Settings) {
+  normalizePromptSettings(settings);
+  if (typeof settings.firecrawlKey !== 'string') settings.firecrawlKey = '';
+  if (typeof settings.anysearchKey !== 'string') settings.anysearchKey = '';
+}
 export const uid = () => crypto.randomUUID();
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
@@ -34,11 +39,14 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   if (model?.nativeSearch && connection && connection.protocol !== 'chat') return 'native';
   if (model?.tools && settings.exaKey) return 'exa';
   if (model?.tools && ollamaWebSearchKey(settings)) return 'ollama';
+  if (model?.tools && settings.firecrawlKey) return 'firecrawl';
+  if (model?.tools && settings.anysearchKey) return 'anysearch';
   if (model?.tools && settings.tavilyKey) return 'tavily';
+  if (model?.tools) return 'firecrawl';
   return 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

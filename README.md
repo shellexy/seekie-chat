@@ -46,7 +46,7 @@ AI 回答不显示头像和前置模型标签；操作按钮右侧显示“模�
 
 在“连接与模型”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。
 
-Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生搜索及 Exa、Ollama Cloud、Tavily 工具搜索。新增 Gemini 模型默认勾选图片、视频、音频、PDF、工具调用和原生搜索，仍可按实际模型修改。Qwen 模型新增时默认勾选图片、视频、工具调用和原生搜索。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
+Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生搜索及 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch 工具搜索。新增 Gemini 模型默认勾选图片、视频、音频、PDF、工具调用和原生搜索，仍可按实际模型修改。Qwen 模型新增时默认勾选图片、视频、工具调用和原生搜索。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
 
 ## 系统提示词库 / 角色预设
 
@@ -65,10 +65,10 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - 从已完成回答创建分支，嵌套分支、分支命名、删除及上下文隔离。
 - 分支独立模型、系统提示词、搜索、思考等级、温度和 `top_p` 配置，输入草稿恢复。
 - 首次有效回答后后台生成标题，手动改名优先。
-- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily 工具检索，以及 `web_fetch` 网页正文抓取与来源展示。
+- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily/Firecrawl/AnySearch 工具检索，以及 `web_fetch` 网页正文抓取与来源展示。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
-- 模型连接 API Key、Exa/Ollama/Tavily 搜索密钥及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
+- 模型连接 API Key、Exa/Ollama/Tavily/Firecrawl/AnySearch 搜索密钥及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
 - 结构化备份恢复及 Markdown 导出，默认不包含密钥与自定义请求头。
 - 每个连接支持显式 HTTP/HTTPS 代理。
 
@@ -84,17 +84,19 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。温度（0–2）和 `top_p`（0–1）也在“会话选项”中设置，按当前分支保存，默认值均为 1；当前模型或协议的思考模式不接受采样参数时，控件会禁用。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
 
-- **自动联网（默认）**：优先使用模型原生搜索，其次按 Exa、Ollama Cloud、Tavily 的顺序使用已配置的外部服务。没有可用方式时显示“联网待配置”，不会发送不支持的搜索参数。
+- **自动联网（默认）**：优先使用模型原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序使用已配置 Key 的服务；没有已配置搜索 Key 时使用 Firecrawl 免 Key 搜索。
 - **关闭**：不启用工具搜索。
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`，Gemini 使用 `googleSearch`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
 - **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
-- **Tavily**：在设置中填写 Tavily API Key；使用 basic 搜索深度，由支持工具调用的模型触发检索。
+- **Tavily**：可在设置中填写 Tavily API Key；未填写时发送 `X-Tavily-Access-Mode: keyless`，使用 basic 搜索深度。
+- **Firecrawl**：API Key 可选；无 Key 时使用官方限额内的搜索，有 Key 时可提高限额。搜索可返回 Markdown 正文。
+- **AnySearch**：API Key 可选；无 Key 时使用匿名额度，有 Key 时可提高限额。
 - **网页阅读**：与联网搜索独立设置，默认自动按 Exa、Ollama Cloud、Tavily 的顺序使用已配置 API Key 的 Contents / Extract 服务；服务失败或都未配置时回退到本地获取网页。也可以指定服务、本地获取网页或关闭。Ollama Cloud 可复用连接 API Key。
 - **本地获取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
 - **联网按钮**：同时启用或关闭联网搜索和网页阅读；两项仍可在会话选项中分别调整。
 
-网页阅读和外部服务搜索都要求模型支持工具调用。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
+网页阅读和外部服务搜索都要求模型支持工具调用。Tavily 的网页 Extract 服务仍需 API Key。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 
@@ -114,7 +116,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 ```
 
-使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、Exa Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
+使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、搜索服务 Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。
 

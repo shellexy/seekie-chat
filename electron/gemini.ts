@@ -2,17 +2,17 @@ import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Sour
 import type { Hooks, Result, WebFetch } from './providers';
 import type { request, buildInput } from './providers';
 import { UsageCounter } from './usage';
-type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily'>;
+type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch'>;
 type Dependencies = {
   request: typeof request; buildInput: typeof buildInput;
   search: (mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) => Promise<Source[]>;
   webFetch?: WebFetch;
   sse: (body: AsyncIterable<Uint8Array>) => AsyncGenerator<any>;
 };
-function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily'; }
+function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily' || mode === 'firecrawl' || mode === 'anysearch'; }
 function searchTool(mode: ExternalSearchMode) {
   return {
-  name: mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : 'tavily_search', description: '搜索互联网获取当前信息，返回真实来源和正文片段。',
+  name: mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search', description: '搜索互联网获取当前信息，返回真实来源和正文片段。',
   parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: '搜索查询' } }, required: ['query'] }
   };
 }

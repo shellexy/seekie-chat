@@ -68,7 +68,18 @@ test('new chats enable automatic search and select only available providers', as
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'ollama');
   assert.equal(resolveSearch(state.settings, 'm', 'tavily'), 'tavily');
   state.settings.connections.pop();
-  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'off');
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  state.settings.anysearchKey = 'anysearch-fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'anysearch');
+  state.settings.firecrawlKey = 'firecrawl-fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  state.settings.tavilyKey = 'tavily-fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'firecrawl');
+  state.settings.firecrawlKey = '';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'anysearch');
+  state.settings.anysearchKey = '';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily');
+  state.settings.tavilyKey = '';
   assert.equal(resolveSearch(state.settings, 'm', 'off'), 'off');
 });
 

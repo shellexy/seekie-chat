@@ -167,6 +167,11 @@ try {
   assert.equal(presets.settings.models.find(m => m.model === 'deepseek-flash').nativeSearch, true);
   // Verify that the connection's defaults survive save/reopen and renaming.
   await page.getByRole('button', { name: /^设置/ }).click();
+  await page.locator('.settings-nav').getByRole('button', { name: '联网搜索' }).click();
+  assert.equal(await page.getByRole('heading', { name: 'Firecrawl', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('heading', { name: 'AnySearch', exact: true }).count(), 1);
+  assert.equal(await page.getByLabel('API Key（可选）').count(), 3);
+  await page.locator('.settings-nav').getByRole('button', { name: '连接与模型' }).click();
   await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);
@@ -175,6 +180,8 @@ try {
     const state = await window.deepchan.load();
     const connections = ['chat','responses','anthropic','gemini'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl: protocol === 'gemini' ? baseUrl.replace('/v1', '/v1beta') : baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
     state.settings.connections = connections;
+    state.settings.firecrawlKey = 'firecrawl-fixture-secret';
+    state.settings.anysearchKey = 'anysearch-fixture-secret';
     state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 4096, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
@@ -194,6 +201,9 @@ try {
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
   await toolbar.getByRole('button', { name: '会话选项' }).click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
+  const searchMode = page.locator('.inline-config-field').first().locator('select');
+  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '关闭', '模型原生搜索', 'Exa 搜索', 'Ollama Cloud Web Search', 'Tavily 搜索', 'Firecrawl 搜索', 'AnySearch 搜索']);
+  assert.equal(await searchMode.locator('option[value="tavily"]').isDisabled(), false);
   const webReading = page.getByRole('combobox', { name: '网页阅读' });
   assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 网页获取', 'Ollama Cloud 网页获取', 'Tavily 网页获取', '本地获取网页', '关闭']);
   assert.equal(await webReading.inputValue(), 'auto');
@@ -385,6 +395,9 @@ try {
   const credentialsPath = join(directory, 'credentials.json');
   const credentials = JSON.parse(readFileSync(credentialsPath, 'utf8'));
   assert.equal(credentials.secrets[saved.settings.connections[0].id], 'fixture-secret');
+  assert.equal(credentials.secrets.firecrawl, 'firecrawl-fixture-secret');
+  assert.equal(credentials.secrets.anysearch, 'anysearch-fixture-secret');
+  assert.equal(saved.settings.firecrawlKey, '••••••••'); assert.equal(saved.settings.anysearchKey, '••••••••');
   assert.equal(statSync(credentialsPath).mode & 0o777, 0o600);
   await page.evaluate(async () => { const s = await window.deepchan.load(); await window.deepchan.test(s.settings.connections[0]); });
   assert.equal(lastAuthorization, 'Bearer fixture-secret');

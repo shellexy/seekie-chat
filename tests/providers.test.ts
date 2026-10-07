@@ -153,21 +153,24 @@ test('Exa failures return explicit tool errors without fabricated sources', asyn
   assert.match(secondBody.messages.at(-1).content, /搜索未成功/); assert.equal(result.sources.length, 0);
   await agent.close();
 });
-for (const provider of ['ollama', 'tavily'] as const) test(`${provider} web search sends authenticated queries and returns source snippets to the model`, async () => {
+for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) test(`${provider} web search sends authenticated queries and returns source snippets to the model`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
-  const pool = agent.get('https://fixture.invalid'), toolName = provider === 'ollama' ? 'ollama_web_search' : 'tavily_search';
+  const pool = agent.get('https://fixture.invalid');
+  const toolName = provider === 'ollama' ? 'ollama_web_search' : provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
   let firstBody: any, secondBody: any, searchBody: any, searchHeaders: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
     firstBody = JSON.parse(String(options.body));
     return [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${provider}`, function: { name: toolName, arguments: '{"query":"Ollama web search API"}' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${provider}`, function: { name: toolName, arguments: '{"query":"provider search API"}' } }] } }] },
       { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
     ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
   }, { headers: { 'content-type': 'text/event-stream' } });
-  const searchHost = provider === 'ollama' ? 'https://ollama.com' : 'https://api.tavily.com';
-  const searchPath = provider === 'ollama' ? '/api/web_search' : '/search';
+  const searchHost = provider === 'ollama' ? 'https://ollama.com' : provider === 'tavily' ? 'https://api.tavily.com' : provider === 'firecrawl' ? 'https://api.firecrawl.dev' : 'https://api.anysearch.com';
+  const searchPath = provider === 'ollama' ? '/api/web_search' : provider === 'firecrawl' ? '/v2/search' : provider === 'anysearch' ? '/v1/search' : '/search';
   agent.get(searchHost).intercept({ path: searchPath, method: 'POST' }).reply(200, options => {
     searchBody = JSON.parse(String(options.body)); searchHeaders = options.headers;
+    if (provider === 'firecrawl') return { success: true, data: { web: [{ title: `${provider} result`, url: 'https://example.com/result', markdown: 'Verified search snippet' }] } };
+    if (provider === 'anysearch') return { code: 0, data: { results: [{ title: `${provider} result`, url: 'https://example.com/result', content: 'Verified search snippet' }] } };
     return { results: [{ title: `${provider} result`, url: 'https://example.com/result', content: 'Verified search snippet' }] };
   });
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
@@ -176,15 +179,49 @@ for (const provider of ['ollama', 'tavily'] as const) test(`${provider} web sear
   }, { headers: { 'content-type': 'text/event-stream' } });
   const state = initialState(); state.settings.exaResults = 4;
   if (provider === 'ollama') state.settings.connections.push({ id: 'ollama-cloud', name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/', apiKey: 'ollama-fixture', headers: {}, timeout: 30, proxy: '' });
-  else state.settings.tavilyKey = 'tavily-fixture';
+  else if (provider === 'tavily') state.settings.tavilyKey = 'tavily-fixture';
+  else if (provider === 'firecrawl') state.settings.firecrawlKey = 'firecrawl-fixture';
+  else state.settings.anysearchKey = 'anysearch-fixture';
   const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: provider }, c.messages, state.settings, new AbortController().signal);
   assert.equal(firstBody.tools[0].function.name, toolName);
-  assert.equal(searchBody.query, 'Ollama web search API'); assert.equal(searchBody.max_results, 4);
-  if (provider === 'tavily') { assert.equal(searchBody.search_depth, 'basic'); assert.match(JSON.stringify(searchHeaders), /Bearer tavily-fixture/i); }
-  else { assert.match(JSON.stringify(searchHeaders), /Bearer ollama-fixture/i); }
+  assert.equal(searchBody.query, 'provider search API'); assert.equal(searchBody.max_results ?? searchBody.limit, 4);
+  if (provider === 'tavily') assert.equal(searchBody.search_depth, 'basic');
+  if (provider === 'firecrawl') { assert.deepEqual(searchBody.sources, [{ type: 'web' }]); assert.deepEqual(searchBody.scrapeOptions.formats, ['markdown']); }
+  if (provider === 'anysearch') assert.equal(searchBody.format, 'markdown');
+  const expectedKey = provider === 'ollama' ? 'ollama-fixture' : `${provider}-fixture`;
+  assert.match(JSON.stringify(searchHeaders), new RegExp(`Bearer ${expectedKey}`, 'i'));
   assert.match(secondBody.messages.at(-1).content, /Verified search snippet/);
   assert.equal(result.sources[0].url, 'https://example.com/result'); assert.equal(result.sources[0].title, `${provider} result`);
+  await agent.close();
+});
+for (const provider of ['tavily', 'firecrawl', 'anysearch'] as const) test(`${provider} web search uses official keyless access when its API key is empty`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  const toolName = provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
+  let searchHeaders: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: `keyless-${provider}`, function: { name: toolName, arguments: '{"query":"anonymous search"}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  const host = provider === 'tavily' ? 'https://api.tavily.com' : provider === 'firecrawl' ? 'https://api.firecrawl.dev' : 'https://api.anysearch.com';
+  const path = provider === 'firecrawl' ? '/v2/search' : provider === 'anysearch' ? '/v1/search' : '/search';
+  agent.get(host).intercept({ path, method: 'POST' }).reply(200, options => {
+    searchHeaders = options.headers;
+    if (provider === 'firecrawl') return { success: true, data: { web: [{ title: 'Keyless result', url: 'https://example.com/keyless', description: 'Anonymous Firecrawl result' }] } };
+    if (provider === 'anysearch') return { code: 0, data: { results: [{ title: 'Keyless result', url: 'https://example.com/keyless', snippet: 'Anonymous AnySearch result' }] } };
+    return { results: [{ title: 'Keyless result', url: 'https://example.com/keyless', content: 'Anonymous Tavily result' }] };
+  });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { content: '免 Key 搜索完成。' } }] },
+    { choices: [{ delta: {}, finish_reason: 'stop' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: provider }, c.messages, state.settings, new AbortController().signal);
+  const rawHeaders = JSON.stringify(searchHeaders);
+  assert.doesNotMatch(rawHeaders, /authorization/i);
+  if (provider === 'tavily') assert.match(rawHeaders, /x-tavily-access-mode.{0,30}keyless/i);
+  else assert.match(rawHeaders, /content-type/i);
   await agent.close();
 });
 test('web_fetch works independently of search and receives the selected reading mode', async () => {
