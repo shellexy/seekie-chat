@@ -89,6 +89,12 @@ async function pickModel(page, name) {
   await page.locator('.model-select-popover').getByRole('option', { name }).first().click();
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
 }
+// Switching a settings section saves the pending edits first, so the section only changes once
+// the write is done; waiting for the content keeps the following steps from racing that write.
+async function openSettingsTab(page, name, id) {
+  await page.locator('.settings-nav').getByRole('button', { name }).click();
+  await waitFor(page, expected => !!document.querySelector(`.settings-content.${expected}`), id);
+}
 async function lengthenActiveHistory(page) {
   return await page.evaluate(async () => {
     const state = await window.seekie.load();
@@ -370,6 +376,10 @@ try {
     assert.match(await added.innerText(), /切换到此模型时默认使用 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
   }
   await addServerModel('fixture-model');
+  // 浮动提示显示在窗口正中间。
+  const toastLayout = await page.locator('.toast').evaluate(el => { const r = el.getBoundingClientRect(); return { xOffset: (r.left + r.right) / 2 - window.innerWidth / 2, yOffset: (r.top + r.bottom) / 2 - window.innerHeight / 2 }; });
+  assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
+  await page.screenshot({ path: join(directory, 'center-toast.png') });
   // 已经添加过的行仍要显示服务端给出的信息，只是前面多一个"已添加"，否则同一行看不出模型多大。
   await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
   await page.getByRole('dialog', { name: '添加服务端模型' }).waitFor();
@@ -382,6 +392,18 @@ try {
   await page.getByRole('button', { name: '关闭添加模型' }).click();
   await page.getByRole('dialog', { name: '添加服务端模型' }).waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');
+  // 写盘失败时不能悄悄丢掉改动：留在原来的设置项，草稿还在，提示说清原因。
+  const firstModelId = page.locator('.settings-card').filter({ has: page.getByLabel('模型 ID', { exact: true }) }).first().getByLabel('模型 ID', { exact: true });
+  const originalModelId = await firstModelId.inputValue();
+  const toastBeforeFailure = await page.evaluate(() => document.querySelector('.toast')?.textContent || '');
+  await firstModelId.fill('');
+  assert.equal(await page.locator('.settings-status').innerText(), '未保存', '有改动时顶栏应说明还没写盘');
+  await page.locator('.settings-nav').getByRole('button', { name: '外观' }).click();
+  await waitFor(page, before => { const text = document.querySelector('.toast')?.textContent || ''; return !!text && text !== before; }, toastBeforeFailure);
+  assert.match(await page.locator('.toast').innerText(), /模型 ID/, '写盘失败应说明原因');
+  assert.ok(await page.locator('.settings-content.connections').count(), '写盘失败时应留在原来的设置项');
+  assert.equal(await firstModelId.inputValue(), '', '失败后草稿应留在页面上');
+  await firstModelId.fill(originalModelId);
   await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://generativelanguage.googleapis.com/v1beta');
@@ -392,7 +414,7 @@ try {
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
-  await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
+  await openSettingsTab(page, '系统提示词库', 'prompts');
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
   // 新角色排在已有角色卡片之前，所以它的字段是第一个而不是最后一个。
   assert.equal(await page.locator('.settings-card h3').first().innerText(), '新角色', '新角色应排在已有角色卡片前面');
@@ -402,18 +424,26 @@ try {
   const roleId = await page.getByLabel(/^新对话默认角色/).locator('option', { hasText: '测试研究助手' }).getAttribute('value');
   assert.ok(roleId, '新角色应出现在"新对话默认角色"下拉里');
   await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
-  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  // 改动不再要手动保存：切换设置项时自动写盘，切回来内容还在。
+  await openSettingsTab(page, '联网搜索', 'search');
+  await openSettingsTab(page, '系统提示词库', 'prompts');
+  assert.equal(await page.getByLabel('角色名称', { exact: true }).first().inputValue(), '测试研究助手', '切换设置项后改动应保留');
+  assert.equal(await page.getByLabel('角色系统提示词', { exact: true }).first().inputValue(), '你是测试研究助手，优先使用证据回答。', '切换设置项后提示词应保留');
+  await page.getByTitle('返回聊天', { exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
-  const toastLayout = await page.locator('.toast').evaluate(el => { const r = el.getBoundingClientRect(); return { xOffset: (r.left + r.right) / 2 - window.innerWidth / 2, yOffset: (r.top + r.bottom) / 2 - window.innerHeight / 2 }; });
-  assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
-  await page.screenshot({ path: join(directory, 'center-toast.png') });
   const presets = await page.evaluate(() => window.seekie.load());
   // 两个 DeepSeek 预设各留下一个 deepseek-flash：兼容协议的不带原生搜索，Anthropic 的带。
   const flashModels = presets.settings.models.filter(m => m.model === 'deepseek-flash');
   assert.deepEqual([...new Set(flashModels.map(m => m.nativeSearch))].sort(), [false, true], 'OpenAI 兼容预设不带原生搜索，Anthropic 预设带');
   // Verify that the connection's defaults survive save/reopen and renaming.
+  const chatHeaderHeight = await page.locator('.chat-header').evaluate(el => el.getBoundingClientRect().height);
   await page.getByRole('button', { name: /^设置/ }).click();
-  await page.locator('.settings-nav').getByRole('button', { name: '联网搜索' }).click();
+  await openSettingsTab(page, '联网搜索', 'search');
+  // 设置页顶栏与对话页顶栏同高：两页来回切换时内容不会往下跳一截。
+  const settingsHeaderHeight = await page.locator('.settings-header').evaluate(el => el.getBoundingClientRect().height);
+  assert.equal(settingsHeaderHeight, chatHeaderHeight, '设置页顶栏应与对话页顶栏同高');
+  assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).count(), 0, '不再需要手动保存');
+  assert.equal(await page.locator('.settings-status').innerText(), '自动保存', '顶栏应说明改动会自动写盘');
   assert.equal(await page.getByRole('heading', { name: 'Firecrawl', exact: true }).count(), 1);
   assert.equal(await page.getByRole('heading', { name: 'AnySearch', exact: true }).count(), 1);
   assert.equal(await page.getByLabel('API Key（可选）').count(), 4, 'Tavily / Firecrawl / AnySearch / DeepSeek 四家的密钥都可留空');
@@ -429,7 +459,8 @@ try {
   await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).uncheck();
   await preferredExternal.selectOption('tavily');
   await page.getByLabel('新对话的默认读取网页方法').selectOption('last');
-  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  // 离开设置页时自动写盘，不需要再按一次保存。
+  await page.getByTitle('返回聊天', { exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   assert.deepEqual(await page.evaluate(async () => { const s = await window.seekie.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch, s.settings.preferredExternalSearch, s.settings.defaultWebFetch]; }), ['auto', false, 'tavily', 'last']);
   // "上次使用" has nothing recorded yet, so a new chat still starts on the automatic reader.
@@ -450,8 +481,8 @@ try {
   await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, readerBefore.count);
   // Saving closes the settings page, so open it again for the steps that follow.
   await page.getByRole('button', { name: /^设置/ }).click();
-  await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
-  await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
+  await openSettingsTab(page, '模型服务', 'connections');
+  await openSettingsTab(page, '模型服务', 'connections');
   await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);
@@ -816,7 +847,7 @@ try {
     if ((await window.seekie.load()).conversations.find(c => c.id === id).title !== '用户手动标题') throw new Error('后台标题覆盖了手动标题');
   });
   await page.getByRole('button', { name: /^设置/ }).click();
-  await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
+  await openSettingsTab(page, '系统提示词库', 'prompts');
   // 按角色名定位卡片，不依赖它在列表里的位置——新角色现在排在最前。
   await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).getByLabel('角色系统提示词', { exact: true }).fill('角色库更新后的提示词。');
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
@@ -848,7 +879,7 @@ try {
   const roleOptions = await page.getByLabel(/^新对话默认角色/).locator('option').allTextContents();
   assert.equal(roleOptions.filter(text => text.includes('通用助手')).length, 1, `下拉里应只有一个"通用助手"，实际：${roleOptions.join(' / ')}`);
   await page.screenshot({ path: join(directory, 'prompt-library.png') });
-  await page.getByRole('button', { name: '保存设置', exact: true }).click();
+  await page.getByTitle('返回聊天', { exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   assert.equal(await page.evaluate(async () => { const s = await window.seekie.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
 

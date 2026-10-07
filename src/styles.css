@@ -1552,27 +1552,26 @@ summary {
   overflow: hidden;
   background: var(--bg);
 }
+/* 设置页顶栏与对话页顶栏同高同款：单行，左边标题，右边保存状态与窗口控件。 */
 .settings-header {
-  height: 106px;
+  height: 32px;
+  min-height: 32px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
-  padding: 22px 37px;
+  padding: 0 28px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-.settings-header h1 {
-  margin: 0 0 6px;
-  font-size: 23px;
-  font-weight: 550;
+.settings-header .icon-button {
+  padding: 5px;
 }
-.settings-header p {
-  margin: 0;
-  color: var(--muted);
+/* 保存状态：平时说明改动会自动写盘，保存中与已保存短暂出现。 */
+.settings-status {
   font-size: 11px;
-}
-.settings-header .primary {
-  margin-left: auto;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .settings-body {
   display: flex;
@@ -2389,13 +2388,9 @@ input[type="range"] {
 }
 /* Compact settings spacing while keeping section and field grouping clear. */
 .settings-header {
-  height: 82px;
-  padding: 14px 28px;
-  gap: 12px;
-}
-.settings-header h1 {
-  font-size: 21px;
-  margin-bottom: 3px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 22px;
 }
 .settings-nav {
   padding: 20px 11px;
@@ -2463,8 +2458,9 @@ input[type="range"] {
 }
 @media (max-width: 850px) {
   .settings-header {
-    height: 78px;
-    padding: 12px 16px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0 16px;
   }
   .settings-nav {
     padding: 9px 10px;
@@ -2476,13 +2472,8 @@ input[type="range"] {
     padding: 14px;
   }
 }
-.chat-header {
-  --window-controls-inset: 28px;
-}
 .settings-header {
-  --window-controls-inset: 28px;
   position: relative;
-  padding-right: calc(var(--window-controls-inset) + 130px);
 }
 .window-controls {
   position: fixed;
@@ -2490,18 +2481,10 @@ input[type="range"] {
   top: 0;
   right: 0;
 }
-.chat-header .header-actions {
+/* 窗口控件固定在右上角，顶栏内容要让开它。 */
+.chat-header .header-actions,
+.settings-header .header-actions {
   padding-right: 130px;
-}
-@media (max-width: 1150px) {
-  .chat-header {
-    --window-controls-inset: 22px;
-  }
-}
-@media (max-width: 850px) {
-  .settings-header {
-    --window-controls-inset: 16px;
-  }
 }
 
 /* Keep sampling controls compact and let sidebar menus escape the scrolling list. */

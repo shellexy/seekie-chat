@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
 import { api } from './api';
 import { settingsProblems } from './validation';
 import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
@@ -24,17 +24,27 @@ const templates = [
   { name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/v1' },
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
+// 设置项与顶栏里显示的名字放在一处：顶栏显示当前在哪一项，两边不会写出两套名字。
+const tabs = [['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私']] as const;
 export default function Settings({ settings, onSave, onClose, toast, windowMaximized, onWindowMaximized }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void; windowMaximized: boolean; onWindowMaximized: (maximized: boolean) => void }) {
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
-  const [testing, setTesting] = useState(false), [found, setFound] = useState<ServerModel[]>([]), [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false), [found, setFound] = useState<ServerModel[]>([]);
   const [picker, setPicker] = useState(false), [picked, setPicked] = useState<Set<string>>(new Set()), [foundQuery, setFoundQuery] = useState('');
   const [headersText, setHeadersText] = useState(''), [headersEditing, setHeadersEditing] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  // 有没有还没写下去的改动：顶栏要如实说出来，不然"自动保存"三个字会骗人。
+  const [pending, setPending] = useState(false);
+  // 改动先落在草稿里，切换设置项或离开设置页面时才写盘：每敲一个字就存一次既慢又吵，
+  // 而且校验多半会在用户填到一半时误报。
+  const dirty = useRef(false), version = useRef(0), mounted = useRef(true), skipSave = useRef(false);
+  const saving = useRef<Promise<boolean> | null>(null), persistRef = useRef<() => Promise<boolean>>(async () => true);
+  const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const connection = draft.connections.find(c => c.id === selected);
   // 角色库里的"通用助手"角色与写死的内置提示词内容相同，下拉里只保留角色本身。
   const generalRole = draft.promptPresets.find(p => p.id === 'general');
-  function change(values: Partial<SettingsType>) { setDraft(d => ({ ...d, ...values })); }
-  function updateConnection(values: Partial<Connection>) { setDraft(d => ({ ...d, connections: d.connections.map(c => c.id === selected ? { ...c, ...values } : c) })); }
+  function change(values: Partial<SettingsType>) { dirty.current = true; version.current++; setPending(true); setDraft(d => ({ ...d, ...values })); }
+  function updateConnection(values: Partial<Connection>) { dirty.current = true; version.current++; setPending(true); setDraft(d => ({ ...d, connections: d.connections.map(c => c.id === selected ? { ...c, ...values } : c) })); }
   function addConnection(index: number) {
     const t = templates[index];
     // responsesForGpt 默认开启：gpt 模型走 Responses 协议才能用上推理摘要等新特性。
@@ -119,24 +129,77 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     if ((typeof values.model === 'string' || typeof values.name === 'string') && shouldDefaultVisionAndTools(next.model, next.name)) Object.assign(next, { vision: true, tools: true });
     return next;
   }) }); }
-  async function save() {
-    try {
-      setSaving(true);
-      const ids = new Set(draft.models.map(m => m.id));
-      const next = { ...draft, defaultModel: ids.has(draft.defaultModel) ? draft.defaultModel : draft.models[0]?.id || '', titleModel: ids.has(draft.titleModel) ? draft.titleModel : '', compressionModel: ids.has(draft.compressionModel) ? draft.compressionModel : '',
-        // A deleted model leaves its id behind in both shortcuts; dropping it here keeps the picker
-        // sections and the new-chat default from carrying ids that resolve to nothing.
-        favoriteModels: draft.favoriteModels.filter(id => ids.has(id)), recentModels: draft.recentModels.filter(id => ids.has(id)) };
-      if (headersEditing && connection) { let headers: unknown; try { headers = JSON.parse(headersText); } catch { throw new Error('自定义请求头必须是有效 JSON'); } if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(v => typeof v !== 'string')) throw new Error('请求头应为字符串值的 JSON 对象'); next.connections = next.connections.map(c => c.id === selected ? { ...c, headers: headers as Record<string,string> } : c); }
-      // One shared rule set for the settings page, the save path and backup import.
-      const problem = settingsProblems(next)[0];
-      if (problem) throw new Error(problem);
-      await onSave(next); toast('设置已保存'); onClose();
-    } catch (e) { toast(String(e instanceof Error ? e.message : e)); } finally { setSaving(false); }
+  /** 组装要写盘的设置：修掉指向已删除模型的 id，并把正在编辑的请求头文本解析进连接。 */
+  function buildNext(): SettingsType {
+    const ids = new Set(draft.models.map(m => m.id));
+    const next: SettingsType = { ...draft, defaultModel: ids.has(draft.defaultModel) ? draft.defaultModel : draft.models[0]?.id || '', titleModel: ids.has(draft.titleModel) ? draft.titleModel : '', compressionModel: ids.has(draft.compressionModel) ? draft.compressionModel : '',
+      // A deleted model leaves its id behind in both shortcuts; dropping it here keeps the picker
+      // sections and the new-chat default from carrying ids that resolve to nothing.
+      favoriteModels: draft.favoriteModels.filter(id => ids.has(id)), recentModels: draft.recentModels.filter(id => ids.has(id)) };
+    if (headersEditing && connection) { let headers: unknown; try { headers = JSON.parse(headersText); } catch { throw new Error('自定义请求头必须是有效 JSON'); } if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(v => typeof v !== 'string')) throw new Error('请求头应为字符串值的 JSON 对象'); next.connections = next.connections.map(c => c.id === selected ? { ...c, headers: headers as Record<string,string> } : c); }
+    return next;
   }
+  /** 保存后密钥不再明文留在草稿里：输入框回到"已设置"的占位符，与重新载入磁盘时一致。 */
+  function maskSecrets(next: SettingsType): SettingsType {
+    for (const c of next.connections) { if (c.apiKey) c.apiKey = saved; for (const name of Object.keys(c.headers)) c.headers[name] = saved; }
+    for (const key of ['exaKey', 'ollamaKey', 'tavilyKey', 'firecrawlKey', 'anysearchKey', 'deepseekKey'] as const) if (next[key]) next[key] = saved;
+    return next;
+  }
+  /**
+   * 把草稿写盘。串行执行：连点切换设置项时，后一次要等前一次写完再写。
+   * 存不下来就返回 false——草稿留在页面上，用户看得见问题，也能改完再试。
+   */
+  async function persist(): Promise<boolean> {
+    const run = async (): Promise<boolean> => {
+      if (!dirty.current) return true;
+      const at = version.current;
+      try {
+        if (mounted.current) setStatus('saving');
+        const next = buildNext();
+        // One shared rule set for the settings page, the save path and backup import.
+        const problem = settingsProblems(next)[0];
+        if (problem) throw new Error(problem);
+        await onSave(next);
+        // 保存期间又有新改动时不能算作已保存：那些改动还得再写一次。
+        if (version.current === at) dirty.current = false;
+        if (mounted.current) {
+          setDraft(maskSecrets(structuredClone(next)));
+          setHeadersEditing(false); setHeadersText('');
+          setPending(false);
+          setStatus('saved');
+          clearTimeout(statusTimer.current);
+          statusTimer.current = setTimeout(() => { if (mounted.current) setStatus('idle'); }, 2000);
+        }
+        return true;
+      } catch (e) {
+        if (mounted.current) setStatus('idle');
+        toast(String(e instanceof Error ? e.message : e));
+        return false;
+      }
+    };
+    const next = (saving.current || Promise.resolve(true)).then(run, run);
+    saving.current = next;
+    return next;
+  }
+  /** 切换设置项前先把当前这一页的改动写下去；写不成就留在原地，草稿还在。 */
+  async function switchTab(id: string) { if (id === tab) return; if (!(await persist())) return; setTab(id); }
+  /** 离开设置页面前同样先写盘。 */
+  async function close() { if (!(await persist())) return; onClose(); }
+  useEffect(() => { persistRef.current = persist; });
+  useEffect(() => () => {
+    mounted.current = false;
+    // 页面被别处关掉时（侧栏切会话、新建对话）草稿也要写下去，否则改动就丢了。
+    if (dirty.current && !skipSave.current) void persistRef.current();
+  }, []);
   const chooseModel = (label: string, key: 'defaultModel' | 'titleModel' | 'compressionModel', inherit = false) => <label className="field">{label}<select value={draft[key]} onChange={e => change({ [key]: e.target.value })}>{inherit && <option value="">继承当前聊天模型</option>}{!inherit && <option value="">请选择模型</option>}{draft.models.map(m => <option key={m.id} value={m.id}>{m.name} · {draft.connections.find(c => c.id === m.connectionId)?.name}</option>)}</select></label>;
-  return <div className="settings-page"><header className="settings-header"><button className="icon-button" onClick={onClose} title="返回聊天"><ArrowLeft size={20}/></button><div><h1>设置</h1><p>连接你的模型，调整你的工作方式。</p></div><button className="primary" onClick={save} disabled={saving}><Check size={16}/>{saving ? '保存中…' : '保存设置'}</button><WindowControls maximized={windowMaximized} onMaximizedChange={onWindowMaximized} onError={toast}/></header>
-    <div className="settings-body"><nav className="settings-nav">{[['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私']].map(([id, name]) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => setTab(id)}>{name}<ChevronRight size={15}/></button>)}</nav><main className={`settings-content ${tab}`}>
+  return <div className="settings-page"><header className="settings-header"><div className="header-start">
+    <button className="icon-button" onClick={() => void close()} title="返回聊天"><ArrowLeft size={20}/></button>
+      <div className="header-title"><span>设置</span><small>{tabs.find(([id]) => id === tab)?.[1] || ''}</small></div>
+</div><div className="header-actions">
+      <span className="settings-status">{status === 'saving' ? '保存中…' : status === 'saved' ? '已保存' : pending ? '未保存' : '自动保存'}</span>
+      <WindowControls maximized={windowMaximized} onMaximizedChange={onWindowMaximized} onError={toast}/>
+</div></header>
+    <div className="settings-body"><nav className="settings-nav">{tabs.map(([id, name]) => <button className={tab === id ? 'active' : ''} key={id} onClick={() => void switchTab(id)}>{name}<ChevronRight size={15}/></button>)}</nav><main className={`settings-content ${tab}`}>
     {tab === 'connections' && <><h2>模型服务</h2><p className="muted">选择接口协议，添加模型 ID。兼容服务的能力需要按实际情况配置。</p><div className="preset-row">{templates.map((t, i) => <button key={t.name} onClick={() => addConnection(i)}><Plus size={14}/>{t.name}</button>)}</div>
       {!!draft.connections.length && <div className="connection-tabs">{draft.connections.map(c => <button key={c.id} className={`${selected === c.id ? 'active' : ''}${c.disabled ? ' stopped' : ''}`} title={c.disabled ? `${c.name}（已禁用）` : c.name} onClick={() => { setSelected(c.id); setFound([]); setHeadersEditing(false); }}>{c.name}{c.disabled && <span className="stopped-dot"/>}</button>)}</div>}
       {connection ? <><div className="settings-card"><div className="card-heading"><h3>连接配置</h3><div className="card-actions"><button className="icon-button danger" title="删除连接及其模型" onClick={() => { if (!confirm('删除该连接及其模型？已有消息仍保留。')) return; change({ connections: draft.connections.filter(c => c.id !== selected), models: draft.models.filter(m => m.connectionId !== selected) }); setSelected(draft.connections.find(c => c.id !== selected)?.id || ''); }}><Trash2 size={16}/></button><button className={`icon-button connection-toggle${connection?.disabled ? ' on' : ''}`} aria-label={connection?.disabled ? '启用连接' : '禁用连接'} title={connection?.disabled ? '启用该连接，其模型重新出现在模型选择器中' : '禁用该连接：配置与模型保留，但不再参与模型选择'} onClick={() => updateConnection({ disabled: !connection?.disabled })}>{connection?.disabled ? <PowerOff size={16}/> : <Power size={16}/>}</button></div></div>
@@ -200,6 +263,6 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       <div className="settings-card"><h3>Tavily</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.tavilyKey === saved ? '' : draft.tavilyKey} placeholder={draft.tavilyKey === saved ? '已设置，输入新值替换' : '输入 Tavily API Key（可选）'} onChange={e => change({ tavilyKey: e.target.value })}/>{draft.tavilyKey && draft.tavilyKey === saved && <button className="text-button" onClick={() => change({ tavilyKey: '' })}>清除密钥</button>}</label><p className="muted">联网搜索和读取网页均支持免 Key 模式；读取网页通过 Extract API 返回 Markdown，添加 API Key 可提高限额。</p><button onClick={() => api.openExternal('https://docs.tavily.com/documentation/keyless')}><ExternalLink size={14}/>Tavily 免 Key 文档</button></div>
       <div className="settings-card"><h3>Firecrawl</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.firecrawlKey === saved ? '' : draft.firecrawlKey} placeholder={draft.firecrawlKey === saved ? '已设置，输入新值替换' : '输入 Firecrawl API Key（可选）'} onChange={e => change({ firecrawlKey: e.target.value })}/>{draft.firecrawlKey && draft.firecrawlKey === saved && <button className="text-button" onClick={() => change({ firecrawlKey: '' })}>清除密钥</button>}</label><p className="muted">API Key 可选；搜索可返回 Markdown 正文，读取网页调用官方 Scrape API。留空时两项均使用免 Key 模式；添加 Key 可提高限额。</p><button onClick={() => api.openExternal('https://docs.firecrawl.dev/features/scrape')}><ExternalLink size={14}/>Firecrawl Scrape 文档</button></div><div className="settings-card"><h3>AnySearch</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.anysearchKey === saved ? '' : draft.anysearchKey} placeholder={draft.anysearchKey === saved ? '已设置，输入新值替换' : '输入 AnySearch API Key（可选）'} onChange={e => change({ anysearchKey: e.target.value })}/>{draft.anysearchKey && draft.anysearchKey === saved && <button className="text-button" onClick={() => change({ anysearchKey: '' })}>清除密钥</button>}</label><p className="muted">API Key 可选；留空时搜索和读取网页均使用 AnySearch 匿名额度，限额较低。添加 Key 可提高限额。</p><button onClick={() => api.openExternal('https://anysearch.com/docs/api-endpoints/v1-extract')}><ExternalLink size={14}/>AnySearch Extract 文档</button></div><div className="settings-card"><h3>DeepSeek 搜索与抓取</h3><label className="field">DeepSeek API Key（可选）<input type="password" autoComplete="off" value={draft.deepseekKey === saved ? '' : draft.deepseekKey} placeholder={draft.deepseekKey === saved ? '已设置，输入新值替换' : '留空时复用 DeepSeek 模型连接的 API Key'} onChange={e => change({ deepseekKey: e.target.value })}/>{draft.deepseekKey && draft.deepseekKey === saved && <button className="text-button" onClick={() => change({ deepseekKey: '' })}>清除密钥</button>}<small>留空时会尝试复用主机名为 api.deepseek.com 的连接密钥。</small></label><label className="toggle-row">在搜索结果中返回网页正文<input type="checkbox" checked={draft.deepseekNeedContent} onChange={e => change({ deepseekNeedContent: e.target.checked })}/></label><small>关闭时搜索结果只带 <code>summary</code>（约 600~800 字，官方标注为“适用于给模型阅读”），网页正文由“读取网页”单独抓取；开启后每条结果额外附带 <code>content</code> 全文，按每次搜索最多返回结果数逐条截断到 2500 字。</small><p className="muted">调用 DeepSeek 自研的 Search（搜索）与 Fetch（抓取网页 Markdown）接口。两者都<strong>按成功请求次数计费</strong>（每 1000 次 5 元，只有返回 200 且有结果才计费），账号级限速 5 QPS。因此它们<strong>不参与自动降级</strong>——自动联网和自动读取网页不会在你没有选择的情况下调用它们；需要时请在“会话选项”里显式选择，或把它设为“自动模式下优先使用的外部搜索”。</p><p className="muted">另外，DeepSeek 官方说明：通过 DeepSeek 服务端工具调用（包括 DeepSeek Anthropic API 里的原生联网搜索）目前不计费，将于北京时间 <strong>2026 年 11 月 1 日</strong>起按次收费。</p><button onClick={() => api.openExternal('https://api-docs.deepseek.com/zh-cn/guides/search')}><ExternalLink size={14}/>DeepSeek 搜索与抓取文档</button></div><div className="settings-card"><h3>模型原生搜索</h3><p className="muted">Responses 使用 web_search，Anthropic 使用 web_search_20250305，Gemini 使用 Google Search。需在模型配置中启用原生搜索能力，兼容服务可能不支持。</p></div></>}
     {tab === 'appearance' && <><h2>外观</h2><div className="settings-card"><label className="field">主题<select value={draft.theme} onChange={e => change({ theme: e.target.value as SettingsType['theme'] })}><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label><label className="field">文字大小：{draft.fontSize}px<input type="range" min="13" max="20" value={draft.fontSize} onChange={e => change({ fontSize: Number(e.target.value) })}/></label></div></>}
-    {tab === 'data' && <><h2>数据与隐私</h2><div className="settings-card"><h3>密钥保存</h3><p className="muted">模型连接 API Key、Exa、Ollama、Tavily、Firecrawl、AnySearch 密钥和自定义请求头默认保存在数据目录的 credentials.json 中，重启后自动读取。该文件以明文保存，权限为仅当前用户读写（0600）。</p><label className="field">保存方式<select value={draft.secretPolicy} onChange={e => change({ secretPolicy: e.target.value as SettingsType['secretPolicy'] })}><option value="file">保存到数据目录（默认）</option><option value="session">仅当前运行</option><option value="encrypted" disabled={!draft.secureStorage}>使用系统安全存储加密保存</option></select></label></div><div className="settings-card"><h3>备份与恢复</h3><p className="muted">结构化备份包含会话、分支、图片与配置，不包含密钥和自定义请求头。导入会替换当前数据。</p><div className="button-row"><button onClick={() => api.exportData('json').then(ok => ok && toast('备份已导出')).catch(e => toast(String(e)))}>导出备份</button><button onClick={() => api.exportData('markdown').then(ok => ok && toast('Markdown 已导出')).catch(e => toast(String(e)))}>导出 Markdown</button><button onClick={() => api.importData().then(s => { if (s) { toast('备份已恢复'); onClose(); window.dispatchEvent(new Event('seekie-reload')); } }).catch(e => toast(String(e)))}>导入备份</button></div></div><div className="settings-card"><h3>本地优先</h3><p className="muted">聊天记录与附件保存在本机。只有模型请求和已启用的搜索请求会访问对应服务。无遥测、无账号、无云同步。外链由系统浏览器打开。</p></div></>}
+    {tab === 'data' && <><h2>数据与隐私</h2><div className="settings-card"><h3>密钥保存</h3><p className="muted">模型连接 API Key、Exa、Ollama、Tavily、Firecrawl、AnySearch 密钥和自定义请求头默认保存在数据目录的 credentials.json 中，重启后自动读取。该文件以明文保存，权限为仅当前用户读写（0600）。</p><label className="field">保存方式<select value={draft.secretPolicy} onChange={e => change({ secretPolicy: e.target.value as SettingsType['secretPolicy'] })}><option value="file">保存到数据目录（默认）</option><option value="session">仅当前运行</option><option value="encrypted" disabled={!draft.secureStorage}>使用系统安全存储加密保存</option></select></label></div><div className="settings-card"><h3>备份与恢复</h3><p className="muted">结构化备份包含会话、分支、图片与配置，不包含密钥和自定义请求头。导入会替换当前数据。</p><div className="button-row"><button onClick={() => api.exportData('json').then(ok => ok && toast('备份已导出')).catch(e => toast(String(e)))}>导出备份</button><button onClick={() => api.exportData('markdown').then(ok => ok && toast('Markdown 已导出')).catch(e => toast(String(e)))}>导出 Markdown</button><button onClick={() => api.importData().then(s => { if (s) { toast('备份已恢复'); /* 导入的备份已经替换了全部设置，别让页面里的旧草稿再写回去。 */ skipSave.current = true; onClose(); window.dispatchEvent(new Event('seekie-reload')); } }).catch(e => toast(String(e)))}>导入备份</button></div></div><div className="settings-card"><h3>本地优先</h3><p className="muted">聊天记录与附件保存在本机。只有模型请求和已启用的搜索请求会访问对应服务。无遥测、无账号、无云同步。外链由系统浏览器打开。</p></div></>}
     </main></div></div>;
 }
