@@ -23,14 +23,14 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 开始聊天
 
-1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek·anthropic、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
+1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek（Anthropic Messages）、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1` 或 `/v1beta`，不要包含 `/responses`、`/messages` 等端点。
 3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。
 4. 根据模型文档填写上下文窗口、最大输出、图片、视频、音频、PDF、工具、原生搜索及思考能力。
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
 
-DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型包含 `max` 等级。
+“+ DeepSeek”预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，创建后连接名为“DeepSeek”，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型包含 `max` 等级。
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `minimal, low, medium, high`。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
@@ -44,7 +44,7 @@ AI 回答不显示头像和前置模型标签；操作按钮右侧显示“模�
 
 ## Gemini 原生协议
 
-在“连接与模型”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。
+在“模型服务”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。
 
 Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生搜索及 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch 工具搜索。新增 Gemini 模型默认勾选图片、视频、音频、PDF、工具调用和原生搜索，仍可按实际模型修改。Qwen 模型新增时默认勾选图片、视频、工具调用和原生搜索。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
 

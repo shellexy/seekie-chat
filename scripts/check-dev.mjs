@@ -13,7 +13,7 @@ try {
   const page = await desktop.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.getByRole('heading', { name: '今天，想聊些什么？' }).waitFor();
   await page.getByRole('button', { name: '连接第一个模型' }).click();
-  await page.getByRole('heading', { name: '连接与模型' }).waitFor();
+  await page.getByRole('heading', { name: '模型服务' }).waitFor();
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log('PASS: Electron loads the Vite development page with React refresh and settings UI.');
 } finally { if (desktop) await desktop.close(); await server.close(); }

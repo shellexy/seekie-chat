@@ -147,13 +147,13 @@ try {
   const settingsViewportWidth = await page.evaluate(() => innerWidth);
   assert.equal(settingsControlBounds.y, 0);
   assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
-  assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
+  assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
   }
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
-  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek·anthropic', exact: true }).click();
-  assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek·anthropic');
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek', exact: true }).click();
+  assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek');
   assert.equal(await page.getByLabel('连接名称', { exact: true }).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '连接名称与输入框并排');
   assert.equal(await page.getByLabel(/^接口协议/).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '接口协议标签与选项并排');
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
@@ -217,7 +217,7 @@ try {
   assert.equal(await page.getByRole('heading', { name: 'Firecrawl', exact: true }).count(), 1);
   assert.equal(await page.getByRole('heading', { name: 'AnySearch', exact: true }).count(), 1);
   assert.equal(await page.getByLabel('API Key（可选）').count(), 3);
-  await page.locator('.settings-nav').getByRole('button', { name: '连接与模型' }).click();
+  await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
   await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);

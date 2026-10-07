@@ -54,7 +54,7 @@
 4. Gemini GenerateContent API（原生流式、图片、思考摘要、Google Search 和外部搜索工具调用）。
 5. Ollama 本地服务和 Ollama Cloud 的 OpenAI Chat 兼容接口。
 
-支持官方服务预设及自定义兼容服务。所有连接新增模型时，思考参数默认选择思考等级（effort）；未知模型默认支持 `minimal, low, medium, high`，已知模型使用专门等级（GPT / DeepSeek 包含 `max`）。上下文窗口默认为 1,000,000 token、最大输出默认为 65,536 token；供应商预设模型保留其专门配置。DeepSeek·anthropic 预设使用 Anthropic Messages 和 `https://api.deepseek.com/anthropic`，自动添加 `deepseek-flash`，上下文 1,000,000 token、最大输出 256,000 token，启用图片输入、工具调用、原生搜索，思考参数默认选择思考等级（effort）。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
+支持官方服务预设及自定义兼容服务。所有连接新增模型时，思考参数默认选择思考等级（effort）；未知模型默认支持 `minimal, low, medium, high`，已知模型使用专门等级（GPT / DeepSeek 包含 `max`）。上下文窗口默认为 1,000,000 token、最大输出默认为 65,536 token；供应商预设模型保留其专门配置。“+ DeepSeek”预设创建名为“DeepSeek”的连接并使用 Anthropic Messages 和 `https://api.deepseek.com/anthropic`，自动添加 `deepseek-flash`，上下文 1,000,000 token、最大输出 256,000 token，启用图片输入、工具调用、原生搜索，思考参数默认选择思考等级（effort）。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
 
 Gemini 预设使用 `https://generativelanguage.googleapis.com/v1beta`，认证使用 `x-goog-api-key`；模型列表支持分页并只展示可生成内容的模型。Gemini 3 及以上可配置思考等级，Gemini 2.5 可配置思考预算；原生搜索使用 Google Search，保存服务返回的来源和思考签名。
 
