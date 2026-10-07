@@ -994,19 +994,26 @@ summary {
 }
 /* An overflowing name fades out at the edge instead of ending in an ellipsis. The mask is applied by
    the component only once the text really reaches the border, since masking a short label would fade
-   its last characters for no reason. */
+   its last characters for no reason. The fade covers a quarter of the label: a shorter one reads as a
+   hard cut, which is exactly what the user should not mistake for the full name. */
 .model-select-trigger.clipped span {
   text-overflow: clip;
-  -webkit-mask-image: linear-gradient(to left, transparent, #000 18px);
-  mask-image: linear-gradient(to left, transparent, #000 18px);
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 26%);
+  mask-image: linear-gradient(to left, transparent, #000 26%);
 }
 /* The panel is drawn over the page (usePopover positions it in viewport coordinates), so it needs
-   a fixed position, a scroll area for long lists and a stacking level above the composer. */
-.model-select-popover {
+   a fixed position, a scroll area for long lists and a stacking level above the composer.
+   It sizes to its longest entry rather than truncating every name: model ids and connection names are
+   what tells two entries apart, so a cut-off half of one is worse than a wider panel. Past the cap a
+   name wraps instead of being clipped. */
+/* Scoped to both classes like the star rule below: the generic `.popover` rule also sets padding, and
+   it is written later in the file, so a single class here would be silently overridden. */
+.popover.model-select-popover {
   position: fixed;
   z-index: 90;
-  width: 300px;
-  max-width: calc(100vw - 16px);
+  width: max-content;
+  min-width: 300px;
+  max-width: min(560px, calc(100vw - 16px));
   max-height: min(560px, 72vh);
   padding: 5px;
   overflow-y: auto;
@@ -1038,9 +1045,8 @@ summary {
   color: var(--text);
 }
 .model-select-row > .model-select-label span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 .model-select-row > .model-select-label[aria-selected="true"] {
   color: var(--accent);
@@ -1788,6 +1794,8 @@ input[type="range"] {
   padding: 0;
   min-width: 0;
 }
+/* The model name hugs its text up to the selector's cap, so the button never changes width while
+   reading. A short name keeps the toolbar compact; anything longer stops at 250px and fades out. */
 .model-selector {
   max-width: 250px;
 }
