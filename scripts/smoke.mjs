@@ -518,8 +518,12 @@ try {
   assert.equal(await modelSelector.evaluate(el => el.querySelector('span').getClientRects().length), 1, '名称应始终只有一行');
   await toolbar.evaluate(el => { el.style.maxWidth = ''; });
   await page.locator('.model-select-trigger.clipped').waitFor({ state: 'detached' }).catch(() => {});
-  await page.locator('.header-title small').innerText();
-  assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
+  await page.locator('.header-title small.model-label').innerText();
+  assert.equal(await page.locator('.header-title small.model-label').getAttribute('title'), '模拟 chat | 本地模拟 chat');
+  // 顶栏在模型名后带上当前分支用的角色预设名。
+  const roleLabel = page.locator('.header-title small.role-preset');
+  assert.equal(await roleLabel.count(), 1, '顶栏应显示角色预设名');
+  assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
   // 因为原生下拉弹层在无头环境里画不出来。
@@ -788,7 +792,7 @@ try {
     }, compressionFixture);
     await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.leafId === id; }, compressionFixture.originalLeaf);
     await waitFor(page, async id => [...document.querySelectorAll('.message.assistant')].at(-1)?.getAttribute('data-id') === id, compressionFixture.originalLeaf);
-    assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
+    assert.equal(await page.locator('.header-title small.model-label').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     assert.equal(await page.locator('.message.assistant .answer-meta').last().getAttribute('aria-label'), `查看回答详情：模拟 ${protocol}`);
     await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
     // The in-app debug view must expose the outgoing request without ever exposing credentials.

@@ -140,6 +140,8 @@ export default function App() {
   const chatSearchResults = searchMessages(messages, chatSearchQuery);
   const activeSearchIndex = chatSearchResults.length ? ((chatSearchIndex % chatSearchResults.length) + chatSearchResults.length) % chatSearchResults.length : 0;
   const model = state.settings.models.find(m => m.id === branch?.config.modelId);
+  // 当前分支用的是哪个角色预设：按内容匹配，与会话选项里的下拉同一套判断，认不出就是自定义提示词。
+  const rolePreset = branch ? state.settings.promptPresets.find(p => p.content === branch.config.system) : undefined;
   const modelConnection = state.settings.connections.find(c => c.id === model?.connectionId);
   const modelProtocol = modelConnection ? effectiveProtocol(modelConnection, model) : 'chat';
   const samplingSupported = !!model?.temperature && !(['responses', 'anthropic'].includes(modelProtocol || '') && model?.reasoning !== 'none');
@@ -475,9 +477,10 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                       <span title={conversation?.title}>
                           {conversation?.title || '新对话'}
                           </span>
-                            <small title={model ? modelLabel(model, state.settings.connections) : '选择模型'}>
+                            <small className="model-label" title={model ? modelLabel(model, state.settings.connections) : '选择模型'}>
                                 {model ? modelLabel(model, state.settings.connections) : '选择模型'}
                                 </small>
+                                {rolePreset && <small className="role-preset" title={`角色预设：${rolePreset.name}`}>{rolePreset.name}</small>}
                                 </div>
 </div>
       <div className="header-actions">

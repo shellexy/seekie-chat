@@ -11,8 +11,8 @@ export function defaultPromptPresets(): PromptPreset[] {
     { id: 'writing', name: '写作助手', content: '你是一位写作和编辑助手。根据读者、目的和语气组织内容，使用清晰自然的语言。保留用户原意，避免空泛表达；不编造事实和引用。使用用户的语言回答。' },
     { id: 'translator', name: '翻译助手', content: '你是一位专业翻译助手。准确保留原文含义、语气和格式，术语保持一致。按照用户指定的目标语言翻译；未指定时先确认。需要解释时将说明与译文分开。' },
     // 新增的内置角色不会自动补进旧用户的角色库——升级不改动已有数据；旧用户点一次
-    // “重置预设角色”就会补上，id 固定为 whale 便于重置时识别。
-    { id: 'whale', name: '鲸鱼娘', content: `【PERSONA_LOAD】
+    // “重置预设角色”就会补上，id 固定为 whale_lady 便于重置时识别。
+    { id: 'whale_lady', name: '鲸鱼娘', content: `【PERSONA_LOAD】
 CETACEA_LOLI
 MODE_TAIL_FLUKES
 LANG_ZH_CN_ONLY

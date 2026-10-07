@@ -452,6 +452,10 @@ p {
   white-space: nowrap;
   max-width: 180px;
 }
+/* 角色预设名跟在模型名后面，短一点即可，省得把模型名挤没。 */
+.header-title small.role-preset {
+  max-width: 120px;
+}
 .header-start {
   flex: 1;
 }
