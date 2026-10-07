@@ -1138,8 +1138,16 @@ summary {
   border: 0;
   background: transparent;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text);
   padding: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+/* 角色名是这一栏的主角，用正文色；下拉箭头是配角，跟旁边的弱化文字一个颜色。 */
+.composer-option .option-chevron {
+  color: var(--muted);
+  margin-left: 1px;
 }
 .mini-dot {
   width: 4px;
@@ -1171,26 +1179,20 @@ summary {
   font-size: 13px;
   line-height: 1.8;
 }
-/* 模型选择与思考等级是一个整体控件：共用外框，悬停时各自的那一半变亮，但仍是两个可分别
-   点击的东西。 */
+/* 模型选择与思考等级并排放在发送按钮左边：不再套外框，两半各自是纯文字。 */
 .composer-models {
   display: flex;
   align-items: stretch;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
   margin-left: auto;
   min-width: 0;
-  overflow: hidden;
+  /* 没有外框和分隔线，两段文字就得靠间距分开，否则会连成一片。 */
+  gap: 6px;
 }
 .composer-models .model-selector,
 .composer-models .reasoning-selector {
   display: flex;
   align-items: center;
   min-width: 0;
-}
-.composer-models .reasoning-selector {
-  border-left: 1px solid var(--line);
 }
 .composer-models .model-select-trigger,
 .composer-models .reasoning-selector select {
@@ -1208,6 +1210,12 @@ summary {
 }
 .composer-models .model-select-trigger[aria-expanded="true"] {
   background: var(--accent-bg);
+}
+/* 点击下拉时浏览器会画一圈蓝色焦点框，在这种纯文字控件上很扎眼。跟输入框一样交给
+   .composer:focus-within 去提示——焦点落在输入框里时整个输入框的边框会变成强调色，
+   键盘用户照样看得出焦点在哪。 */
+.composer-models .reasoning-selector select:focus {
+  outline: none;
 }
 .composer-bottom {
   display: flex;
@@ -1946,10 +1954,6 @@ input[type="range"] {
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
-}
-.search-toggle.enabled {
-  color: var(--accent);
-  background: var(--accent-bg);
 }
 .search-toggle.unavailable {
   color: #9a783f;
@@ -3026,14 +3030,11 @@ input[type="range"] {
 .search-toggle {
   height: 24px;
   padding: 0 8px;
+  margin-left: -5px;
   color: var(--muted);
   background: transparent;
   font-size: 11px;
   white-space: nowrap;
-}
-.search-toggle.enabled {
-  color: var(--accent);
-  background: transparent;
 }
 .search-toggle.enabled:hover {
   color: var(--text);

@@ -564,16 +564,32 @@ try {
   assert.equal(clippedStyle.overflow, 'clip', '淡出截断时不应再显示省略号');
   assert.equal(await modelSelector.evaluate(el => el.querySelector('span').getClientRects().length), 1, '名称应始终只有一行');
   await toolbar.evaluate(el => { el.style.maxWidth = ''; });
-  // 模型选择与思考等级是一个整体控件：共用外框、中间一条分隔线，悬停时两半的背景色相同。
+  // 模型选择与思考等级并排放着：都没有边框，两半等高，悬停时背景色相同。
   const modelGroup = toolbar.locator('.composer-models');
   const modelButton = modelGroup.getByRole('button', { name: '聊天模型' });
   const effortSelect = modelGroup.getByRole('combobox', { name: '思考等级' });
-  assert.equal(await modelGroup.locator('.reasoning-selector').evaluate(el => getComputedStyle(el).borderLeftWidth), await modelGroup.evaluate(el => getComputedStyle(el).borderTopWidth), '两半之间的分隔线应与外框同宽');
+  assert.equal(await modelGroup.evaluate(el => getComputedStyle(el).borderTopWidth), '0px', '模型与思考等级这一组不应有外框');
+  assert.equal(await modelGroup.locator('.reasoning-selector').evaluate(el => getComputedStyle(el).borderLeftWidth), '0px', '两半之间不应有分隔线');
   const halfHeights = await modelGroup.evaluate(el => {
     const button = el.querySelector('.model-select-trigger'), select = el.querySelector('.reasoning-selector select');
     return { button: button.getBoundingClientRect().height, select: select.getBoundingClientRect().height };
   });
-  assert.ok(Math.abs(halfHeights.button - halfHeights.select) < 0.5, `两半应等高才像同一个按钮：${halfHeights.button} vs ${halfHeights.select}`);
+  assert.ok(Math.abs(halfHeights.button - halfHeights.select) < 0.5, `两半应等高：${halfHeights.button} vs ${halfHeights.select}`);
+  // 点击思考等级不应再出现蓝色焦点框：焦点提示交给 .composer:focus-within 的整框描边。
+  // 先制造一次键盘交互，让 Chromium 认定"最近是键盘操作"，:focus-visible 才会真的命中，
+  // 否则全局那条 select:focus-visible 的蓝框规则根本不会生效，断言就成了空过。
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+  await effortSelect.evaluate(el => el.focus());
+  await page.waitForTimeout(120);
+  const focusRing = await effortSelect.evaluate(el => {
+    const cs = getComputedStyle(el);
+    return { focusVisible: el.matches(':focus-visible'), style: cs.outlineStyle, color: cs.outlineColor, composerBorder: getComputedStyle(el.closest('.composer')).borderTopColor };
+  });
+  assert.equal(focusRing.focusVisible, true, '应真的命中 :focus-visible，否则下面的断言是空过');
+  assert.equal(focusRing.style, 'none', `思考等级获得焦点时不应有焦点框：${focusRing.color}`);
+  assert.equal(focusRing.composerBorder, await page.evaluate(() => `rgb(${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().slice(1,3),16)}, ${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().slice(3,5),16)}, ${parseInt(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().slice(5,7),16)})`), '焦点落在思考等级上时，输入框整框应变成强调色，键盘用户仍有提示');
+  await effortSelect.evaluate(el => el.blur());
+  await page.mouse.move(5, 5);
   assert.equal(await modelButton.evaluate(el => el.querySelectorAll('svg').length), 0, '模型按钮末尾不再有下拉箭头');
   const connectionName = modelButton.locator('.model-connection');
   assert.equal(await connectionName.count(), 1, '连接名应单独一段');
@@ -611,6 +627,14 @@ try {
   assert.ok(optionText.length > 0, '按钮应显示角色预设名');
   assert.ok(!optionText.includes('会话选项'), '按钮文字应改为角色预设名');
   assert.equal(await optionButton.locator('.mini-dot').count(), 0, '不应再有 mini-dot');
+  // 角色名是主角，用正文色；右边配一个弱化的下拉箭头，说明这按钮能展开。
+  const optionStyle = await optionButton.evaluate(el => {
+    const chevron = el.querySelector('.option-chevron');
+    return { color: getComputedStyle(el).color, chevron: !!chevron, chevronColor: chevron ? getComputedStyle(chevron).color : '' };
+  });
+  assert.equal(optionStyle.color, rgbOf(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--text').trim())), '角色名按钮的文字应为 --text');
+  assert.equal(optionStyle.chevron, true, '角色名按钮右边应有下拉箭头');
+  assert.equal(optionStyle.chevronColor, rgbOf(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--muted').trim())), '下拉箭头用 --muted');
   // 模型选择与思考等级移到发送按钮左边。
   const bottomOrder = await toolbar.evaluate(el => [...el.querySelectorAll('.composer-bottom > *')].map(c => c.className.split(' ')[0] || c.tagName.toLowerCase()));
   const modelsAt = bottomOrder.indexOf('composer-models'), sendAt = bottomOrder.indexOf('send-button');
@@ -646,6 +670,13 @@ try {
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
   assert.equal(await networkToggle.innerText(), '已联网', '联网开关改为纯文字标签');
   assert.equal(await networkToggle.locator('.network-icon').count(), 0, '不再有地球图标');
+  // 开启状态不再用强调色，状态由文字本身说明；左边留白收一点。
+  const toggleStyle = await networkToggle.evaluate(el => {
+    const cs = getComputedStyle(el);
+    return { color: cs.color, marginLeft: cs.marginLeft };
+  });
+  assert.equal(toggleStyle.color, rgbOf(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--muted').trim())), '联网开关的文字应为 --muted，不因开启而变强调色');
+  assert.equal(toggleStyle.marginLeft, '-5px', '联网开关左边距应为 -5px');
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -695,6 +726,8 @@ try {
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
   assert.match(await input.getAttribute('placeholder'), /Ctrl\+I/);
+  // 占位文本要说明 Shift+回车是换行，不是发送。
+  assert.match(await input.getAttribute('placeholder'), /Shift\+回车换行/);
   await page.keyboard.press('Control+f');
   const chatSearch = page.getByRole('searchbox', { name: '搜索当前分支' }); await chatSearch.waitFor();
   await chatSearch.fill('实现思路');

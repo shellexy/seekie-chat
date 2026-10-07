@@ -72,7 +72,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   </button>
                 </div>)}
               </div>
-              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入）…'} value={branch.draft} onChange={e => onDraftChange(e.target.value)} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
+              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={branch.draft} onChange={e => onDraftChange(e.target.value)} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
               <div className="composer-bottom">
                 <button className="icon-button" type="button" aria-label="添加图片或附件" title="添加图片或附件" onClick={() => fileRef.current?.click()}>
                   <ImagePlus size={20}/>
@@ -81,7 +81,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 <div className="composer-meta">
                   <div className="popover-anchor">
                     <button className="composer-option" aria-label={`会话选项：${roleName}`} title={roleName} onClick={() => setOptions(!options)}>
-                      <SettingsIcon size={14}/>{roleName}
+                      <SettingsIcon size={14}/>{roleName}<ChevronDown size={12} className="option-chevron"/>
                     </button>
                     {options && <div className="popover config-popover" ref={optionsPopoverRef}>
                       <div className="config-popover-heading">
