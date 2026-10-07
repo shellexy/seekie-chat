@@ -99,7 +99,7 @@ async function assertUsageDetails(page, output = 60) {
   assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','速度：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
-  assert.equal(values[3], `${(output / (message.usage.elapsedMs / 1000)).toFixed(1)} tps`);
+  assert.equal(values[3], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
   assert.equal(values[4], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
   const box = await tooltip.boundingBox();
   assert.ok(await page.evaluate(box => box.x >= 0 && box.y >= 0 && box.x + box.width <= innerWidth && box.y + box.height <= innerHeight, box), 'tooltip fits inside window');
@@ -268,6 +268,8 @@ try {
   await page.locator('.config-popover').waitFor({ state: 'hidden' });
   const networkToggle = toolbar.getByRole('button', { name: '联网', exact: true });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(await networkToggle.innerText(), '', '联网按钮仅显示地球状态图标');
+  assert.equal(await networkToggle.locator('.network-icon.off').count(), 0);
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -275,6 +277,7 @@ try {
     return config.search === 'off' && config.webFetch === 'off';
   });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(await networkToggle.locator('.network-icon.off').count(), 1, '关闭联网时显示斜线状态');
   await networkToggle.click();
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -282,6 +285,7 @@ try {
     return config.search === 'auto' && config.webFetch === 'auto';
   });
   assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(await networkToggle.locator('.network-icon.off').count(), 0);
   const layout = await toolbar.evaluate(el => { const text = document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect(); const send = el.querySelector('.send-button').getBoundingClientRect(); return { textBottom: text.bottom, controlTop: el.getBoundingClientRect().top, sendLeft: send.left, controls: [...el.querySelectorAll('select')].map(s => s.getBoundingClientRect().right) }; });
   assert.ok(layout.controlTop >= layout.textBottom); assert.ok(layout.controls.every(right => right < layout.sendLeft));
   assert.equal(await page.getByText('AI 的回答可能有误，请核实重要信息。', { exact: true }).count(), 0);
@@ -311,6 +315,14 @@ try {
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
+  assert.match(await input.getAttribute('placeholder'), /Ctrl\+I/);
+  await page.keyboard.press('Control+f');
+  const chatSearch = page.getByRole('searchbox', { name: '搜索当前分支' }); await chatSearch.waitFor();
+  await chatSearch.fill('实现思路');
+  await page.getByRole('button', { name: /AI · 正文/ }).first().waitFor();
+  await page.keyboard.press('Control+i');
+  await page.locator('.chat-search-popover').waitFor({ state: 'hidden' });
+  assert.equal(await input.evaluate(el => document.activeElement === el), true, 'Ctrl+I 聚焦消息输入框');
   assert.equal(await page.locator('.message.assistant .answer-model-meta').first().getAttribute('aria-label'), '查看模型信息：模拟 chat');
   const uploadButton = page.getByRole('button', { name: '添加图片或附件', exact: true });
   assert.equal((await uploadButton.innerText()).trim(), '');
@@ -565,15 +577,17 @@ try {
     const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), parentBranch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const user = { id: crypto.randomUUID(), parentId: parentBranch.leafId, role: 'user', text: '切换失败回答版本', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
     const failed = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '', reasoning: '', attachments: [], tools: [], sources: [], status: 'error', error: '模拟生成失败', modelId: parentBranch.config.modelId, created: Date.now() };
-    const complete = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '成功回答版本', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', modelId: parentBranch.config.modelId, created: Date.now() };
+    const toolId = crypto.randomUUID();
+    const complete = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '第一段正文。最后一段正文。', reasoning: '第一次思考。第二次思考。', attachments: [], tools: [{ id: toolId, name: 'web_fetch', input: '{"url":"https://example.com/one"}', output: '读取完成', status: 'done', started: Date.now(), elapsed: 120 }], sources: [], status: 'complete', modelId: parentBranch.config.modelId, segments: [{ type: 'text', text: '第一段正文。' }, { type: 'reasoning', text: '第一次思考。' }, { type: 'tool', toolId }, { type: 'text', text: '最后一段正文。' }, { type: 'reasoning', text: '第二次思考。' }], created: Date.now() };
     conversation.messages.push(user, failed, complete);
     const makeBranch = (message, name) => ({ ...structuredClone(parentBranch), id: crypto.randomUUID(), name, parentBranchId: parentBranch.id, originId: message.id, leafId: message.id, summary: undefined, draft: '', draftAttachments: [], scrollTop: 0, updated: Date.now() });
     const failedBranch = makeBranch(failed, '失败回答分支'), completeBranch = makeBranch(complete, '成功回答分支');
     conversation.branches.push(failedBranch, completeBranch); conversation.activeBranchId = completeBranch.id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
-    return { conversationId: conversation.id, failedId: failed.id, completeId: complete.id, failedBranchId: failedBranch.id, completeBranchId: completeBranch.id };
+    return { conversationId: conversation.id, userId: user.id, failedId: failed.id, completeId: complete.id, failedBranchId: failedBranch.id, completeBranchId: completeBranch.id };
   });
   const completeVersion = page.locator(`.message.assistant[data-id="${versionFixture.completeId}"]`); await completeVersion.waitFor();
+  assert.deepEqual(await completeVersion.locator('.message-content, .thinking, .tool-card').evaluateAll(elements => elements.map(element => element.classList.contains('message-content') ? 'text' : element.classList.contains('thinking') ? 'reasoning' : 'tool')), ['text', 'reasoning', 'tool', 'text', 'reasoning']);
   const previousVersion = completeVersion.getByTitle('上一个版本'); assert.equal(await previousVersion.isDisabled(), false);
   await previousVersion.click();
   await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.failedBranchId });
@@ -581,6 +595,21 @@ try {
   assert.equal(await failedVersion.getByTitle('下一个版本').isDisabled(), false, '失败回答之后仍可切换到下一个版本');
   await failedVersion.getByTitle('下一个版本').click();
   await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedAnswer = text; } } }));
+  await completeVersion.getByTitle('复制消息').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  await completeVersion.getByTitle('编辑为新版本').click();
+  const answerEditor = page.locator('.edit-box textarea'); await answerEditor.waitFor();
+  assert.equal(await answerEditor.inputValue(), '最后一段正文。', '编辑只载入最后一段正文');
+  assert.ok((await answerEditor.boundingBox()).height >= 350, '回答编辑框应尽量占用可用高度');
+  await answerEditor.fill('改写后的最后正文。'); await page.getByRole('button', { name: '保存新版本' }).click();
+  const editedSegments = await page.evaluate(async ({ conversationId, userId }) => {
+    const conversation = (await window.deepchan.load()).conversations.find(c => c.id === conversationId);
+    const edited = conversation.messages.find(message => message.edited && message.parentId === userId);
+    return { text: edited.text, segments: edited.segments, toolCount: edited.tools.length };
+  }, versionFixture);
+  assert.equal(editedSegments.text, '第一段正文。改写后的最后正文。');
+  assert.deepEqual(editedSegments.segments.map(segment => segment.type === 'tool' ? 'tool' : `${segment.type}:${segment.text}`), ['text:第一段正文。', 'reasoning:第一次思考。', 'tool', 'text:改写后的最后正文。', 'reasoning:第二次思考。']);
+  assert.equal(editedSegments.toolCount, 1);
 
   const thinkingFixture = await page.evaluate(async () => {
     const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);

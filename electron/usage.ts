@@ -1,4 +1,20 @@
-import type { Usage } from '../src/types';
+import type { ToolEvent, Usage } from '../src/types';
+
+// Overlapping tools count as one wall-clock interval, so concurrent calls are not subtracted twice.
+export function elapsedExcludingToolWait(totalElapsedMs: number, requestStartedAt: number, tools: ToolEvent[], requestEndedAt = requestStartedAt + totalElapsedMs) {
+  const intervals = tools.filter(tool => tool.status !== 'pending' && tool.name !== 'google_search').map(tool => {
+    const start = Math.max(requestStartedAt, tool.started);
+    const end = Math.min(requestEndedAt, tool.started + (tool.elapsed ?? Math.max(0, requestEndedAt - tool.started)));
+    return { start, end };
+  }).filter(interval => interval.end > interval.start).sort((a, b) => a.start - b.start);
+  let removed = 0, activeStart = 0, activeEnd = 0;
+  for (const interval of intervals) {
+    if (interval.start > activeEnd) { removed += activeEnd - activeStart; activeStart = interval.start; activeEnd = interval.end; }
+    else activeEnd = Math.max(activeEnd, interval.end);
+  }
+  if (activeEnd > activeStart) removed += activeEnd - activeStart;
+  return Math.max(0, totalElapsedMs - removed);
+}
 
 // Stream usage frames describe cumulative counts within a request, not increments.
 export class UsageCounter {

@@ -72,7 +72,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     if (tools.length) body.tools = tools;
     if (config.search === 'native' && allowTools && hasWebFetch) body.toolConfig = { includeServerSideToolInvocations: true };
     const { response, close } = await deps.request(connection, path, body, signal, model);
-    const parts: any[] = [];
+    const parts: any[] = [], toolIds = new Map<number, string>();
     let finishReason = '';
     const searchId = crypto.randomUUID(), searchStarted = Date.now();
     try {
@@ -83,7 +83,13 @@ export async function generateGemini(connection: Connection, model: Model, confi
         const candidate = ev.candidates?.find((c: any) => c.index === 0 || c.index === undefined);
         if (candidate) {
           for (const part of candidate.content?.parts || []) {
+            const partIndex = parts.length;
             appendPart(parts, part);
+            if (part.functionCall) {
+              const id = part.functionCall.id || `gemini-${round}-${partIndex}`;
+              toolIds.set(partIndex, id);
+              hooks.tool({ id, name: part.functionCall.name || 'tool', input: JSON.stringify(part.functionCall.args || {}), output: '', status: 'pending', started: Date.now() });
+            }
             if (typeof part.text === 'string') {
               if (part.thought) { reasoning += part.text; hooks.reasoning(part.text); }
               else { text += part.text; hooks.text(part.text); }
@@ -110,7 +116,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     if (finishReason !== 'STOP') throw new Error('Gemini 回答未完整生成：' + finishReason);
     if (!parts.length) throw new Error('Gemini 未返回回答内容');
     const assistant = { role: 'model', parts }; input.push(assistant); entries.push(assistant);
-    const calls = parts.filter(p => p.functionCall).map(p => ({ id: p.functionCall.id || crypto.randomUUID(), ...p.functionCall }));
+    const calls = parts.flatMap((part, index) => part.functionCall ? [{ id: part.functionCall.id || toolIds.get(index) || crypto.randomUUID(), ...part.functionCall }] : []);
     if (!calls.length) return { text, reasoning, raw: { protocol: 'gemini', entries }, usage, sources };
     if (!allowTools || calls.length > 3) throw new Error('已达到工具调用上限，请减少搜索或读取网页范围后重试');
     const results: any[] = [];

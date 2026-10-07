@@ -6,7 +6,7 @@ import type { Connection, Model, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
 const templates = [
-  { name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
+  { name: 'DeepSeek·anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   { name: 'OpenAI · Responses', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
   { name: 'OpenAI · Chat Completions', protocol: 'chat', baseUrl: 'https://api.openai.com/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
@@ -26,7 +26,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   function addConnection(index: number) {
     const t = templates[index];
     const c: Connection = { ...t, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '' };
-    const presetModel: Model | undefined = t.name === 'DeepSeek' ? {
+    const presetModel: Model | undefined = t.name === 'DeepSeek·anthropic' ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
       nativeSearch: true, videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'medium', 'high', 'max'], temperature: true

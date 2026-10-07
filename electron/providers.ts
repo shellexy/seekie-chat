@@ -183,7 +183,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
   const addText = (s: string) => { text += s; hooks.text(s); };
   const addReason = (s: string) => { reasoning += s; hooks.reasoning(s); };
   const addSources = (items: Source[]) => { for (const s of items) if (/^https?:\/\//.test(s.url) && !sources.some(x => x.url === s.url)) sources.push(s); hooks.sources([...sources]); };
-  const anthropicSearchInputs = new Map<string, string>();
+  const anthropicSearchInputs = new Map<string, string>(), anthropicServerSearchStarted = new Map<string, number>();
   const hasWebFetch = model.tools && config.webFetch !== 'off' && !!webFetch;
   const responseSearchEvents = new Map<string, ToolEvent>();
   const updateResponseSearch = (id: string, changes: Partial<ToolEvent>) => {
@@ -252,15 +252,24 @@ export async function generate(connection: Connection, model: Model, config: Cha
           const choice = ev.choices?.[0], d = choice?.delta;
           if (d?.content) { chatText += d.content; addText(d.content); }
           if (d?.reasoning_content) { chatReason += d.reasoning_content; addReason(d.reasoning_content); }
-          for (const c of d?.tool_calls || []) { const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' } }; if (c.id) old.id = c.id; if (c.function?.name) old.function.name += c.function.name; if (c.function?.arguments) old.function.arguments += c.function.arguments; chatCalls.set(c.index, old); }
+          for (const c of d?.tool_calls || []) {
+            const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' }, pendingStarted: Date.now() };
+            if (c.id) old.id = c.id;
+            if (c.function?.name) old.function.name += c.function.name;
+            if (c.function?.arguments) old.function.arguments += c.function.arguments;
+            chatCalls.set(c.index, old);
+            if (old.id && (old.function.name || old.function.arguments)) hooks.tool({ id: old.id, name: old.function.name || 'tool', input: old.function.arguments, output: '', status: 'pending', started: old.pendingStarted });
+          }
           if (choice?.finish_reason) finished = true;
           if (ev.usage) counter.observe({ input: ev.usage.prompt_tokens, output: ev.usage.completion_tokens, cachedInput: ev.usage.prompt_tokens_details?.cached_tokens ?? ev.usage.prompt_cache_hit_tokens });
         } else if (connection.protocol === 'responses') {
           if (ev.type === 'response.output_text.delta') addText(ev.delta);
           if (ev.type === 'response.reasoning_summary_text.delta') addReason(ev.delta);
           if (ev.type === 'response.output_item.added' && ev.item?.type === 'web_search_call') updateResponseSearch(ev.item.id, { input: searchParameters(ev.item.action) });
+          if (ev.type === 'response.output_item.added' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: ev.item.arguments || '', output: '', status: 'pending', started: Date.now() });
           if (ev.type === 'response.output_item.done') responseItems.push(ev.item);
           if (ev.type === 'response.output_item.done' && ev.item?.type === 'web_search_call') updateResponseSearch(ev.item.id, { input: searchParameters(ev.item.action) });
+          if (ev.type === 'response.output_item.done' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: ev.item.arguments || '', output: '', status: 'pending', started: Date.now() });
           if (ev.type === 'response.output_text.annotation.added' && ev.annotation?.url) addSources([{ title: ev.annotation.title || ev.annotation.url, url: ev.annotation.url }]);
           if (ev.type === 'response.web_search_call.in_progress') updateResponseSearch(ev.item_id, { input: searchParameters(ev.action), status: 'running' });
           if (ev.type === 'response.web_search_call.searching' && (ev.action || ev.query)) updateResponseSearch(ev.item_id, { input: searchParameters(ev.action || { query: ev.query }) });
@@ -283,12 +292,15 @@ export async function generate(connection: Connection, model: Model, config: Cha
               block._json = '';
               const input = JSON.stringify(block.input || {}, null, 2);
               if (block.name === 'web_search') anthropicSearchInputs.set(block.id, input);
-              hooks.tool({ id: block.id, name: block.name, input, output: '', status: 'running', started: Date.now() });
+              const started = Date.now();
+              if (block.type === 'server_tool_use') anthropicServerSearchStarted.set(block.id, started);
+              hooks.tool({ id: block.id, name: block.name, input, output: '', status: block.type === 'server_tool_use' ? 'running' : 'pending', started });
             }
             if (block.type === 'web_search_tool_result') {
               const results = Array.isArray(block.content) ? block.content : [];
               addSources(results.filter((r: any) => r.url).map((r: any) => ({ title: r.title || r.url, url: r.url })));
-              hooks.tool({ id: block.tool_use_id, name: 'web_search', input: anthropicSearchInputs.get(block.tool_use_id) || '服务端没有返回显式搜索参数', output: JSON.stringify(block.content).slice(0, 3000), status: block.content?.type === 'web_search_tool_result_error' ? 'error' : 'done', started: Date.now() });
+              const started = anthropicServerSearchStarted.get(block.tool_use_id) || Date.now();
+              hooks.tool({ id: block.tool_use_id, name: 'web_search', input: anthropicSearchInputs.get(block.tool_use_id) || '服务端没有返回显式搜索参数', output: JSON.stringify(block.content).slice(0, 3000), status: block.content?.type === 'web_search_tool_result_error' ? 'error' : 'done', started, elapsed: Date.now() - started });
             }
           }
           if (ev.type === 'content_block_delta') {
@@ -307,7 +319,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
               if (b.name === 'web_search') {
                 const input = JSON.stringify(b.input || {}, null, 2);
                 anthropicSearchInputs.set(b.id, input);
-                hooks.tool({ id: b.id, name: b.name, input, output: '', status: 'running', started: Date.now() });
+                hooks.tool({ id: b.id, name: b.name, input, output: '', status: 'pending', started: Date.now() });
               }
             }
           }
@@ -319,7 +331,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
     if (!finished) throw new Error('流式连接提前结束，已收到的内容已保留');
     counter.finishRound();
     if (connection.protocol === 'chat') {
-      const toolCalls = [...chatCalls.values()]; const assistant = { role: 'assistant', content: chatText || null, ...(chatReason ? { reasoning_content: chatReason } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
+      const toolCalls = [...chatCalls.values()].map(c => ({ id: c.id, type: c.type, function: c.function })); const assistant = { role: 'assistant', content: chatText || null, ...(chatReason ? { reasoning_content: chatReason } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
       input.push(assistant); entries.push(assistant);
       calls.push(...toolCalls.map(c => ({ id: c.id, name: c.function.name, args: c.function.arguments })));
     } else if (connection.protocol === 'responses') {
@@ -327,7 +339,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
         for (const c of item.content || []) for (const a of c.annotations || []) if (a.url) addSources([{ title: a.title || a.url, url: a.url }]);
         // Native search records aren't needed for reconstructed stateless input.
         if (['message', 'reasoning', 'function_call'].includes(item.type)) { input.push(item); entries.push(item); }
-        if (item.type === 'function_call') calls.push({ id: item.call_id, name: item.name, args: item.arguments });
+        if (item.type === 'function_call') calls.push({ id: item.call_id || item.id, name: item.name, args: item.arguments });
       }
     } else {
       const assistant = { role: 'assistant', content: blocks.filter(Boolean) }; input.push(assistant); entries.push(assistant);

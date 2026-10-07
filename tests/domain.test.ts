@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
+import { addMessage, appendAssistantSegment, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -14,6 +14,17 @@ test('new model thinking levels use sensible defaults when the model is unknown'
 test('GPT and DeepSeek Flash names default to vision and tool support', () => {
   for (const name of ['gpt-4o', 'GPT-5', 'openai/gpt-4.1', 'gpt-oss-120b', 'models/deepseek-flash', 'deepseek/deepseek-flash-v2', 'DeepSeek Flash']) assert.equal(shouldDefaultVisionAndTools(name), true, name);
   for (const name of ['deepseek-r1', 'local-custom-model']) assert.equal(shouldDefaultVisionAndTools(name), false, name);
+});
+test('assistant stream segments keep event order while merging adjacent chunks and deduplicating tool updates', () => {
+  const { a } = fixture();
+  appendAssistantSegment(a, { type: 'text', text: '第一段' }); appendAssistantSegment(a, { type: 'text', text: '正文' });
+  appendAssistantSegment(a, { type: 'reasoning', text: '第一次思考' }); appendAssistantSegment(a, { type: 'reasoning', text: '继续思考' });
+  appendAssistantSegment(a, { type: 'tool', toolId: 'search-1' }); appendAssistantSegment(a, { type: 'tool', toolId: 'search-1' });
+  appendAssistantSegment(a, { type: 'text', text: '第二段正文' }); appendAssistantSegment(a, { type: 'reasoning', text: '第二次思考' });
+  assert.deepEqual(a.segments, [
+    { type: 'text', text: '第一段正文' }, { type: 'reasoning', text: '第一次思考继续思考' },
+    { type: 'tool', toolId: 'search-1' }, { type: 'text', text: '第二段正文' }, { type: 'reasoning', text: '第二次思考' }
+  ]);
 });
 test('token estimates prefer reported assistant output and use the lightweight text and image fallback', () => {
   const { u, a } = fixture();

@@ -1,4 +1,4 @@
-import type { AppState, Branch, ChatConfig, Conversation, Message, PromptPreset, Protocol, Settings } from './types';
+import type { AppState, AssistantSegment, Branch, ChatConfig, Conversation, Message, PromptPreset, Protocol, Settings } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
 export function defaultPromptPresets(): PromptPreset[] {
   return [
@@ -88,6 +88,16 @@ export function addMessage(conversation: Conversation, branch: Branch, role: Mes
   const message: Message = { id: uid(), parentId, role, text, reasoning: '', attachments: [], tools: [], sources: [], status: role === 'assistant' ? 'streaming' : 'complete', created: Date.now() };
   conversation.messages.push(message); branch.leafId = message.id; branch.updated = conversation.updated = Date.now();
   return message;
+}
+export function appendAssistantSegment(message: Message, segment: AssistantSegment) {
+  const segments = message.segments ??= [];
+  if (segment.type === 'tool') {
+    if (!segments.some(existing => existing.type === 'tool' && existing.toolId === segment.toolId)) segments.push(segment);
+    return;
+  }
+  const previous = segments.at(-1);
+  if (previous && previous.type === segment.type) previous.text += segment.text;
+  else segments.push(segment);
 }
 export function editMessage(conversation: Conversation, sourceId: string, text: string): { branch: Branch; message: Message } {
   const source = conversation.messages.find(m => m.id === sourceId)!;

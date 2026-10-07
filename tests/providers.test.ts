@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MockAgent, setGlobalDispatcher } from 'undici';
 import { authHeaders, buildInput, endpoint, generate, listModels, request, sse } from '../electron/providers';
-import { addMessage, createConversation, initialState } from '../src/domain';
+import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
 import type { Connection, Model } from '../src/types';
-import { UsageCounter } from '../electron/usage';
+import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
 test('model family User-Agent defaults identify Codex or Claude Code and respect custom headers', () => {
@@ -43,6 +43,15 @@ test('usage aggregation counts cumulative frames once and keeps unknown cache di
   assert.deepEqual(counter.total, { input: 330, output: 25 });
   counter.observe({ input: 130, output: 4, cachedInput: 15 }); counter.finishRound();
   assert.equal(counter.total.cachedInput, undefined, 'partial cache totals must not be presented as complete');
+});
+test('generation time subtracts the union of overlapping tool waits once', () => {
+  const tools = [
+    { id: 'a', name: 'exa_search', input: '', output: '', status: 'done' as const, started: 1200, elapsed: 500 },
+    { id: 'b', name: 'web_fetch', input: '', output: '', status: 'done' as const, started: 1400, elapsed: 300 },
+    { id: 'c', name: 'tavily_search', input: '', output: '', status: 'done' as const, started: 1800, elapsed: 500 },
+    { id: 'native', name: 'google_search', input: '', output: '', status: 'done' as const, started: 1000, elapsed: 1000 }
+  ];
+  assert.equal(elapsedExcludingToolWait(1000, 1000, tools, 2000), 300);
 });
 for (const variant of ['chat', 'deepseek', 'responses', 'anthropic', 'gemini'] as const) test(`${variant} reads cache counts and avoids double counting cumulative usage`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
@@ -100,6 +109,36 @@ test('protocol-native signed blocks are preserved only in compatible unedited an
   assert.equal(buildInput('anthropic', [a])[0].content[0].signature, 'signed');
   assert.equal(buildInput('chat', [a])[0].content, '正文');
   a.edited = true; assert.equal(buildInput('anthropic', [a])[0].content[0].type, 'text');
+});
+test('stream events preserve alternating answer, reasoning and tool order in one assistant message', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const events = [
+      { choices: [{ delta: { content: '第一段正文' } }] },
+      { choices: [{ delta: { reasoning_content: '第一次思考' } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'sequence-call', type: 'function', function: { name: 'unknown_tool', arguments: '{}' } }] } }] },
+      { choices: [{ delta: { content: '第二段正文' } }] },
+      { choices: [{ delta: { reasoning_content: '第二次思考' } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ];
+    const pool = agent.get('https://fixture.invalid');
+    pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+      { choices: [{ delta: { content: '最终回答' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    const state = initialState(), conversation = createConversation(state.settings), branch = conversation.branches[0], user = addMessage(conversation, branch, 'user', '测试多段回答'), answer = addMessage(conversation, branch, 'assistant', '');
+    const result = await generate(connection('chat'), model, { ...branch.config, search: 'off', webFetch: 'off' }, [user], state.settings, new AbortController().signal, {
+      text(text) { answer.text += text; appendAssistantSegment(answer, { type: 'text', text }); },
+      reasoning(text) { answer.reasoning += text; appendAssistantSegment(answer, { type: 'reasoning', text }); },
+      tool(event) { const old = answer.tools.findIndex(tool => tool.id === event.id); if (old < 0) answer.tools.push(event); else answer.tools[old] = event; appendAssistantSegment(answer, { type: 'tool', toolId: event.id }); }, sources() {}
+    });
+    assert.equal(result.text, '第一段正文第二段正文最终回答');
+    assert.deepEqual(answer.segments, [
+      { type: 'text', text: '第一段正文' }, { type: 'reasoning', text: '第一次思考' }, { type: 'tool', toolId: 'sequence-call' },
+      { type: 'text', text: '第二段正文' }, { type: 'reasoning', text: '第二次思考' }, { type: 'text', text: '最终回答' }
+    ]);
+    assert.equal(answer.tools[0].status, 'error');
+  } finally { await agent.close(); }
 });
 for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${protocol} streams text, reasoning, usage and correct native replay`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
@@ -176,7 +215,7 @@ test('Exa tool results are returned to the model with matching call IDs and pers
   const tools: string[] = [];
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => tools.push(t.status), sources() {} });
   assert.equal(secondBody.messages.at(-1).role, 'tool'); assert.equal(secondBody.messages.at(-1).tool_call_id, 'call-1');
-  assert.deepEqual(tools, ['running','done']); assert.equal(result.sources[0].url, 'https://www.electronjs.org/docs');
+  assert.deepEqual(tools, ['pending','running','done']); assert.equal(result.sources[0].url, 'https://www.electronjs.org/docs');
   assert.equal(result.raw.entries.filter(e => e.role === 'tool').length, 1);
   await agent.close();
 });
@@ -310,7 +349,7 @@ test('web_fetch is offered beside search, records its source and returns Markdow
   assert.equal(fetched, 'https://example.com/article');
   const returned = secondBody.messages.at(-1);
   assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'fetch-1'); assert.match(returned.content, /Full article body/);
-  assert.deepEqual(tools, ['running', 'done']); assert.equal(result.sources[0].url, 'https://example.com/article');
+  assert.deepEqual(tools, ['pending', 'running', 'done']); assert.equal(result.sources[0].url, 'https://example.com/article');
   await agent.close();
 });
 for (const protocol of ['responses', 'anthropic'] as const) test(`${protocol} can call web_fetch and receive the converted page`, async () => {

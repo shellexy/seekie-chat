@@ -29,19 +29,22 @@ export interface Settings {
 }
 export interface Attachment { id: string; name: string; mime: string; size: number; data: string; markdown?: string }
 export interface ToolEvent {
-  id: string; name: string; input: string; output: string; status: 'running' | 'done' | 'error';
+  id: string; name: string; input: string; output: string; status: 'pending' | 'running' | 'done' | 'error';
   started: number; elapsed?: number;
 }
+export type AssistantSegment = { type: 'text'; text: string } | { type: 'reasoning'; text: string } | { type: 'tool'; toolId: string };
 export interface Source { title: string; url: string }
 export interface Usage {
   input: number; output: number; estimated?: boolean;
   // Cached reads are a subset of total input; absent means the service did not report them.
   cachedInput?: number;
-  // Chat request duration, including reasoning, network and tool rounds; excludes history compression.
-  elapsedMs?: number; firstTokenMs?: number;
+  // Full chat request duration includes visible tool waits; generationMs excludes the union of measured tool intervals.
+  elapsedMs?: number; generationMs?: number; firstTokenMs?: number;
 }
 export interface Message {
   id: string; parentId: string | null; role: Role; text: string; reasoning: string;
+  // Ordered assistant output events. Missing on messages saved by older releases.
+  segments?: AssistantSegment[];
   reasoningMs?: number;
   attachments: Attachment[]; tools: ToolEvent[]; sources: Source[];
   status: 'complete' | 'streaming' | 'interrupted' | 'error'; error?: string;

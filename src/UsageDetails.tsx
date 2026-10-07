@@ -41,7 +41,8 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
     };
   }, [open]);
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
-  const speed = usage.elapsedMs !== undefined && usage.elapsedMs > 0 ? `${(usage.output / (usage.elapsedMs / 1000)).toFixed(1)} tps` : '--';
+  const speedDuration = usage.generationMs ?? usage.elapsedMs;
+  const speed = speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
   return <>
     <button ref={trigger} className="usage" aria-label="查看 token 用量与速度" aria-expanded={open} aria-describedby={open ? id : undefined}
       onPointerEnter={show} onPointerLeave={leave} onFocus={show} onBlur={leave}
@@ -56,7 +57,7 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
         <dt>速度：</dt><dd>{speed}</dd>
         <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
       </dl>
-      <p>缓存为输入中的命中量；速度按输出 ÷ 总耗时计算，含思考、网络及工具调用。首字指回答正文。</p>
+      <p>缓存为输入中的命中量；速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
     </div>, document.body)}
   </>;
 }
