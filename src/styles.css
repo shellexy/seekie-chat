@@ -57,8 +57,6 @@
 .answer-model-popover{position:fixed;z-index:90;max-width:calc(100vw - 16px);padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);box-shadow:0 8px 30px #0002;font-size:12px;white-space:nowrap}
 
 /* File attachments can be previewed beside the existing image thumbnails. */
-.upload-attachment{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:0;background:transparent;color:var(--muted);font-size:11px;white-space:nowrap}
-.upload-attachment:hover{color:var(--text);background:var(--hover)}
 .draft-attachment .attachment-chip{display:flex;width:112px;height:65px;align-items:center;gap:5px;overflow:hidden;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:10px;overflow-wrap:anywhere}
 .draft-attachment .attachment-chip svg{flex:0 0 auto}
 .message-attachments .file-attachment{width:min(100%,420px);margin:0 0 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-size:12px}
@@ -109,5 +107,7 @@
 .sampling-field{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;min-width:0;font-size:11px;line-height:1.5}
 .sampling-field input{width:82px;min-width:0;padding:6px 8px;font-size:12px}
 .config-popover .sampling-note{margin:7px 0 0}
+.config-popover .field.inline-config-field{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;margin:0 0 8px;line-height:1.35}
+.config-popover .inline-config-field select{min-width:0;padding:6px 8px}
 .conversation-popover{z-index:1000}
 .conversation-popover{max-height:calc(100vh - 16px);overflow-y:auto}

@@ -179,6 +179,7 @@ try {
   const webReading = page.getByRole('combobox', { name: '网页阅读' });
   assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 网页获取', 'Ollama Cloud 网页获取', 'Tavily 网页获取', '本地获取网页', '关闭']);
   assert.equal(await webReading.inputValue(), 'auto');
+  assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);
   await webReading.selectOption('local');
   await waitFor(page, async () => {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
@@ -229,8 +230,9 @@ try {
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
   assert.equal(await page.locator('.message.assistant .answer-model-meta').first().getAttribute('aria-label'), '查看模型信息：模拟 chat');
-  const uploadButton = page.getByRole('button', { name: '上传附件', exact: true });
+  const uploadButton = page.getByRole('button', { name: '添加图片或附件', exact: true });
   assert.equal((await uploadButton.innerText()).trim(), '');
+  assert.equal(await page.locator('.composer-bottom input[type=file]').count(), 1);
   const chatMenu = page.locator('.conversation-item').first();
   await chatMenu.getByTitle('会话操作').click();
   await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
@@ -306,7 +308,7 @@ try {
       await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
       await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.titleModel = ''; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
     }
-    if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file][accept="image/*"]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
+    if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
     await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
     await page.locator('.message.assistant .message-content').waitFor();
