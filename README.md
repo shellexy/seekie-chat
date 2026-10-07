@@ -4,6 +4,10 @@ Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色�
 
 <sub>基于 MIT License 开源。Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。</sub>
 
+![主界面](docs/screenshots/main-window.webp)
+
+<sub>更多界面截图见 [docs/screenshots.md](docs/screenshots.md)。</sub>
+
 ## 本地运行
 
 要求 **Node.js 24 或更高版本**、npm，以及能运行 Electron 的 Linux 桌面环境。

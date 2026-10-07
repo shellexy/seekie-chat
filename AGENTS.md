@@ -24,6 +24,7 @@
 - `src/domain.ts` 两端共用的纯逻辑。新能力优先做成这里的纯函数 + 单测。
 - `src/App.tsx` 只做状态与编排；UI 拆在 `Composer` / `MessageRow` / `Sidebar` / `OutlinePanel` / `Settings`。
 - `tests/` 单测；`scripts/smoke.mjs` 是桌面回归。
+- `docs/screenshots/` 是 README 与 `docs/screenshots.md` 用的界面图，由 `node scripts/screenshots.mjs` 用模拟数据重新生成（不含真实数据）；改了 UI 记得重跑。
 - `build/` 图标素材；`dist/`、`dist-electron/`、`release/` 都是生成物，不要手改。
 
 ## 风格
