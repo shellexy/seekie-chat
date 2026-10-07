@@ -82,12 +82,17 @@ export default function App() {
     // Settings carry authoritative values (secureStorage, credential policy) that the renderer
     // cannot derive, so they are merged instead of being left behind at a stale local copy.
     local.settings = { ...server.settings, ...local.settings, secureStorage: server.settings.secureStorage, credentialStorageVersion: server.settings.credentialStorageVersion };
+    // Index the incoming state once: scanning every message for every message is quadratic, and this
+    // merge runs while a save is in flight, which is exactly when generation updates arrive.
+    const remoteConversations = new Map(server.conversations.map(c => [c.id, c]));
     for (const c of local.conversations) {
-      const remote = server.conversations.find(x => x.id === c.id); if (!remote) continue;
-      c.messages = c.messages.map(m => remote.messages.find(x => x.id === m.id) || m);
+      const remote = remoteConversations.get(c.id); if (!remote) continue;
+      const remoteMessages = new Map(remote.messages.map(m => [m.id, m]));
+      c.messages = c.messages.map(m => remoteMessages.get(m.id) || m);
       if (!c.manualTitle) { c.title = remote.title; c.titleState = remote.titleState; }
       c.backgroundUsage = remote.backgroundUsage;
-      for (const b of c.branches) { const rb = remote.branches.find(x => x.id === b.id); if (rb?.summary) b.summary = rb.summary; }
+      const remoteBranches = new Map(remote.branches.map(b => [b.id, b]));
+      for (const b of c.branches) { const rb = remoteBranches.get(b.id); if (rb?.summary) b.summary = rb.summary; }
     }
     apply(local);
   }
