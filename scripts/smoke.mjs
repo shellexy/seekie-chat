@@ -202,10 +202,10 @@ try {
   await toolbar.getByRole('button', { name: '会话选项' }).click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
   const searchMode = page.locator('.inline-config-field').first().locator('select');
-  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '关闭', '模型原生搜索', 'Exa 搜索', 'Ollama Cloud Web Search', 'Tavily 搜索', 'Firecrawl 搜索', 'AnySearch 搜索']);
+  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '关闭', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch']);
   assert.equal(await searchMode.locator('option[value="tavily"]').isDisabled(), false);
   const webReading = page.getByRole('combobox', { name: '读取网页' });
-  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 读取网页', 'Ollama Cloud 读取网页', 'Tavily 读取网页', 'Firecrawl 读取网页', 'AnySearch 读取网页', '本地读取网页', '关闭']);
+  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '本地', '关闭']);
   assert.equal(await webReading.locator('option[value="tavily"]').isDisabled(), false);
   assert.equal(await webReading.inputValue(), 'auto');
   assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);
