@@ -257,11 +257,12 @@ p {
 }
 .new-chat {
   justify-content: flex-start;
-  padding: 12px;
+  padding: 10px;
   background: var(--bg);
   border-color: var(--line);
   border-radius: 9px;
   box-shadow: 0 2px 3px #00000003;
+  margin: 0 8px;
 }
 .new-chat span {
   margin-left: auto;
@@ -273,7 +274,7 @@ p {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 20px 4px 29px;
+  margin: 10px;
   color: var(--muted);
 }
 .search-input input {
@@ -350,8 +351,8 @@ p {
 }
 .sidebar-bottom {
   border-top: 1px solid var(--line);
-  padding-top: 14px;
-  margin-top: 14px;
+  padding-top: 0;
+  margin-top: 0;
 }
 .settings-entry {
   width: 100%;
@@ -452,7 +453,7 @@ p {
 }
 .branch-pill {
   color: var(--text);
-  background: var(--accent-bg);
+  /* background: var(--accent-bg); */
   border-color: transparent;
   font-size: 11px;
   padding: 6px 9px;
@@ -1324,6 +1325,7 @@ summary {
   min-width: 0;
   overflow-y: auto;
   padding: 34px 40px;
+  background: var(--bg);
 }
 .settings-content > h2 {
   font-size: 19px;
@@ -1333,11 +1335,17 @@ summary {
 .settings-content > * {
   max-width: 780px;
 }
+
+.settings-content button {
+  background: var(--bg);
+}
+
 .settings-card {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 22px;
   margin-bottom: 18px;
+  background: var(--panel);
 }
 .settings-card h3 {
   font-size: 13px;
@@ -1397,9 +1405,9 @@ summary {
 }
 .connection-tabs button {
   font-size: 11px;
-  background: transparent;
+  background: var(--panel);
   border: 0;
-  color: var(--muted);
+  color: var(--text);
 }
 .connection-tabs button.active {
   color: var(--accent);
@@ -1925,10 +1933,12 @@ input[type="range"] {
 .conversation-select {
   gap: 8px;
   padding: 8px 10px;
+  padding-right: 0;
   line-height: 1.35;
 }
 .conversation-more {
   padding: 5px;
+  padding-left: 0;
 }
 .sidebar-label {
   margin-bottom: 8px;
@@ -2101,12 +2111,12 @@ input[type="range"] {
 
 /* Align the conversation list and chat title row with the 32px window controls. */
 .sidebar {
-  padding: 0 14px 14px;
+  padding: 0 0 0 0;
 }
 .sidebar-top {
   height: 32px;
   flex: 0 0 32px;
-  margin: 0 -14px 14px;
+  margin: 0 -14px 14px -10px;
   padding: 0 14px 0 17px;
   border-bottom: 1px solid var(--line);
 }
