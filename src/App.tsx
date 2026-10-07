@@ -16,7 +16,7 @@ import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
 import MessageRow from './MessageRow';
 import { welcomeMask } from './brand';
-import { prepareImage } from './image';
+import { prepareImage } from './imageEncode';
 type Task = { conversationId: string; branchId: string; kind: string };
 function searchableParts(message: Message) {
   if (message.role === 'user') return [{ kind: '提问', text: message.text }];

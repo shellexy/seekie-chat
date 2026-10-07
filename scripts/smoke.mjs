@@ -732,6 +732,16 @@ try {
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
     await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
     await page.locator('.message.assistant .message-content').waitFor();
+    // 各协议的思考摘要都应出现在回答的推理卡片里。
+    const summary = page.locator('.message.assistant').last().locator('.thinking');
+    if (protocol === 'responses') {
+      assert.equal(await summary.count(), 1, 'Responses 协议应显示思考摘要卡片');
+      assert.match(await summary.textContent(), /推理摘要来自模拟服务。/, '思考摘要内容应来自 response.reasoning_summary_text.delta');
+      // store 省略时 OpenAI 默认存服务端并且不把思考内容交回来，摘要就无从显示。
+      const responsesCall = calls.filter(c => c.path === '/v1/responses').at(-1);
+      assert.equal(responsesCall.data.store, false, 'Responses 请求应显式关闭 store，否则思考摘要拿不到');
+      assert.equal(responsesCall.data.include, undefined, '不必请求用不到的 encrypted_content');
+    }
     await waitFor(page, async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
     if (protocol === 'gemini') {
       for (let i = 0; i < 2; i++) { await input.fill(`Gemini 后续问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }

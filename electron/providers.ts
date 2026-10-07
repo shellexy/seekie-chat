@@ -331,7 +331,12 @@ export async function generate(connection: Connection, model: Model, config: Cha
       if (offerDatetime) tools.push({ type: 'function', ...datetimeTool });
       if (tools.length) body.tools = tools;
       if (model.reasoning === 'effort') body.reasoning = { ...(config.effort !== 'auto' ? { effort: config.effort } : {}), summary: 'auto' };
-      body.include = ['reasoning.encrypted_content'];
+      // store 省略时默认是 true：OpenAI 会把这次回答存在服务端，并且不再把思考内容交回来
+      // （连 include: reasoning.encrypted_content 都取不到东西），于是思考摘要不显示。
+      // 本客户端是本地优先的，对话本来就不该留在 OpenAI 那边，所以显式关掉。
+      body.store = false;
+      // 不请求 reasoning.encrypted_content：那段密文本应用不到（没有回放推理项的机制），
+      // 有了 store: false 它反而会真的传回来，白白多占一份带宽。
     } else {
       path = 'messages'; body = { model: model.model, system, messages: input, stream: true, ...sampling, max_tokens: model.maxOutput };
       const tools: any[] = [];

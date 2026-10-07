@@ -1,8 +1,6 @@
-// 图片附件在进入会话前统一处理一次：长边超过上限的缩小，体积够大的压成 WebP。
-// 目标服务大多会在推理时自行缩图，但那是服务端的事——请求体和 token 已经在路上付过钱了。
-
-// @aurouscia/image-compress 只发了 module 字段、没有 main，Node 侧解析不了静态导入，
-// 单元测试要 import 这个模块，所以库放在动态导入里。渲染进程只会走一次，之后走缓存。
+// 图片附件的纯逻辑：判定与体积门槛。这一层不依赖任何浏览器 API，也不引入第三方库，
+// 所以单元测试可以直接在 Node 里跑。
+// 真正做缩放与编码的部分在 imageEncode.ts——那里的库在渲染进程里静态引入。
 
 /** 长边的上限。超过它的图按比例缩小，不放大小图。 */
 export const IMAGE_MAX_SIDE = 1280;
@@ -59,20 +57,4 @@ export function blobToDataURL(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('无法读取图片'));
     reader.readAsDataURL(blob);
   });
-}
-
-export type PreparedImage = { data: string; mime: string; size: number };
-
-/**
- * 把用户给的图片整理成可发送的形式：长边不超过 1280，压成 WebP；小图与动图原样保留。
- * 返回 data URL、mime 与实际字节数——协议层只透传 mime 与 data，所以换格式不用动那些地方。
- */
-export async function prepareImage(file: File, mime: string): Promise<PreparedImage> {
-  if (!shouldCompressImage(file.size)) return { data: await blobToDataURL(file), mime, size: file.size };
-  const buffer = await file.arrayBuffer();
-  const blob = new Blob([buffer], { type: mime });
-  if (mime === 'image/gif' && isAnimatedGif(buffer)) return { data: await blobToDataURL(blob), mime, size: file.size };
-  const { resizeImage } = await import('@aurouscia/image-compress');
-  const resized = await resizeImage(blob, { maxWidth: IMAGE_MAX_SIDE, maxHeight: IMAGE_MAX_SIDE, type: IMAGE_OUTPUT_TYPE, quality: IMAGE_QUALITY });
-  return { data: await blobToDataURL(resized.blob), mime: IMAGE_OUTPUT_TYPE, size: resized.blob.size };
 }
