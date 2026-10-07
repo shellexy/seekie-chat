@@ -84,29 +84,67 @@ test('automatic webpage reading falls through failed providers in priority order
   assert.equal(localRequests, 0);
 });
 
-test('Tavily Extract returns Markdown and automatic mode uses local fetch when no API key is configured', async () => {
-  const settings = initialState().settings; settings.tavilyKey = 'tavily-fixture';
+test('Tavily Extract uses keyless mode without an API key', async () => {
+  const settings = initialState().settings;
   let request: { url: string; init?: RequestInit } | undefined;
   const hosted = await fetchWebPageWithProviders('https://article.example/story', signal(), settings, 'tavily', async () => new Response('unused'), async (url, init) => {
     request = { url, init };
     return new Response(JSON.stringify({ results: [{ url: 'https://article.example/story', raw_content: '# Tavily page\n\nMarkdown from Tavily.' }], failed_results: [] }), { headers: { 'content-type': 'application/json' } });
   }, publicHost);
   assert.equal(request?.url, 'https://api.tavily.com/extract');
-  assert.equal(new Headers(request?.init?.headers).get('authorization'), 'Bearer tavily-fixture');
+  const headers = new Headers(request?.init?.headers);
+  assert.equal(headers.get('authorization'), null); assert.equal(headers.get('x-tavily-access-mode'), 'keyless');
   assert.deepEqual(JSON.parse(String(request?.init?.body)), { urls: ['https://article.example/story'], format: 'markdown', extract_depth: 'basic' });
   assert.equal(hosted.provider, 'tavily'); assert.match(hosted.content, /Markdown from Tavily/);
+});
 
-  const empty = initialState().settings; let localRequests = 0;
-  const local = await fetchWebPageWithProviders('https://article.example/story', signal(), empty, undefined, async (_url, init) => {
-    localRequests++;
-    assert.equal(new Headers(init?.headers).get('accept')?.includes('text/markdown'), true);
-    return new Response('# Local page\n\nThis response came from the proxy-aware local fetcher.', { headers: { 'content-type': 'text/markdown' } });
-  }, async () => { throw new Error('No provider should be called without an API key'); }, publicHost);
-  assert.equal(local.provider, 'local'); assert.equal(localRequests, 1); assert.match(local.content, /proxy-aware local fetcher/);
+for (const provider of ['firecrawl', 'anysearch'] as const) test(`${provider} reads pages with its authenticated extraction API`, async () => {
+  const settings = initialState().settings;
+  if (provider === 'firecrawl') settings.firecrawlKey = 'firecrawl-fixture'; else settings.anysearchKey = 'anysearch-fixture';
+  let request: { url: string; init?: RequestInit } | undefined;
+  const html = '<!doctype html><html><head><title>Extracted Article</title></head><body><nav>Navigation</nav><main><article><h1>Readable page</h1><p>This article contains enough substantial text to verify that the extractor keeps the useful page content and converts it to Markdown.</p><p>A second paragraph provides more detail about the requested subject.</p></article></main></body></html>';
+  const hosted = await fetchWebPageWithProviders('https://article.example/story', signal(), settings, provider, async () => new Response('unused'), async (url, init) => {
+    request = { url, init };
+    return provider === 'firecrawl'
+      ? new Response(JSON.stringify({ success: true, data: { markdown: '# Firecrawl Markdown\n\nReadable page content.', metadata: { title: 'Firecrawl article', statusCode: 200 } } }), { headers: { 'content-type': 'application/json' } })
+      : new Response(JSON.stringify({ code: 0, data: { url: 'https://article.example/story', title: 'Extracted Article', content: html } }), { headers: { 'content-type': 'application/json' } });
+  }, publicHost);
+  assert.equal(request?.url, provider === 'firecrawl' ? 'https://api.firecrawl.dev/v2/scrape' : 'https://api.anysearch.com/v1/extract');
+  assert.equal(new Headers(request?.init?.headers).get('authorization'), `Bearer ${provider}-fixture`);
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), provider === 'firecrawl'
+    ? { url: 'https://article.example/story', formats: ['markdown'], onlyMainContent: true }
+    : { url: 'https://article.example/story' });
+  assert.equal(hosted.provider, provider);
+  if (provider === 'firecrawl') { assert.equal(hosted.title, 'Firecrawl article'); assert.match(hosted.content, /Firecrawl Markdown/); }
+  else { assert.equal(hosted.title, 'Extracted Article'); assert.match(hosted.content, /Readable page/); assert.doesNotMatch(hosted.content, /Navigation/); }
+});
+
+for (const provider of ['firecrawl', 'anysearch'] as const) test(`${provider} reads pages without Authorization when no API key is set`, async () => {
+  const settings = initialState().settings;
+  let request: { url: string; init?: RequestInit } | undefined;
+  const hosted = await fetchWebPageWithProviders('https://article.example/story', signal(), settings, provider, async () => new Response('unused'), async (url, init) => {
+    request = { url, init };
+    return provider === 'firecrawl'
+      ? new Response(JSON.stringify({ success: true, data: { markdown: '# Keyless Firecrawl\n\nPage read without a key.', metadata: { title: 'Firecrawl page', statusCode: 200 } } }), { headers: { 'content-type': 'application/json' } })
+      : new Response(JSON.stringify({ code: 0, data: { title: 'AnySearch page', content: '# Keyless AnySearch\n\nPage read without a key.' } }), { headers: { 'content-type': 'application/json' } });
+  }, publicHost);
+  const headers = new Headers(request?.init?.headers);
+  assert.equal(headers.get('authorization'), null);
+  assert.equal(hosted.provider, provider); assert.match(hosted.content, /Page read without a key/);
+});
+
+test('AnySearch never exposes credentials embedded in anonymous quota errors', async () => {
+  const settings = initialState().settings;
+  await assert.rejects(fetchWebPageWithProviders('https://article.example/story', signal(), settings, 'anysearch', async () => new Response('unused'), async () =>
+    new Response(JSON.stringify({ code: -1, message: 'username=x\\napi_key=secret-generated-key' }), { status: 402 }), publicHost), error => {
+    assert.match(String(error), /AnySearch 读取网页失败 \(402\)/);
+    assert.doesNotMatch(String(error), /secret-generated-key/);
+    return true;
+  });
 });
 
 test('automatic webpage reading falls back to local fetch when every configured service fails', async () => {
-  const settings = initialState().settings; settings.exaKey = 'exa-fixture'; settings.tavilyKey = 'tavily-fixture';
+  const settings = initialState().settings;
   const calls: string[] = [];
   const page = await fetchWebPageWithProviders('https://article.example/story', signal(), settings, 'auto', async (_url, init) => {
     assert.equal(new Headers(init?.headers).get('accept')?.includes('text/markdown'), true);
@@ -114,6 +152,6 @@ test('automatic webpage reading falls back to local fetch when every configured 
   }, async url => {
     calls.push(url); return new Response('service error', { status: 503 });
   }, publicHost);
-  assert.deepEqual(calls, ['https://api.exa.ai/contents', 'https://api.tavily.com/extract']);
+  assert.deepEqual(calls, ['https://api.firecrawl.dev/v2/scrape', 'https://api.anysearch.com/v1/extract', 'https://api.tavily.com/extract']);
   assert.equal(page.provider, 'local'); assert.match(page.content, /hosted fetch services were unavailable/);
 });

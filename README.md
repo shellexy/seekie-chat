@@ -92,11 +92,11 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **Tavily**：可在设置中填写 Tavily API Key；未填写时发送 `X-Tavily-Access-Mode: keyless`，使用 basic 搜索深度。
 - **Firecrawl**：API Key 可选；无 Key 时使用官方限额内的搜索，有 Key 时可提高限额。搜索可返回 Markdown 正文。
 - **AnySearch**：API Key 可选；无 Key 时使用匿名额度，有 Key 时可提高限额。
-- **网页阅读**：与联网搜索独立设置，默认自动按 Exa、Ollama Cloud、Tavily 的顺序使用已配置 API Key 的 Contents / Extract 服务；服务失败或都未配置时回退到本地获取网页。也可以指定服务、本地获取网页或关闭。Ollama Cloud 可复用连接 API Key。
-- **本地获取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
-- **联网按钮**：同时启用或关闭联网搜索和网页阅读；两项仍可在会话选项中分别调整。
+- **读取网页**：与联网搜索独立设置。自动模式先尝试已配置密钥的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch，再尝试支持免 Key 的 Firecrawl、AnySearch、Tavily；都失败时回退到本地读取网页。也可以指定服务、本地读取网页或关闭。Tavily、Firecrawl、AnySearch 均可免 Key 读取网页；Ollama Cloud 可复用连接 API Key。
+- **本地读取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
+- **联网按钮**：同时启用或关闭联网搜索和读取网页；两项仍可在会话选项中分别调整。
 
-网页阅读和外部服务搜索都要求模型支持工具调用。Tavily 的网页 Extract 服务仍需 API Key。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
+读取网页和外部服务搜索都要求模型支持工具调用。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 

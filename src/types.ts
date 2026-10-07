@@ -1,6 +1,6 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
 export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
-export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily';
+export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
 export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;

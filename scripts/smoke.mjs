@@ -204,8 +204,9 @@ try {
   const searchMode = page.locator('.inline-config-field').first().locator('select');
   assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '关闭', '模型原生搜索', 'Exa 搜索', 'Ollama Cloud Web Search', 'Tavily 搜索', 'Firecrawl 搜索', 'AnySearch 搜索']);
   assert.equal(await searchMode.locator('option[value="tavily"]').isDisabled(), false);
-  const webReading = page.getByRole('combobox', { name: '网页阅读' });
-  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 网页获取', 'Ollama Cloud 网页获取', 'Tavily 网页获取', '本地获取网页', '关闭']);
+  const webReading = page.getByRole('combobox', { name: '读取网页' });
+  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 读取网页', 'Ollama Cloud 读取网页', 'Tavily 读取网页', 'Firecrawl 读取网页', 'AnySearch 读取网页', '本地读取网页', '关闭']);
+  assert.equal(await webReading.locator('option[value="tavily"]').isDisabled(), false);
   assert.equal(await webReading.inputValue(), 'auto');
   assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);
   await webReading.selectOption('local');

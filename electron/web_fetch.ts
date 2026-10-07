@@ -5,7 +5,7 @@ import { parseHTML } from 'linkedom';
 import { ollamaWebSearchKey } from '../src/domain';
 import type { Settings, WebFetchMode } from '../src/types';
 
-export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'local' }
+export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'local' }
 export type PageFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 export type HostResolver = (hostname: string) => Promise<string[]>;
 export type WebFetchProvider = Exclude<WebFetchMode, 'auto' | 'off' | 'local'>;
@@ -94,6 +94,12 @@ function trimContent(content: string) {
   const clean = content.trim();
   return { content: clean.length > MAX_CONTENT_CHARS ? `${clean.slice(0, MAX_CONTENT_CHARS)}\n\n[内容已截断]` : clean, truncated: clean.length > MAX_CONTENT_CHARS };
 }
+async function htmlToMarkdown(source: string, url: string) {
+  const { document } = parseHTML(source);
+  const result = await Defuddle(document, url, { markdown: true, useAsync: false });
+  return { title: String(result.title || document.title || '').trim(), content: String(result.content || '').trim() };
+}
+function looksLikeHtml(source: string) { return /^\s*(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/i.test(source); }
 
 export async function fetchWebPage(input: string, signal: AbortSignal, fetcher: PageFetcher, resolver: HostResolver = resolveAddresses): Promise<FetchedPage> {
   const timeout = AbortSignal.timeout(30_000), requestSignal = AbortSignal.any([signal, timeout]);
@@ -115,10 +121,8 @@ export async function fetchWebPage(input: string, signal: AbortSignal, fetcher: 
   if (!source.trim()) throw new Error('网页没有返回可读取内容');
   let title = url.hostname, content: string;
   if (contentType === 'text/html' || contentType === 'application/xhtml+xml' || (!contentType && /^\s*<!doctype html|^\s*<html[\s>]/i.test(source))) {
-    const { document } = parseHTML(source);
-    const result = await Defuddle(document, url.href, { markdown: true, useAsync: false });
-    title = String(result.title || document.title || title).trim();
-    content = String(result.content || '').trim();
+    const result = await htmlToMarkdown(source, url.href);
+    title = result.title || title; content = result.content;
     if (!content) throw new Error('Defuddle 未能从网页提取正文');
   } else if (contentType === 'application/json' || contentType.endsWith('+json')) {
     let formatted = source;
@@ -133,32 +137,49 @@ export async function fetchWebPage(input: string, signal: AbortSignal, fetcher: 
 function apiKeyFor(provider: WebFetchProvider, settings: Settings) {
   if (provider === 'exa') return settings.exaKey;
   if (provider === 'ollama') return ollamaWebSearchKey(settings);
-  return settings.tavilyKey;
+  if (provider === 'tavily') return settings.tavilyKey;
+  if (provider === 'firecrawl') return settings.firecrawlKey;
+  return settings.anysearchKey;
 }
 function providerUrl(provider: WebFetchProvider) {
-  return provider === 'exa' ? 'https://api.exa.ai/contents' : provider === 'ollama' ? 'https://ollama.com/api/web_fetch' : 'https://api.tavily.com/extract';
+  return provider === 'exa' ? 'https://api.exa.ai/contents'
+    : provider === 'ollama' ? 'https://ollama.com/api/web_fetch'
+      : provider === 'tavily' ? 'https://api.tavily.com/extract'
+        : provider === 'firecrawl' ? 'https://api.firecrawl.dev/v2/scrape' : 'https://api.anysearch.com/v1/extract';
 }
 function providerName(provider: WebFetchProvider) {
-  return provider === 'exa' ? 'Exa' : provider === 'ollama' ? 'Ollama Cloud' : 'Tavily';
+  return provider === 'exa' ? 'Exa' : provider === 'ollama' ? 'Ollama Cloud' : provider === 'tavily' ? 'Tavily' : provider === 'firecrawl' ? 'Firecrawl' : 'AnySearch';
 }
 function providerHeaders(provider: WebFetchProvider, key: string): Record<string, string> {
-  return provider === 'exa' ? { 'Content-Type': 'application/json', 'x-api-key': key }
-    : { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (provider === 'exa') headers['x-api-key'] = key;
+  else if (provider === 'tavily' && !key) headers['X-Tavily-Access-Mode'] = 'keyless';
+  else if (key) headers.Authorization = `Bearer ${key}`;
+  return headers;
 }
 async function fetchFromProvider(provider: WebFetchProvider, url: string, key: string, signal: AbortSignal, fetcher: PageFetcher): Promise<FetchedPage> {
   const body = provider === 'exa' ? { urls: [url], text: { maxCharacters: MAX_CONTENT_CHARS } }
     : provider === 'ollama' ? { url }
-      : { urls: [url], format: 'markdown', extract_depth: 'basic' };
+      : provider === 'tavily' ? { urls: [url], format: 'markdown', extract_depth: 'basic' }
+        : provider === 'firecrawl' ? { url, formats: ['markdown'], onlyMainContent: true } : { url };
   const response = await fetcher(providerUrl(provider), {
     method: 'POST', headers: providerHeaders(provider, key), body: JSON.stringify(body), redirect: 'error',
     signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)])
   });
-  if (!response.ok) { await response.body?.cancel(); throw new Error(`${providerName(provider)} 网页获取失败 (${response.status})`); }
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`${providerName(provider)} 读取网页失败 (${response.status})`); }
   let data: any;
-  try { data = JSON.parse(await readBody(response)); } catch (error) { throw new Error(`${providerName(provider)} 返回了无效的网页内容`); }
+  try { data = JSON.parse(await readBody(response)); } catch { throw new Error(`${providerName(provider)} 返回了无效的网页内容`); }
   let title = '', content = '';
   if (provider === 'ollama') {
     title = String(data?.title || ''); content = String(data?.content || '');
+  } else if (provider === 'firecrawl') {
+    if (data?.success === false) throw new Error('Firecrawl 未能读取网页');
+    const pageStatus = Number(data?.data?.metadata?.statusCode);
+    if (Number.isFinite(pageStatus) && pageStatus > 0 && !(pageStatus >= 200 && pageStatus < 300) && pageStatus !== 304) throw new Error(`Firecrawl 页面请求失败 (${pageStatus})`);
+    title = String(data?.data?.metadata?.title || ''); content = String(data?.data?.markdown || data?.data?.html || '');
+  } else if (provider === 'anysearch') {
+    if (data?.code !== 0) throw new Error('AnySearch 未能读取网页');
+    title = String(data?.data?.title || ''); content = String(data?.data?.content || '');
   } else {
     const result = Array.isArray(data?.results) ? data.results.find((item: any) => !item.url || item.url === url) || data.results[0] : undefined;
     title = String(result?.title || '');
@@ -169,6 +190,10 @@ async function fetchFromProvider(provider: WebFetchProvider, url: string, key: s
     }
   }
   if (!content.trim()) throw new Error(`${providerName(provider)} 未返回网页正文`);
+  if ((provider === 'firecrawl' && !data?.data?.markdown) || provider === 'anysearch' && looksLikeHtml(content)) {
+    const extracted = await htmlToMarkdown(content, url);
+    title = title || extracted.title; content = extracted.content;
+  }
   const trimmed = trimContent(content);
   return { url, title: title.trim() || new URL(url).hostname, content: trimmed.content, contentType: 'text/markdown', truncated: trimmed.truncated, provider };
 }
@@ -184,20 +209,20 @@ export async function fetchWebPageWithProviders(
   resolver: HostResolver = resolveAddresses
 ): Promise<FetchedPage> {
   const selected = mode || 'auto';
-  if (selected === 'off') throw new Error('网页阅读已关闭');
+  if (selected === 'off') throw new Error('读取网页已关闭');
   const url = await validateWebFetchUrl(input, resolver);
   if (selected === 'local') return fetchWebPage(url, signal, localFetcher, resolver);
   const configured: WebFetchProvider[] = selected === 'auto'
-    ? (['exa', 'ollama', 'tavily'] as const).filter(provider => !!apiKeyFor(provider, settings))
+    ? [
+      ...(['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch'] as const).filter(provider => !!apiKeyFor(provider, settings)),
+      ...(['firecrawl', 'anysearch', 'tavily'] as const).filter(provider => !apiKeyFor(provider, settings))
+    ]
     : [selected];
   const failures: string[] = [];
   for (const provider of configured) {
-    if (signal.aborted) throw signal.reason || new Error('网页获取已取消');
+    if (signal.aborted) throw signal.reason || new Error('读取网页已取消');
     const key = apiKeyFor(provider, settings);
-    if (!key) {
-      if (selected !== 'auto') throw new Error(`请在设置中配置${providerName(provider)} API Key`);
-      continue;
-    }
+    if (!key && (provider === 'exa' || provider === 'ollama')) throw new Error(`请在设置中配置${providerName(provider)} API Key`);
     try { return await fetchFromProvider(provider, url, key, signal, apiFetcher); }
     catch (error) {
       if (signal.aborted) throw error;
@@ -209,6 +234,6 @@ export async function fetchWebPageWithProviders(
   catch (error) {
     if (!failures.length) throw error;
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`${failures.join('；')}；本地获取网页失败：${detail}`);
+    throw new Error(`${failures.join('；')}；本地读取网页失败：${detail}`);
   }
 }
