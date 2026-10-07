@@ -290,6 +290,23 @@ try {
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   await resetConnections(page);
   await page.getByRole('button', { name: /^设置/ }).click();
+  // 关于页：程序自己的信息居中显示，运行版本取自主进程，不能是写死的占位符。
+  const runtime = await desktop.evaluate(({ app }) => ({ app: app.getVersion(), chromium: process.versions.chrome, electron: process.versions.electron, node: process.versions.node }));
+  await openSettingsTab(page, '关于', 'about');
+  assert.equal(await page.locator('.about-name').innerText(), 'Seekie Chat');
+  assert.equal(await page.locator('.about-logo').getAttribute('width'), '96', '关于页应显示图标');
+  assert.match(await page.locator('.about-home').innerText(), /^https:\/\/github\.com\/shellexy\/seekie-chat$/, '关于页应显示主页地址');
+  assert.equal(await page.locator('.about-version').innerText(), `版本 ${runtime.app}`);
+  assert.deepEqual(await page.locator('.about-runtime dd').allTextContents(), [runtime.chromium, runtime.electron, runtime.node], '应显示 Chromium / Electron / Node.js 的真实版本');
+  // 整块居中：图标的水平中心与内容区中心重合。
+  const centered = await page.evaluate(() => {
+    const content = document.querySelector('.settings-content.about').getBoundingClientRect();
+    const logo = document.querySelector('.about-logo').getBoundingClientRect();
+    return Math.abs((logo.left + logo.right) / 2 - (content.left + content.right) / 2);
+  });
+  assert.ok(centered < 1, `关于页内容应居中，实际偏移 ${centered}px`);
+  await page.screenshot({ path: join(directory, 'about.png') });
+  await openSettingsTab(page, '模型服务', 'connections');
   // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
   assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek·Anthropic', 'OpenAI', 'OpenRouter', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);

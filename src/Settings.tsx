@@ -4,7 +4,8 @@ import { ArrowLeft, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff,
 import { api } from './api';
 import { settingsProblems } from './validation';
 import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, freeModelSettings, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
-import type { Connection, Model, ServerModel, Settings as SettingsType } from './types';
+import type { Connection, Model, ServerModel, Settings as SettingsType, Versions } from './types';
+import { appIcon } from './brand';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
 const templates = [
@@ -25,7 +26,7 @@ const templates = [
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
 // 设置项与顶栏里显示的名字放在一处：顶栏显示当前在哪一项，两边不会写出两套名字。
-const tabs = [['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私']] as const;
+const tabs = [['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私'], ['about', '关于']] as const;
 export default function Settings({ settings, onSave, onClose, toast, windowMaximized, onWindowMaximized }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void; windowMaximized: boolean; onWindowMaximized: (maximized: boolean) => void }) {
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
@@ -39,6 +40,8 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   // 而且校验多半会在用户填到一半时误报。
   const dirty = useRef(false), version = useRef(0), mounted = useRef(true), skipSave = useRef(false);
   const saving = useRef<Promise<boolean> | null>(null), persistRef = useRef<() => Promise<boolean>>(async () => true);
+  // 渲染进程是沙箱，拿不到 process，运行版本由主进程给。拿不到就显示占位符。
+  const [versions, setVersions] = useState<Versions | null>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const connection = draft.connections.find(c => c.id === selected);
   // 角色库里的"通用助手"角色与写死的内置提示词内容相同，下拉里只保留角色本身。
@@ -199,6 +202,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     await persist(next);
   }
   useEffect(() => { persistRef.current = persist; });
+  useEffect(() => { let alive = true; void api.versions().then(v => { if (alive) setVersions(v); }).catch(() => {}); return () => { alive = false; }; }, []);
   useEffect(() => () => {
     mounted.current = false;
     // 页面被别处关掉时（侧栏切会话、新建对话）草稿也要写下去，否则改动就丢了。
@@ -276,6 +280,17 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       <div className="settings-card"><h3>Tavily</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.tavilyKey === saved ? '' : draft.tavilyKey} placeholder={draft.tavilyKey === saved ? '已设置，输入新值替换' : '输入 Tavily API Key（可选）'} onChange={e => change({ tavilyKey: e.target.value })}/>{draft.tavilyKey && draft.tavilyKey === saved && <button className="text-button" onClick={() => change({ tavilyKey: '' })}>清除密钥</button>}</label><p className="muted">联网搜索和读取网页均支持免 Key 模式；读取网页通过 Extract API 返回 Markdown，添加 API Key 可提高限额。</p><button onClick={() => api.openExternal('https://docs.tavily.com/documentation/keyless')}><ExternalLink size={14}/>Tavily 免 Key 文档</button></div>
       <div className="settings-card"><h3>Firecrawl</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.firecrawlKey === saved ? '' : draft.firecrawlKey} placeholder={draft.firecrawlKey === saved ? '已设置，输入新值替换' : '输入 Firecrawl API Key（可选）'} onChange={e => change({ firecrawlKey: e.target.value })}/>{draft.firecrawlKey && draft.firecrawlKey === saved && <button className="text-button" onClick={() => change({ firecrawlKey: '' })}>清除密钥</button>}</label><p className="muted">API Key 可选；搜索可返回 Markdown 正文，读取网页调用官方 Scrape API。留空时两项均使用免 Key 模式；添加 Key 可提高限额。</p><button onClick={() => api.openExternal('https://docs.firecrawl.dev/features/scrape')}><ExternalLink size={14}/>Firecrawl Scrape 文档</button></div><div className="settings-card"><h3>AnySearch</h3><label className="field">API Key（可选）<input type="password" autoComplete="off" value={draft.anysearchKey === saved ? '' : draft.anysearchKey} placeholder={draft.anysearchKey === saved ? '已设置，输入新值替换' : '输入 AnySearch API Key（可选）'} onChange={e => change({ anysearchKey: e.target.value })}/>{draft.anysearchKey && draft.anysearchKey === saved && <button className="text-button" onClick={() => change({ anysearchKey: '' })}>清除密钥</button>}</label><p className="muted">API Key 可选；留空时搜索和读取网页均使用 AnySearch 匿名额度，限额较低。添加 Key 可提高限额。</p><button onClick={() => api.openExternal('https://anysearch.com/docs/api-endpoints/v1-extract')}><ExternalLink size={14}/>AnySearch Extract 文档</button></div><div className="settings-card"><h3>DeepSeek 搜索与抓取</h3><label className="field">DeepSeek API Key（可选）<input type="password" autoComplete="off" value={draft.deepseekKey === saved ? '' : draft.deepseekKey} placeholder={draft.deepseekKey === saved ? '已设置，输入新值替换' : '留空时复用 DeepSeek 模型连接的 API Key'} onChange={e => change({ deepseekKey: e.target.value })}/>{draft.deepseekKey && draft.deepseekKey === saved && <button className="text-button" onClick={() => change({ deepseekKey: '' })}>清除密钥</button>}<small>留空时会尝试复用主机名为 api.deepseek.com 的连接密钥。</small></label><label className="toggle-row">在搜索结果中返回网页正文<input type="checkbox" checked={draft.deepseekNeedContent} onChange={e => change({ deepseekNeedContent: e.target.checked })}/></label><small>关闭时搜索结果只带 <code>summary</code>（约 600~800 字，官方标注为“适用于给模型阅读”），网页正文由“读取网页”单独抓取；开启后每条结果额外附带 <code>content</code> 全文，按每次搜索最多返回结果数逐条截断到 2500 字。</small><p className="muted">调用 DeepSeek 自研的 Search（搜索）与 Fetch（抓取网页 Markdown）接口。两者都<strong>按成功请求次数计费</strong>（每 1000 次 5 元，只有返回 200 且有结果才计费），账号级限速 5 QPS。因此它们<strong>不参与自动降级</strong>——自动联网和自动读取网页不会在你没有选择的情况下调用它们；需要时请在“会话选项”里显式选择，或把它设为“自动模式下优先使用的外部搜索”。</p><p className="muted">另外，DeepSeek 官方说明：通过 DeepSeek 服务端工具调用（包括 DeepSeek Anthropic API 里的原生联网搜索）目前不计费，将于北京时间 <strong>2026 年 11 月 1 日</strong>起按次收费。</p><button onClick={() => api.openExternal('https://api-docs.deepseek.com/zh-cn/guides/search')}><ExternalLink size={14}/>DeepSeek 搜索与抓取文档</button></div><div className="settings-card"><h3>模型原生搜索</h3><p className="muted">Responses 使用 web_search，Anthropic 使用 web_search_20250305，Gemini 使用 Google Search。需在模型配置中启用原生搜索能力，兼容服务可能不支持。</p></div></>}
     {tab === 'appearance' && <><h2>外观</h2><div className="settings-card"><label className="field">主题<select value={draft.theme} onChange={e => change({ theme: e.target.value as SettingsType['theme'] })}><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label><label className="field">文字大小：{draft.fontSize}px<input type="range" min="13" max="20" value={draft.fontSize} onChange={e => change({ fontSize: Number(e.target.value) })}/></label></div></>}
+    {tab === 'about' && <div className="about-page">
+      <img className="about-logo" src={appIcon} alt="Seekie Chat" width={96} height={96}/>
+      <h2 className="about-name">Seekie Chat</h2>
+      <button className="about-home" onClick={() => void api.openExternal('https://github.com/shellexy/seekie-chat')}>https://github.com/shellexy/seekie-chat</button>
+      <p className="about-version">版本 {versions?.app || '—'}</p>
+      <dl className="about-runtime">
+        <div><dt>Chromium</dt><dd>{versions?.chromium || '—'}</dd></div>
+        <div><dt>Electron</dt><dd>{versions?.electron || '—'}</dd></div>
+        <div><dt>Node.js</dt><dd>{versions?.node || '—'}</dd></div>
+      </dl>
+    </div>}
     {tab === 'data' && <><h2>数据与隐私</h2><div className="settings-card"><h3>密钥保存</h3><p className="muted">模型连接 API Key、Exa、Ollama、Tavily、Firecrawl、AnySearch 密钥和自定义请求头默认保存在数据目录的 credentials.json 中，重启后自动读取。该文件以明文保存，权限为仅当前用户读写（0600）。</p><label className="field">保存方式<select value={draft.secretPolicy} onChange={e => change({ secretPolicy: e.target.value as SettingsType['secretPolicy'] })}><option value="file">保存到数据目录（默认）</option><option value="session">仅当前运行</option><option value="encrypted" disabled={!draft.secureStorage}>使用系统安全存储加密保存</option></select></label></div><div className="settings-card"><h3>备份与恢复</h3><p className="muted">结构化备份包含会话、分支、图片与配置，不包含密钥和自定义请求头。导入会替换当前数据。</p><div className="button-row"><button onClick={() => api.exportData('json').then(ok => ok && toast('备份已导出')).catch(e => toast(String(e)))}>导出备份</button><button onClick={() => api.exportData('markdown').then(ok => ok && toast('Markdown 已导出')).catch(e => toast(String(e)))}>导出 Markdown</button><button onClick={() => api.importData().then(s => { if (s) { toast('备份已恢复'); /* 导入的备份已经替换了全部设置，别让页面里的旧草稿再写回去。 */ skipSave.current = true; onClose(); window.dispatchEvent(new Event('seekie-reload')); } }).catch(e => toast(String(e)))}>导入备份</button></div></div><div className="settings-card"><h3>本地优先</h3><p className="muted">聊天记录与附件保存在本机。只有模型请求和已启用的搜索请求会访问对应服务。无遥测、无账号、无云同步。外链由系统浏览器打开。</p></div></>}
     </main></div></div>;
 }

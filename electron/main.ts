@@ -228,6 +228,7 @@ function register() {
   // Attachment payloads are fetched one at a time: a broadcast carries no bytes, only references.
   handle('attachment', (id: string) => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id) ? findAttachment(state, id)?.data || '' : '');
   handle('debug', (messageId: string) => requestLog.get(messageId).length ? requestLog.get(messageId) : store.loadRequests(messageId));
+  handle('versions', () => ({ app: app.getVersion(), chromium: process.versions.chrome || '', electron: process.versions.electron || '', node: process.versions.node || '' }));
   handle('title', async (id: string) => {
     const conversation = state.conversations.find(c => c.id === id); if (!conversation) throw new Error('会话不存在'); if (titles.has(id)) throw new Error('标题正在生成中');
     const branch = conversation.branches.find(b => b.id === conversation.activeBranchId)!; const path = pathTo(conversation, branch.leafId);

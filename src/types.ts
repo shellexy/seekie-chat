@@ -98,6 +98,9 @@ export interface Conversation {
   created: number; updated: number; backgroundUsage?: { kind: 'title' | 'compression'; modelId: string; usage: Usage; created: number }[]; activeBranchId: string; branches: Branch[]; messages: Message[];
 }
 export interface AppState { settings: Settings; conversations: Conversation[]; selectedId: string | null }
+// Runtime versions shown on the About page. The main process reports them because the sandboxed
+// renderer has no access to `process`.
+export interface Versions { app: string; chromium: string; electron: string; node: string }
 // One outgoing API request as shown by the in-app debug view. Credentials are masked before the
 // renderer ever receives the record, and the body is a pretty-printed (possibly truncated) string.
 export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; response?: string; error?: string }
@@ -124,6 +127,8 @@ export interface Bridge {
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<ServerModel[]>; title(conversationId: string): Promise<void>;
   debug(messageId: string): Promise<RequestRecord[]>;
+  // 关于页用的运行时版本。渲染进程是沙箱，拿不到 process，所以由主进程给。
+  versions(): Promise<Versions>;
   // Attachment payloads are fetched one at a time instead of travelling with every broadcast.
   attachment(id: string): Promise<string>;
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;

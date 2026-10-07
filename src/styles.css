@@ -1635,6 +1635,59 @@ summary {
   font-weight: 550;
   margin-bottom: 10px;
 }
+/* 关于页：程序自己的信息，整块居中，不跟设置项的左对齐排版。 */
+.settings-content.about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.about-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  margin-bottom: 18px;
+}
+.about-name {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin: 0 0 8px;
+}
+.about-home {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+.about-home:hover {
+  text-decoration: underline;
+}
+.about-version {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0 24px;
+}
+.about-runtime {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 20px;
+  margin: 0;
+  font-size: 12px;
+  text-align: left;
+}
+.about-runtime > div {
+  display: contents;
+}
+.about-runtime dt {
+  color: var(--muted);
+}
+.about-runtime dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
 .settings-content > * {
   max-width: 780px;
 }

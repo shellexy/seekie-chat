@@ -5,3 +5,6 @@
 // 程序/任务栏图标另用 build/icon.png 的彩色版，小尺寸下才认得出。
 import welcomeIconUrl from '../build/welcome-icon.png';
 export const welcomeMask = `url(${welcomeIconUrl})`;
+// 关于页用彩色版图标：那里没有主题底色的顾虑，彩色版本身就说明了这是哪个程序。
+import appIconUrl from '../build/icon.png';
+export const appIcon = appIconUrl;
