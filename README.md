@@ -165,7 +165,7 @@ deb 装到 `/opt/seekie-chat/`，并创建 `/usr/bin/seekie-chat` 软链接，�
 
 AppImage 是单个可执行文件，`chmod +x` 后直接运行，不需要安装；桌面项与图标都打包在文件内部，同样的 `Name`、`StartupWMClass` 与分类。
 
-Windows 安装包是 NSIS 一键安装器，装到当前用户目录，卸载时**不删除** `%APPDATA%\Seekie Chat` 里的对话数据。在 Linux 上交叉构建需要用 wine（electron-builder 借它给 exe 写入图标与版本信息，并生成卸载程序）；在 Windows 或 CI 上直接跑 `npx electron-builder --win` 则不需要。安装包没有代码签名，Windows 首次运行会提示“未知发布者”。只想拿到可执行文件、不生成安装包时，`npx electron-builder --win dir` 不需要 wine，产物在 `release/win-unpacked/`。
+Windows 安装包是 NSIS 一键安装器，装到当前用户目录，卸载时**不删除** `%APPDATA%\seekie-chat` 里的对话数据。在 Linux 上交叉构建需要用 wine（electron-builder 借它给 exe 写入图标与版本信息，并生成卸载程序）；在 Windows 或 CI 上直接跑 `npx electron-builder --win` 则不需要。安装包没有代码签名，Windows 首次运行会提示“未知发布者”。只想拿到可执行文件、不生成安装包时，`npx electron-builder --win dir` 不需要 wine，产物在 `release/win-unpacked/`。
 
 Windows 版本目前只验证到打包这一步，没有在真机上运行过——窗口控件、数据目录等平台差异还需要实际跑一遍确认。
 
