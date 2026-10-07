@@ -23,6 +23,9 @@ const server = createServer(async (req, res) => {
   if (title) await new Promise(r => setTimeout(r, 250));
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
   const send = data => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  // Responses 协议的服务（DeepSeek 就是这样）每帧先写一行 event: 再写 data:，解析器要能跳过
+  // 前者，所以这一支按真实格式发。
+  const sendEvent = data => res.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);
   if (req.url === '/v1/chat/completions') {
     send({ choices: [{ delta: { reasoning_content: title || compression ? '' : '先检查需求，再选择实施步骤。' } }] });
     await new Promise(r => setTimeout(r, 30));
@@ -35,11 +38,14 @@ const server = createServer(async (req, res) => {
     }
     send({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 30 } } });
   } else if (req.url === '/v1/responses') {
-    send({ type: 'response.reasoning_summary_text.delta', delta: '推理摘要来自模拟服务。' });
-    send({ type: 'response.web_search_call.in_progress', item_id: 'search-1' });
-    send({ type: 'response.web_search_call.completed', item_id: 'search-1' });
-    send({ type: 'response.output_text.delta', delta: text });
-    send({ type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [{ type: 'url_citation', title: 'Electron documentation', url: 'https://www.electronjs.org/docs' }] }] }], usage: { input_tokens: 120, output_tokens: 60, input_tokens_details: { cached_tokens: 30 } } } });
+    // 两种思维链事件名都要覆盖：OpenAI 发 reasoning_summary_text.delta（摘要），DeepSeek 的
+    // Responses 接口发 reasoning_text.delta（思维链原文）。
+    sendEvent({ type: 'response.reasoning_summary_text.delta', delta: '推理摘要来自模拟服务。' });
+    sendEvent({ type: 'response.reasoning_text.delta', delta: '思维链原文。' });
+    sendEvent({ type: 'response.web_search_call.in_progress', item_id: 'search-1' });
+    sendEvent({ type: 'response.web_search_call.completed', item_id: 'search-1' });
+    sendEvent({ type: 'response.output_text.delta', delta: text });
+    sendEvent({ type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text, annotations: [{ type: 'url_citation', title: 'Electron documentation', url: 'https://www.electronjs.org/docs' }] }] }], usage: { input_tokens: 120, output_tokens: 60, input_tokens_details: { cached_tokens: 30 } } } });
   } else if (req.url.startsWith('/v1beta/models/')) {
     send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'Gemini 模拟思考摘要。', thought: true }] } }] });
     send({ candidates: [{ index: 0, content: { role: 'model', parts: [{ text, thoughtSignature: 'fixture-signature' }] }, finishReason: 'STOP', ...(data.tools?.some(t => t.googleSearch) ? { groundingMetadata: { webSearchQueries: ['Electron docs'], groundingChunks: [{ web: { title: 'Electron', uri: 'https://www.electronjs.org/docs' } }] } } : {}) }], usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 60, thoughtsTokenCount: 12, cachedContentTokenCount: 30 } });
@@ -737,6 +743,7 @@ try {
     if (protocol === 'responses') {
       assert.equal(await summary.count(), 1, 'Responses 协议应显示思考摘要卡片');
       assert.match(await summary.textContent(), /推理摘要来自模拟服务。/, '思考摘要内容应来自 response.reasoning_summary_text.delta');
+      assert.match(await summary.textContent(), /思维链原文。/, 'DeepSeek 的 response.reasoning_text.delta 也应被读成思考内容');
       // store 省略时 OpenAI 默认存服务端并且不把思考内容交回来，摘要就无从显示。
       const responsesCall = calls.filter(c => c.path === '/v1/responses').at(-1);
       assert.equal(responsesCall.data.store, false, 'Responses 请求应显式关闭 store，否则思考摘要拿不到');

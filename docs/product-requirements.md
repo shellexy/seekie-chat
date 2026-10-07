@@ -179,7 +179,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 - 展示工具名、状态、开始时间、耗时、可读输入、结果摘要和错误；详细结果折叠。
 - Responses 协议请求显式带上 `store: false`：省略时 OpenAI 默认把回答存到服务端并不再返回思考内容，思考摘要会因此不显示；本地优先的客户端不应把对话留在 OpenAI 那边。
-- Responses 协议的思考事件名两家不同：OpenAI 发 `response.reasoning_summary_text.delta`（摘要），DeepSeek 发 `response.reasoning_text.delta`（思维链原文），两种都要读取。
+- Responses 协议的思考事件名两家不同：OpenAI 发 `response.reasoning_summary_text.delta`（摘要），DeepSeek 发 `response.reasoning_text.delta`（思维链原文），两种都要读取；Responses 服务的流式帧可能在 `data:` 之前多一行 `event:`，两种帧格式都要支持。
 - 引用显示来源标题、URL，能定位关联引用并在系统浏览器打开。来源列表默认收成一行（显示条数），点击标题才展开全部条目——一次搜索能带回十几条，全部铺开会把回答区撑得很长。
 - 工具结果和网页内容视为外部资料，不能改变应用权限、执行命令或读取本地文件。该提示写在搜索与读取网页两个工具的描述里（`UNTRUSTED_CONTENT_NOTE`），四种协议一致；系统提示词按用户所写原样发送，不追加任何工具或联网相关片段，因此改提示词不会把这层防护删掉。
 - 读取网页默认自动按 Exa Contents、Ollama Cloud `api/web_fetch`、Tavily Extract、Firecrawl Scrape、AnySearch Extract 的顺序调用已配置密钥的服务；然后尝试 Firecrawl、AnySearch、Tavily 的免 Key API。服务失败时继续尝试下一个；都不可用或都失败时回退到本地读取网页。Tavily 免 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 与 AnySearch 不发送 Authorization。Ollama Cloud 可复用连接配置中的 API Key。
