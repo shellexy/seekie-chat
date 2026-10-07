@@ -44,10 +44,12 @@ export function authHeaders(connection: Connection, model?: string | Pick<Model,
   else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
   return headers;
 }
-export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
+async function requestUrl(connection: Connection, url: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
+  const parsed = new URL(url);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('API 地址必须使用 HTTP 或 HTTPS');
   const dispatcher = connection.proxy ? new ProxyAgent(connection.proxy) : undefined;
   try {
-    const response = await fetch(endpoint(connection, path), { method: body ? 'POST' : 'GET', headers: authHeaders(connection, model), body: body ? JSON.stringify(body) : undefined,
+    const response = await fetch(parsed, { method: body ? 'POST' : 'GET', headers: authHeaders(connection, model), body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(10, connection.timeout) * 1000)]), dispatcher });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1200);
@@ -57,6 +59,9 @@ export async function request(connection: Connection, path: string, body: unknow
     // Keep the proxy alive until the response body has been consumed.
     return { response, close: () => dispatcher?.close() };
   } catch (error) { await dispatcher?.close(); throw error; }
+}
+export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
+  return requestUrl(connection, endpoint(connection, path), body, signal, model);
 }
 export async function* sse(body: AsyncIterable<Uint8Array>) {
   const decoder = new TextDecoder(); let buffer = '';
@@ -353,6 +358,37 @@ export async function generate(connection: Connection, model: Model, config: Cha
 }
 export async function listModels(connection: Connection): Promise<string[]> {
   const ids: string[] = [], seenPages = new Set<string>(); let pageToken = '';
+  if (connection.protocol === 'anthropic') {
+    const primaryUrl = endpoint(connection, 'models');
+    const url = new URL(connection.baseUrl);
+    const basePath = url.pathname.replace(/\/+$/, '');
+    const parentPath = basePath.slice(0, basePath.lastIndexOf('/'));
+    url.pathname = `${parentPath}/models`;
+    url.search = ''; url.hash = '';
+    const fallbackUrl = url.toString();
+    const read = async (target: string, bearerAuth = false) => {
+      const requestConnection = bearerAuth ? { ...connection, protocol: 'chat' as const } : connection;
+      const { response, close } = await requestUrl(requestConnection, target, undefined, new AbortController().signal);
+      let json: any;
+      try { json = await response.json(); } finally { await close(); }
+      return (json.data || json.models || []).map((model: any) => model.id || model.name).filter(Boolean);
+    };
+    try {
+      const models = await read(primaryUrl);
+      if (models.length) return models;
+      throw new Error('服务未返回模型列表');
+    } catch (primaryError) {
+      if (fallbackUrl === primaryUrl) throw primaryError;
+      try {
+        const models = await read(fallbackUrl, true);
+        if (models.length) return models;
+        throw new Error('服务未返回模型列表');
+      } catch (fallbackError) {
+        const describe = (error: unknown) => error instanceof Error ? error.message : String(error);
+        throw new Error(`模型列表请求失败（${primaryUrl}）：${describe(primaryError)}；回退地址 ${fallbackUrl} 也失败：${describe(fallbackError)}`);
+      }
+    }
+  }
   do {
     const path = connection.protocol === 'gemini' ? `models?pageSize=1000${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}` : 'models';
     const { response, close } = await request(connection, path, undefined, new AbortController().signal);

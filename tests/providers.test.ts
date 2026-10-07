@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MockAgent, setGlobalDispatcher } from 'undici';
-import { authHeaders, buildInput, endpoint, generate, request, sse } from '../electron/providers';
+import { authHeaders, buildInput, endpoint, generate, listModels, request, sse } from '../electron/providers';
 import { addMessage, createConversation, initialState } from '../src/domain';
 import type { Connection, Model } from '../src/types';
 import { UsageCounter } from '../electron/usage';
@@ -74,6 +74,19 @@ test('URL construction respects v1 and custom prefixes', () => {
   assert.equal(endpoint({ ...connection('chat'), baseUrl: 'https://api.example.com' }, 'models'), 'https://api.example.com/v1/models');
   assert.equal(endpoint(connection('chat'), 'responses'), 'https://fixture.invalid/v1/responses');
   assert.equal(endpoint({ ...connection('chat'), baseUrl: 'https://fixture.invalid/custom/' }, 'messages'), 'https://fixture.invalid/custom/messages');
+});
+test('Anthropic model discovery retries the parent /models endpoint when the base URL route fails', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://api.deepseek.com');
+    pool.intercept({ path: '/anthropic/models', method: 'GET' }).reply(404, { error: 'not found' });
+    pool.intercept({ path: '/models', method: 'GET' }).reply(options => {
+      assert.equal(new Headers(options.headers as HeadersInit).get('authorization'), 'Bearer fixture-only');
+      return { statusCode: 200, data: { data: [{ id: 'deepseek-flash' }] } };
+    });
+    const deepseekAnthropic = { ...connection('anthropic'), baseUrl: 'https://api.deepseek.com/anthropic' };
+    assert.deepEqual(await listModels(deepseekAnthropic), ['deepseek-flash']);
+  } finally { await agent.close(); }
 });
 test('SSE handles fragmented utf8 and CRLF frames', async () => {
   const bytes = new TextEncoder().encode('data: {"text":"你好"}\r\n\r\ndata: [DONE]\r\n\r\n');
