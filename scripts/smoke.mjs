@@ -201,10 +201,18 @@ try {
   const viewportWidth = await page.evaluate(() => innerWidth);
   assert.equal(chatControlBounds.y, 0);
   assert.ok(Math.abs(chatControlBounds.x + chatControlBounds.width - viewportWidth) < 1);
+  const sizeBeforeMaximize = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
   await windowControls.getByRole('button', { name: '最大化窗口' }).click();
   await waitFor(page, async () => window.deepchan.isWindowMaximized());
   await windowControls.getByRole('button', { name: '还原窗口' }).click();
   await waitFor(page, async () => !(await window.deepchan.isWindowMaximized()));
+  // 还原是带动画的：等窗口真的回到原来的尺寸，否则后面读到的可能是显示器的全屏高度。
+  // 判定必须在 Node 侧做——page.evaluate 里拿不到 desktop 这个句柄。
+  for (let i = 0; i < 60; i++) {
+    const current = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+    if (current[0] === sizeBeforeMaximize[0] && current[1] === sizeBeforeMaximize[1]) break;
+    await page.waitForTimeout(100);
+  }
   assert.equal(await page.locator('.window-titlebar').count(), 0);
   assert.equal(await page.locator('.chat-header').evaluate(el => el.getBoundingClientRect().top), 0);
   const titleRows = await page.evaluate(() => ({ sidebar: document.querySelector('.sidebar-top')?.getBoundingClientRect().height, chat: document.querySelector('.chat-header')?.getBoundingClientRect().height, controls: document.querySelector('.window-controls')?.getBoundingClientRect().height }));

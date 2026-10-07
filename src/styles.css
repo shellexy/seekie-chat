@@ -771,11 +771,18 @@ code {
 }
 .thinking,
 .tool-card {
+  font-size: 12px;
+  color: var(--muted);
+  /* 收起时没有边框和背景，行与行之间全靠这个间距分开——去掉它，推理摘要会紧贴住下面的正文。 */
+  margin-bottom: 8px;
+}
+.thinking[open],
+.tool-card[open] {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--panel);
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: var(--muted);
 }
 summary {
@@ -786,16 +793,23 @@ summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 4px 4px;
   list-style: none;
+}
+.sources summary:hover,
+.thinking summary:hover,
+.tool-card summary:hover {
+  border-radius: 9px;
+  background: var(--panel);
 }
 .thinking summary::after,
 .tool-card summary::after {
   content: "⌄";
+  color: var(--muted);
   margin-left: auto;
 }
 .thinking > :not(summary) {
-  margin: 0 12px 12px;
+  margin: 0 12px 4px;
   line-height: 1.8;
 }
 .tool-card > div {
@@ -815,7 +829,8 @@ summary {
   background: var(--hover);
 }
 .tool-status.done {
-  color: var(--accent);
+  background: transparent;
+  color: var(--muted);
 }
 .tool-status.error {
   color: #b35247;
@@ -831,7 +846,7 @@ summary {
   align-items: center;
   gap: 6px;
   width: fit-content;
-  padding: 3px 0;
+  padding: 3px 0 3px 4px;
   cursor: pointer;
   list-style: none;
 }
