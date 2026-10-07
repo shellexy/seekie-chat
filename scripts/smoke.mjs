@@ -456,6 +456,20 @@ try {
     assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     assert.equal(await page.locator('.message.assistant .answer-model-meta').last().getAttribute('aria-label'), `查看模型信息：模拟 ${protocol}`);
     await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
+    // The in-app debug view must expose the outgoing request without ever exposing credentials.
+    await page.locator('.message.assistant').last().getByRole('button', { name: '查看请求详情' }).click();
+    const debugWindow = page.locator('.attachment-viewer-window');
+    await debugWindow.waitFor();
+    const debugText = await debugWindow.innerText();
+    assert.match(debugText, /第 1 次请求/);
+    assert.match(debugText, /请求头/); assert.match(debugText, /请求体/);
+    assert.ok(debugText.includes('••••••••'), '请求详情应显示掩码后的密钥');
+    // Header names may contain "secret"; what must never appear is the credential value itself.
+    assert.ok(!debugText.includes('Bearer fixture-secret'), '请求详情不得泄露 API Key 的值');
+    assert.ok(!debugText.includes('"header-secret"'), '请求详情不得泄露自定义请求头的值');
+    await page.screenshot({ path: join(directory, `debug-${protocol}.png`) });
+    await page.keyboard.press('Escape');
+    await debugWindow.waitFor({ state: 'hidden' });
     console.log('stage: protocol complete', protocol);
   }
   saved = await page.evaluate(() => window.deepchan.load());

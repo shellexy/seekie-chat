@@ -68,6 +68,9 @@ export interface Conversation {
   created: number; updated: number; backgroundUsage?: { kind: 'title' | 'compression'; modelId: string; usage: Usage; created: number }[]; activeBranchId: string; branches: Branch[]; messages: Message[];
 }
 export interface AppState { settings: Settings; conversations: Conversation[]; selectedId: string | null }
+// One outgoing API request as shown by the in-app debug view. Credentials are masked before the
+// renderer ever receives the record, and the body is a pretty-printed (possibly truncated) string.
+export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; error?: string }
 export interface RunRequest { conversationId: string; branchId: string; messageId: string }
 export interface AppEvent { state?: AppState; tasks?: { conversationId: string; branchId: string; kind: string }[]; task?: { conversationId: string; branchId: string; kind: string } | null; error?: string }
 export interface Bridge {
@@ -75,6 +78,7 @@ export interface Bridge {
   run(request: RunRequest): Promise<void>; cancel(conversationId: string): Promise<void>;
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<string[]>; title(conversationId: string): Promise<void>;
+  debug(messageId: string): Promise<RequestRecord[]>;
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;

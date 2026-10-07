@@ -1,4 +1,4 @@
-import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Source, ToolEvent } from '../src/types';
+import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, Settings, Source, ToolEvent } from '../src/types';
 import type { Hooks, Result, WebFetch } from './providers';
 import type { request, buildInput } from './providers';
 import { UsageCounter } from './usage';
@@ -10,6 +10,7 @@ type Dependencies = {
   search: (mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) => Promise<Source[]>;
   webFetch?: WebFetch;
   sse: (body: AsyncIterable<Uint8Array>) => AsyncGenerator<any>;
+  record?: (entry: RequestRecord) => void;
 };
 function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily' || mode === 'firecrawl' || mode === 'anysearch'; }
 const SEARCH_LABELS: Record<ExternalSearchMode, string> = { exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch' };
@@ -145,7 +146,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     // request with "Please enable tool_config.include_server_side_tool_invocations".
     if (builtInSearch && usesFunctionCalling(body.contents, declarations)) body.toolConfig = { includeServerSideToolInvocations: true };
     let request: Awaited<ReturnType<typeof deps.request>>;
-    try { request = await deps.request(connection, path, body, signal, model); }
+    try { request = await deps.request(connection, path, body, signal, model, deps.record); }
     catch (error) {
       if (!builtInSearch || !/include_server_side_tool_invocations/i.test(String(error))) throw error;
       builtInSearch = false;

@@ -4,9 +4,9 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockAgent, setGlobalDispatcher } from 'undici';
-import { authHeaders, buildInput, endpoint, generate, listModels, request, sse } from '../electron/providers';
+import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, request, sse } from '../electron/providers';
 import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
-import type { Connection, Model } from '../src/types';
+import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
@@ -583,6 +583,46 @@ test('fragmented arguments under one index still merge into a single call', asyn
   assert.deepEqual(JSON.parse(replayed[0].function.arguments), { query: '广州天气' });
   assert.equal(replayed[0].id, 'call-frag');
   await agent.close();
+});
+
+test('debug headers mask built-in and custom credential headers', () => {
+  const masked = debugHeaders({ ...connection('anthropic'), headers: { 'X-Tenant': 'acme' } }, {
+    'content-type': 'application/json', authorization: 'Bearer fixture-only', 'x-api-key': 'fixture-only',
+    'x-goog-api-key': 'fixture-only', 'x-tenant': 'acme', 'anthropic-version': '2023-06-01'
+  });
+  assert.deepEqual(masked, {
+    'content-type': 'application/json', authorization: '••••••••', 'x-api-key': '••••••••',
+    'x-goog-api-key': '••••••••', 'x-tenant': '••••••••', 'anthropic-version': '2023-06-01'
+  });
+});
+
+test('debug records carry the redacted request and attach upstream failures', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '现在几点');
+  const chat = { ...connection('chat'), headers: { 'x-trace': 'trace-fixture' } };
+  try {
+    pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+      { choices: [{ delta: { content: '不知道。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    const ok: RequestRecord[] = [];
+    await generate(chat, model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, record: entry => ok.push(entry) });
+    assert.equal(ok.length, 1);
+    const [sent] = ok;
+    assert.match(sent.url, /\/v1\/chat\/completions$/); assert.equal(sent.method, 'POST');
+    assert.equal(sent.headers.Authorization, '••••••••', 'API Key 不得出现在调试记录里');
+    assert.equal(sent.headers['x-trace'], '••••••••', '自定义请求头按密钥处理');
+    assert.equal(sent.headers['Content-Type'], 'application/json');
+    assert.equal(JSON.parse(sent.body).messages.at(-1).content, '现在几点');
+    assert.equal(sent.error, undefined);
+
+    pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(400, { error: { message: 'invalid arguments' } });
+    const failed: RequestRecord[] = [];
+    await assert.rejects(generate(chat, model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, record: entry => failed.push(entry) }), /服务请求失败/);
+    assert.equal(failed.length, 1);
+    assert.match(failed[0].error!, /^400 /); assert.match(failed[0].error!, /invalid arguments/);
+    assert.equal(JSON.parse(failed[0].body).model, 'fixture');
+  } finally { await agent.close(); }
 });
 
 test('request diagnostics record what was sent and what the upstream answered', async () => {

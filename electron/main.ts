@@ -6,11 +6,15 @@ import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
 import { appendAssistantSegment, compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
-import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
+import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
+import { RequestLog } from './request_log';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
 const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
+// Per-message request log for the in-app debug view. Memory only: never persisted, never exported,
+// and the bodies arrive already redacted by the provider layer.
+const requestLog = new RequestLog();
 const titles = new Map<string, AbortController>();
 let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -127,7 +131,8 @@ async function runChat(request: RunRequest) {
         text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emit(); }, reasoning: s => { if (s) { if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emit(); },
         tool: t => { finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emit(); },
         sources: sources => { message.sources = sources; emit(); },
-        notice: message => notify(message)
+        notice: message => notify(message),
+        record: entry => requestLog.add(message.id, entry)
       }, webFetch);
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
       const elapsedMs = performance.now() - started;
@@ -181,6 +186,7 @@ function register() {
     const controller = new AbortController(); tasks.set(id, { controller, branchId, kind: 'compression' }); emit(true);
     try { await compress(conversation, branch, controller.signal); } finally { tasks.delete(id); store.save(state); emit(true); }
   });
+  handle('debug', (messageId: string) => requestLog.get(messageId));
   handle('title', async (id: string) => {
     const conversation = state.conversations.find(c => c.id === id); if (!conversation) throw new Error('会话不存在'); if (titles.has(id)) throw new Error('标题正在生成中');
     const branch = conversation.branches.find(b => b.id === conversation.activeBranchId)!; const path = pathTo(conversation, branch.leafId);
@@ -211,7 +217,7 @@ function register() {
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
-    state = backup.state; for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.firecrawlKey = ''; state.settings.anysearchKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
+    state = backup.state; requestLog.clear(); for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.firecrawlKey = ''; state.settings.anysearchKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; }
     store.save(state); emit(true); return store.public(state);
   });

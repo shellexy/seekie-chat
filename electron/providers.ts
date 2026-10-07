@@ -7,15 +7,30 @@ import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
 import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
-import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
+import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
-export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void }
+export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void; record?: (entry: RequestRecord) => void }
 export type WebFetch = (url: string, signal: AbortSignal, settings: Settings, mode: WebFetchMode | undefined) => Promise<FetchedPage>;
-const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {}, notice() {} };
+const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {}, notice() {}, record() {} };
 const CODEX_CLI_VERSION = '0.162.1';
 const CLAUDE_CODE_VERSION = '2.1.296';
 const CODEX_ORIGINATOR = 'codex_cli_rs';
+// Same placeholder the store uses for secrets; the debug view must never carry a real credential.
+const REDACTED = '••••••••';
+const SECRET_HEADERS = /^(authorization|proxy-authorization|x-api-key|x-goog-api-key|api-key)$/i;
+const MAX_RECORDED_BODY = 200_000;
+// Custom headers are treated as secrets everywhere else, so their values are masked here too.
+export function debugHeaders(connection: Connection, headers: Record<string, string>) {
+  const custom = new Set(Object.keys(connection.headers).map(name => name.toLowerCase()));
+  const copy: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) copy[name] = SECRET_HEADERS.test(name) || custom.has(name.toLowerCase()) ? REDACTED : value;
+  return copy;
+}
+function recordedBody(body: unknown) {
+  const text = JSON.stringify(body, null, 2);
+  return text.length > MAX_RECORDED_BODY ? `${text.slice(0, MAX_RECORDED_BODY)}\n…（请求体过长，仅记录前 ${MAX_RECORDED_BODY} 字符）` : text;
+}
 // Opt-in diagnostics for opaque upstream rejections: with DEEPCHAN_DEBUG_REQUESTS=<dir> every
 // outgoing body is dumped there, and rejected requests also record what the upstream answered
 // (credentials live in headers and are never written). Off by default, and a diagnostics failure
@@ -60,26 +75,31 @@ export function authHeaders(connection: Connection, model?: string | Pick<Model,
   else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
   return headers;
 }
-async function requestUrl(connection: Connection, url: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
+async function requestUrl(connection: Connection, url: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>, record?: (entry: RequestRecord) => void) {
   const parsed = new URL(url);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('API 地址必须使用 HTTP 或 HTTPS');
   dumpRequest(url, body);
+  // The entry is handed over before the request so a failure can be attached to it in place.
+  const headers = authHeaders(connection, model);
+  const entry: RequestRecord | undefined = record ? { url, method: body ? 'POST' : 'GET', headers: debugHeaders(connection, headers), body: recordedBody(body) } : undefined;
+  record?.(entry!);
   const dispatcher = connection.proxy ? new ProxyAgent(connection.proxy) : undefined;
   try {
-    const response = await fetch(parsed, { method: body ? 'POST' : 'GET', headers: authHeaders(connection, model), body: body ? JSON.stringify(body) : undefined,
+    const response = await fetch(parsed, { method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(10, connection.timeout) * 1000)]), dispatcher });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1200);
+      if (entry) entry.error = `${response.status} ${detail}`;
       dumpRequest(url, body, `${response.status} ${detail}`);
       const labels: Record<number, string> = { 401: '认证失败，请检查 API Key', 403: '没有权限访问该服务', 404: '模型或 API 路径不存在', 429: '服务限流或余额不足' };
       throw new Error(`${labels[response.status] || '服务请求失败'} (${response.status})：${detail}`);
     }
     // Keep the proxy alive until the response body has been consumed.
     return { response, close: () => dispatcher?.close() };
-  } catch (error) { await dispatcher?.close(); throw error; }
+  } catch (error) { if (entry && !entry.error) entry.error = String(error); await dispatcher?.close(); throw error; }
 }
-export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
-  return requestUrl(connection, endpoint(connection, path), body, signal, model);
+export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>, record?: (entry: RequestRecord) => void) {
+  return requestUrl(connection, endpoint(connection, path), body, signal, model, record);
 }
 export async function* sse(body: AsyncIterable<Uint8Array>) {
   const decoder = new TextDecoder(); let buffer = '';
@@ -248,7 +268,8 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请改用已配置的外部搜索服务');
   if ((config.search === 'exa' || config.search === 'ollama') && !configuredSearchKey(config.search, settings)) throw new Error(`请先配置${config.search === 'exa' ? ' Exa' : ' Ollama Cloud'} API Key`);
   await convertUnsupportedAttachments(messages, connection.protocol, model);
-  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, webFetch: model.tools ? webFetch : undefined, sse });
+  const record = hooks.record ? (entry: RequestRecord) => hooks.record!(entry) : undefined;
+  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, webFetch: model.tools ? webFetch : undefined, sse, record });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
   const input = buildInput(connection.protocol, messages, model);
   const restrictedSampling = connection.protocol === 'responses' || connection.protocol === 'anthropic';
@@ -321,7 +342,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
       }
       if (model.reasoning === 'effort') { body.thinking = { type: 'adaptive' }; if (config.effort !== 'auto') body.output_config = { effort: config.effort }; }
     }
-    const { response, close } = await request(connection, path, body, signal, model);
+    const { response, close } = await request(connection, path, body, signal, model, record);
     const calls: { id: string; name: string; args: string }[] = [];
     const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls: PendingToolCall[] = [];
     let finished = false;
