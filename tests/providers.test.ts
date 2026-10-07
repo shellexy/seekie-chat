@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MockAgent, setGlobalDispatcher } from 'undici';
+import { Agent, MockAgent, setGlobalDispatcher } from 'undici';
+import { createServer } from 'node:http';
+import { connect, type AddressInfo } from 'node:net';
 import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, request, sse } from '../electron/providers';
 import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
 import type { Connection, Model, RequestRecord } from '../src/types';
@@ -682,4 +684,46 @@ test('background requests disable local tools so title and compression stay sing
   assert.equal(body.tools, undefined);
   assert.doesNotMatch(body.messages[0].content, /datetime/);
   await agent.close();
+});
+
+test('a connection proxy is used for its own requests', async () => {
+  // A real (localhost) proxy proves the wiring without touching the network: undici tunnels through
+  // CONNECT even for plain http targets, so the test proxy implements that tunnel.
+  const target = createServer((_request, response) => { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ data: [{ id: 'through-proxy' }] })); });
+  await new Promise<void>(resolve => target.listen(0, '127.0.0.1', resolve));
+  const targetPort = (target.address() as AddressInfo).port;
+  const tunnels: string[] = [];
+  const proxy = createServer();
+  proxy.on('connect', (request, clientSocket, head) => {
+    tunnels.push(request.url || '');
+    const [host, port] = (request.url || '').split(':');
+    const upstream = connect(Number(port), host, () => {
+      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head?.length) upstream.write(head);
+      upstream.pipe(clientSocket); clientSocket.pipe(upstream);
+    });
+    upstream.on('error', () => clientSocket.destroy());
+    clientSocket.on('error', () => upstream.destroy());
+  });
+  await new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve));
+  const proxyPort = (proxy.address() as AddressInfo).port;
+  setGlobalDispatcher(new Agent());
+  try {
+    const configured = { ...connection('chat'), apiKey: '', baseUrl: `http://127.0.0.1:${targetPort}/v1`, proxy: `http://127.0.0.1:${proxyPort}` };
+    assert.deepEqual(await listModels(configured), ['through-proxy']);
+    assert.deepEqual(tunnels, [`127.0.0.1:${targetPort}`], '请求必须经由代理的 CONNECT 隧道');
+  } finally {
+    setGlobalDispatcher(new Agent());
+    await new Promise(resolve => target.close(resolve)); await new Promise(resolve => proxy.close(resolve));
+  }
+});
+
+test('an aborted signal stops a request instead of hanging', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const controller = new AbortController();
+    controller.abort();
+    const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
+    await assert.rejects(generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, controller.signal), /abort/i);
+  } finally { await agent.close(); }
 });

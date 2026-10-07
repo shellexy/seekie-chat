@@ -1,4 +1,4 @@
-import type { AppState, AssistantSegment, Branch, ChatConfig, Conversation, Message, PromptPreset, Protocol, Settings } from './types';
+import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, Message, Model, PromptPreset, Protocol, Settings, Usage } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
 export function defaultPromptPresets(): PromptPreset[] {
   return [
@@ -67,11 +67,27 @@ export function pathTo(conversation: Conversation, leafId: string | null): Messa
   while (leafId) { if (seen.has(leafId)) throw new Error('对话路径存在循环'); seen.add(leafId); const node = index.get(leafId); if (!node) throw new Error('对话节点不存在'); path.unshift(node); leafId = node.parentId; }
   return path;
 }
+// Branch names are user visible and used to tell branches apart, so a counter alone is not enough:
+// deleting or renaming a branch used to make the next one collide with an existing name.
+export function uniqueBranchName(branches: Branch[], base: string): string {
+  const taken = new Set(branches.map(b => b.name));
+  if (!taken.has(base)) return base;
+  for (let index = 2; ; index++) { const candidate = `${base} ${index}`; if (!taken.has(candidate)) return candidate; }
+}
+// A deleted model must not turn every historical answer into "未知模型": the message keeps the
+// names it was answered with, so history still explains itself.
+export function modelLabel(model: Model | undefined, connections: Connection[]): string {
+  return model ? `${model.name} | ${connections.find(connection => connection.id === model.connectionId)?.name || '未知连接'}` : 'DeepChan-chat';
+}
+export function messageModelLabel(message: Message, models: Model[]): string {
+  const live = models.find(m => m.id === message.modelId);
+  return live?.name || message.modelName || (message.modelId ? '未知模型' : '未知模型');
+}
 export function fork(conversation: Conversation, sourceId: string, name?: string): Branch {
   const source = conversation.messages.find(m => m.id === sourceId);
   if (!source || source.role !== 'assistant' || source.status !== 'complete') throw new Error('只能从已完成的回答创建分支');
   const current = conversation.branches.find(b => b.id === conversation.activeBranchId)!;
-  const branch: Branch = { id: uid(), name: name || `分支 ${conversation.branches.length}`, leafId: sourceId, originId: sourceId, parentBranchId: current.id,
+  const branch: Branch = { id: uid(), name: name || uniqueBranchName(conversation.branches, '分支'), leafId: sourceId, originId: sourceId, parentBranchId: current.id,
     config: structuredClone(current.config), draft: '', draftAttachments: [], scrollTop: 0, updated: Date.now() };
   if (current.summary && summaryValid(current.summary, pathTo(conversation, sourceId))) branch.summary = structuredClone(current.summary);
   conversation.branches.push(branch); conversation.activeBranchId = branch.id;
@@ -90,6 +106,33 @@ export function addMessage(conversation: Conversation, branch: Branch, role: Mes
   const message: Message = { id: uid(), parentId, role, text, reasoning: '', attachments: [], tools: [], sources: [], status: role === 'assistant' ? 'streaming' : 'complete', created: Date.now() };
   conversation.messages.push(message); branch.leafId = message.id; branch.updated = conversation.updated = Date.now();
   return message;
+}
+// State broadcasts deep-clone the whole tree, so every message object gets a new identity on every
+// update. A message row can therefore only skip re-rendering when its rendered content is compared
+// by value; this is that comparison, kept pure so it can be tested for staleness directly.
+export function sameMessage(a: Message, b: Message): boolean {
+  if (a === b) return true;
+  return a.id === b.id && a.parentId === b.parentId && a.role === b.role && a.text === b.text && a.reasoning === b.reasoning
+    && a.status === b.status && a.edited === b.edited && a.error === b.error && a.created === b.created
+    && a.modelId === b.modelId && a.modelName === b.modelName && a.connectionName === b.connectionName && a.reasoningMs === b.reasoningMs
+    && a.segments?.length === b.segments?.length
+    && (a.segments || []).every((segment, index) => { const other = b.segments![index]; return segment.type === other.type && (segment.type === 'tool' ? segment.toolId === (other as typeof segment).toolId : segment.text === (other as typeof segment).text && (segment.type === 'reasoning' ? segment.ms === (other as typeof segment).ms : true)); })
+    && a.tools.length === b.tools.length
+    && a.tools.every((tool, index) => { const other = b.tools[index]; return !!other && tool.id === other.id && tool.name === other.name && tool.status === other.status && tool.input === other.input && tool.output === other.output && tool.elapsed === other.elapsed; })
+    && a.sources.length === b.sources.length && a.sources.every((source, index) => source.url === b.sources[index]?.url && source.title === b.sources[index]?.title)
+    && a.attachments.length === b.attachments.length && a.attachments.every((attachment, index) => { const other = b.attachments[index]; return !!other && attachment.id === other.id && attachment.name === other.name && attachment.markdown === other.markdown && attachment.data === other.data; })
+    && sameUsage(a.usage, b.usage);
+}
+function sameUsage(a?: Usage, b?: Usage) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.input === b.input && a.output === b.output && a.cachedInput === b.cachedInput && a.elapsedMs === b.elapsedMs && a.generationMs === b.generationMs && a.firstTokenMs === b.firstTokenMs;
+}
+// "最终正文" is the last text segment: the toolbar copy button, the answer editor and the copy
+// menu all act on it, so the definition lives in one place.
+export function lastAssistantBody(message: Message) {
+  const texts = message.segments?.filter(segment => segment.type === 'text') || [];
+  return texts.length ? texts[texts.length - 1].text : message.text;
 }
 export function appendReasoningDuration(message: Message, elapsedMs: number) {
   const segment = message.segments?.at(-1);
@@ -112,7 +155,7 @@ export function appendAssistantSegment(message: Message, segment: AssistantSegme
 export function editMessage(conversation: Conversation, sourceId: string, text: string): { branch: Branch; message: Message } {
   const source = conversation.messages.find(m => m.id === sourceId)!;
   const current = conversation.branches.find(b => b.id === conversation.activeBranchId)!;
-  const branch: Branch = { ...structuredClone(current), id: uid(), name: `编辑 ${conversation.branches.length}`, originId: source.parentId, parentBranchId: current.id, leafId: source.parentId, draft: '', draftAttachments: [], summary: undefined, updated: Date.now() };
+  const branch: Branch = { ...structuredClone(current), id: uid(), name: uniqueBranchName(conversation.branches, '编辑'), originId: source.parentId, parentBranchId: current.id, leafId: source.parentId, draft: '', draftAttachments: [], summary: undefined, updated: Date.now() };
   conversation.branches.push(branch); conversation.activeBranchId = branch.id;
   const message = addMessage(conversation, branch, source.role, text, source.parentId);
   message.attachments = structuredClone(source.attachments); message.edited = true; message.status = 'complete'; message.modelId = source.modelId;

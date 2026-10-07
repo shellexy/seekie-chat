@@ -11,7 +11,9 @@
     "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
-    "test:desktop": "npm run build && node scripts/smoke.mjs"
+    "test:desktop": "npm run build && node scripts/smoke.mjs",
+    "test:dev": "node scripts/check-dev.mjs",
+    "check": "npm run typecheck && npm test"
   },
   "dependencies": {
     "@firecrawl/anydoc": "^0.2.4",

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, ChevronRight, ExternalLink, Plus, Trash2, Wifi } from 'lucide-react';
 import { api } from './api';
+import { settingsProblems } from './validation';
 import { defaultModelEfforts, shouldDefaultVisionAndTools, uid } from './domain';
 import type { Connection, Model, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
@@ -63,12 +64,12 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   async function save() {
     try {
       setSaving(true);
-      for (const c of draft.connections) { new URL(c.baseUrl); if (!c.name.trim()) throw new Error('请填写连接名称'); }
-      for (const m of draft.models) { if (!m.model.trim()) throw new Error('请填写每个模型的模型 ID'); if (m.maxOutput < 1 || m.contextWindow < m.maxOutput) throw new Error('上下文窗口不能小于最大输出 token'); }
-      for (const p of draft.promptPresets) { if (!p.name.trim() || !p.content.trim()) throw new Error('请填写每个角色的名称和系统提示词'); }
       const ids = new Set(draft.models.map(m => m.id));
       const next = { ...draft, defaultModel: ids.has(draft.defaultModel) ? draft.defaultModel : draft.models[0]?.id || '', titleModel: ids.has(draft.titleModel) ? draft.titleModel : '', compressionModel: ids.has(draft.compressionModel) ? draft.compressionModel : '' };
       if (headersEditing && connection) { let headers: unknown; try { headers = JSON.parse(headersText); } catch { throw new Error('自定义请求头必须是有效 JSON'); } if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(v => typeof v !== 'string')) throw new Error('请求头应为字符串值的 JSON 对象'); next.connections = next.connections.map(c => c.id === selected ? { ...c, headers: headers as Record<string,string> } : c); }
+      // One shared rule set for the settings page, the save path and backup import.
+      const problem = settingsProblems(next)[0];
+      if (problem) throw new Error(problem);
       await onSave(next); toast('设置已保存'); onClose();
     } catch (e) { toast(String(e instanceof Error ? e.message : e)); } finally { setSaving(false); }
   }

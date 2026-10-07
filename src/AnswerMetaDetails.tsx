@@ -1,55 +1,23 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { messageDateTime } from './domain';
+import usePopover from './usePopover';
 import type { Usage } from './types';
 
 // One control for everything about a finished answer: which model answered, through which
 // connection, when, and what it cost. The popover keeps the usage metrics in the same
 // definition list the smoke tests and the docs already describe.
 export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage }) {
-  const [open, setOpen] = useState(false), [position, setPosition] = useState({ left: 0, top: 0 });
-  const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
-  const pinned = useRef(false), closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined), id = useId();
-  const show = () => { clearTimeout(closeTimer.current); setOpen(true); };
-  const close = () => { clearTimeout(closeTimer.current); pinned.current = false; setOpen(false); };
-  const leave = () => { clearTimeout(closeTimer.current); closeTimer.current = setTimeout(() => { if (!pinned.current) setOpen(false); }, 150); };
-  useEffect(() => () => clearTimeout(closeTimer.current), []);
-  useLayoutEffect(() => {
-    if (!open || !trigger.current || !panel.current) return;
-    const anchor = trigger.current.getBoundingClientRect(), box = panel.current.getBoundingClientRect();
-    const left = Math.max(8, Math.min(anchor.right - box.width, window.innerWidth - box.width - 8));
-    const top = anchor.top - box.height - 8 >= 8 ? anchor.top - box.height - 8 : Math.min(anchor.bottom + 8, window.innerHeight - box.height - 8);
-    setPosition({ left, top: Math.max(8, top) });
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => {
-      if (!trigger.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) close();
-    };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
-    const scroll = (event: Event) => { if (!panel.current?.contains(event.target as Node)) close(); };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
-    window.addEventListener('resize', close);
-    window.addEventListener('scroll', scroll, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('keydown', escape);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', scroll, true);
-    };
-  }, [open]);
+  const popover = usePopover();
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
   const totalDuration = usage?.elapsedMs === undefined ? '--' : `${(usage!.elapsedMs / 1000).toFixed(2)} s`;
   const speedDuration = usage ? usage.generationMs ?? usage.elapsedMs : undefined;
   const speed = usage && speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
   return <>
-    <button ref={trigger} className="answer-meta" aria-label={`查看回答详情：${modelName}`} aria-expanded={open} aria-describedby={open ? id : undefined}
-      onPointerEnter={show} onPointerLeave={leave} onFocus={show} onBlur={leave}
-      onClick={() => { if (pinned.current) close(); else { pinned.current = true; show(); } }}>
+    <button ref={popover.trigger} className="answer-meta" aria-label={`查看回答详情：${modelName}`} aria-expanded={popover.open} aria-describedby={popover.open ? popover.id : undefined}
+      onPointerEnter={popover.show} onPointerLeave={popover.leave} onFocus={popover.show} onBlur={popover.leave} onClick={popover.toggle}>
       {modelName}·{messageDateTime(timestamp)}{usage && <> · {usage.input.toLocaleString()} 输入 · {usage.output.toLocaleString()} 输出</>}
     </button>
-    {open && createPortal(<div ref={panel} id={id} className="usage-details" role="tooltip" style={position} onPointerEnter={show} onPointerLeave={leave}>
+    {popover.open && createPortal(<div ref={popover.panel} id={popover.id} className="usage-details" role="tooltip" style={popover.position} onPointerEnter={popover.show} onPointerLeave={popover.leave}>
       <div className="answer-meta-block">
         <p><strong>{modelName}</strong></p>
         <p>{connectionName}</p>

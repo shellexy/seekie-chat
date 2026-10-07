@@ -401,12 +401,15 @@ try {
   assert.equal(calls.length, count);
   for (let i = 0; i < 2; i++) { await input.fill(`补充问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
   const compressionFixture = await lengthenActiveHistory(page); assert.ok(compressionFixture.userTurns >= 4); assert.equal(compressionFixture.persistedTurns, compressionFixture.userTurns);
-  await page.getByRole('button', { name: '会话选项' }).click(); await page.getByRole('button', { name: '压缩较早历史' }).click();
-  await waitFor(page, async () => {
+  await page.getByRole('button', { name: '会话选项' }).click();
+  // A toast may still be on screen from an earlier step, so only a *new* one counts as the error.
+  const toastBeforeCompression = await page.evaluate(() => document.querySelector('.toast')?.textContent || '');
+  await page.getByRole('button', { name: '压缩较早历史' }).click();
+  await waitFor(page, async before => {
     const state = await window.deepchan.load(), summary = state.conversations[0].branches.some(b => b.summary);
-    const toast = document.querySelector('.toast')?.textContent;
-    return summary ? 'summary' : toast ? `error: ${toast}` : false;
-  });
+    const toast = document.querySelector('.toast')?.textContent || '';
+    return summary ? 'summary' : toast && toast !== before ? `error: ${toast}` : false;
+  }, toastBeforeCompression);
   const chatStateAfterCompression = await page.evaluate(async () => ({ summaries: (await window.deepchan.load()).conversations[0].branches.filter(b => b.summary).length, toast: document.querySelector('.toast')?.textContent }));
   assert.ok(chatStateAfterCompression.summaries, chatStateAfterCompression.toast || 'no summary was persisted');
   const chatCompression = calls.filter(c => c.path === '/v1/chat/completions' && c.data.messages?.[0]?.content.includes('如果内容涉及创意写作')).at(-1);

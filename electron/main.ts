@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, net } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { Store, validateState, SECRET_MARKER } from './store';
+import { Store, SECRET_MARKER } from './store';
+import { validateState } from '../src/validation';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
@@ -106,7 +107,7 @@ async function runChat(request: RunRequest) {
   if (!message || message.role !== 'assistant' || message.status !== 'streaming' || branch.leafId !== message.id) throw new Error('生成目标消息无效');
   const config = structuredClone(branch.config); const { connection, model } = resolve(config.modelId);
   const controller = new AbortController(); tasks.set(conversation.id, { controller, branchId: branch.id, messageId: message.id, kind: 'chat' });
-  message.modelId = model.id; message.config = config; emit(true);
+  message.modelId = model.id; message.modelName = model.name; message.connectionName = connection.name; message.config = config; emit(true);
   void (async () => {
     let reasoningStarted: number | undefined, reasoningElapsed = 0;
     const finishReasoning = () => {

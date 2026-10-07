@@ -52,7 +52,7 @@ export interface Message {
   reasoningMs?: number;
   attachments: Attachment[]; tools: ToolEvent[]; sources: Source[];
   status: 'complete' | 'streaming' | 'interrupted' | 'error'; error?: string;
-  created: number; edited?: boolean; modelId?: string; config?: ChatConfig; usage?: Usage;
+  created: number; edited?: boolean; modelId?: string; modelName?: string; connectionName?: string; config?: ChatConfig; usage?: Usage;
   // Protocol-native assistant payload, preserved for signed thinking and tool continuity.
   raw?: unknown;
 }

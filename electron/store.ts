@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync, readdir
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, RequestRecord } from '../src/types';
-import { clearRequests, deleteRequests, initRequestTable, loadRequests, saveRequests } from './request_store';
+import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, migrateRequestTable, saveRequests } from './request_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: Database;
@@ -17,7 +17,8 @@ export class Store {
     const file = join(this.directory, 'chat.sqlite');
     this.db = existsSync(file) ? new SQL.Database(readFileSync(file)) : new SQL.Database();
     this.db.run('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS secrets (id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
-    initRequestTable(this.db);
+    // Request records moved from the old database table into their own files.
+    initRequestDirectory(this.directory); migrateRequestTable(this.db, this.directory);
     this.secure = safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text');
     if (this.secure) for (const row of this.db.exec('SELECT id,payload FROM secrets')[0]?.values || []) { try { this.secrets.set(String(row[0]), safeStorage.decryptString(Buffer.from(String(row[1]), 'base64'))); } catch { /* A missing keyring leaves keys unset; never expose ciphertext. */ } }
     const credentials = join(this.directory, 'credentials.json');
@@ -106,12 +107,12 @@ export class Store {
     } else if (existsSync(credentials)) unlinkSync(credentials);
     for (const file of readdirSync(join(this.directory, 'attachments'))) if (!keep.has(file)) unlinkSync(join(this.directory, 'attachments', file));
   }
-  // Request records live in their own table: they persist for the in-app debug view but never enter
-  // the state JSON, so exports and structural backups stay free of request payloads.
-  saveRequests(messageId: string, entries: RequestRecord[]) { saveRequests(this.db, messageId, entries); }
-  loadRequests(messageId: string) { return loadRequests(this.db, messageId); }
-  deleteRequests(messageIds: string[]) { deleteRequests(this.db, messageIds); }
-  clearRequests() { clearRequests(this.db); }
+  // Request records live in their own files: they persist for the in-app debug view but never enter
+  // the state JSON, and they never enlarge the database that every save rewrites.
+  saveRequests(messageId: string, entries: RequestRecord[]) { saveRequests(this.directory, messageId, entries); }
+  loadRequests(messageId: string) { return loadRequests(this.directory, messageId); }
+  deleteRequests(messageIds: string[]) { deleteRequests(this.directory, messageIds); }
+  clearRequests() { clearRequests(this.directory); }
   private saveSecret(id: string, value: string, policy: string) {
     if (!value) return; this.secrets.set(id, value);
     if (this.secure && policy === 'encrypted') this.db.run('INSERT INTO secrets (id,payload) VALUES (?,?)', [id, safeStorage.encryptString(value).toString('base64')]);
@@ -119,27 +120,3 @@ export class Store {
 }
 function validId(id: string) { return /^[a-f0-9-]{36}$/.test(id); }
 function attachments(state: AppState): Attachment[] { return state.conversations.flatMap(c => [...c.messages.flatMap(m => m.attachments), ...c.branches.flatMap(b => b.draftAttachments)]); }
-export function validateState(value: unknown): asserts value is AppState {
-  const s = value as AppState;
-  if (!s || !s.settings || !Array.isArray(s.settings.connections) || !Array.isArray(s.settings.models) || !Array.isArray(s.conversations)) throw new Error('备份或设置格式无效');
-  normalizeSettings(s.settings);
-  const presetIds = new Set<string>();
-  for (const preset of s.settings.promptPresets) {
-    if (!preset || typeof preset.id !== 'string' || !preset.id || presetIds.has(preset.id) || typeof preset.name !== 'string' || !preset.name.trim() || typeof preset.content !== 'string' || !preset.content.trim()) throw new Error('系统提示词预设无效');
-    presetIds.add(preset.id);
-  }
-  if (s.settings.defaultPromptPresetId && !presetIds.has(s.settings.defaultPromptPresetId)) throw new Error('默认系统提示词预设不存在');
-  if (s.conversations.length > 10000) throw new Error('会话数量超过限制');
-  for (const c of s.settings.connections) { if (!validId(c.id) || !['chat', 'responses', 'anthropic', 'gemini'].includes(c.protocol) || typeof c.apiKey !== 'string' || !Number.isFinite(c.timeout) || c.timeout < 10 || c.timeout > 600) throw new Error('连接配置无效'); const u = new URL(c.baseUrl); if (!['https:', 'http:'].includes(u.protocol)) throw new Error('连接地址无效'); if (c.proxy && !/^https?:\/\//.test(c.proxy)) throw new Error('当前版本的代理需使用 HTTP/HTTPS 地址'); }
-  for (const c of s.conversations) {
-    if (!validId(c.id) || !Array.isArray(c.messages) || !Array.isArray(c.branches) || !c.branches.length) throw new Error('会话结构无效');
-    if (c.archived !== undefined && typeof c.archived !== 'boolean') throw new Error('会话归档状态无效');
-    const ids = new Set<string>();
-    for (const m of c.messages) { if (!validId(m.id) || ids.has(m.id) || !['user','assistant'].includes(m.role) || typeof m.text !== 'string' || !Array.isArray(m.attachments) || !Array.isArray(m.tools) || !Array.isArray(m.sources)) throw new Error('消息结构无效'); ids.add(m.id); }
-    const byId = new Map(c.messages.map(m => [m.id, m]));
-    for (const m of c.messages) { const seen = new Set<string>(); let current: typeof m | undefined = m; while (current) { if (seen.has(current.id)) throw new Error('消息结构存在循环'); seen.add(current.id); if (!current.parentId) break; current = byId.get(current.parentId); if (!current) throw new Error('缺少父消息'); } }
-    const branchIds = new Set(c.branches.map(b => b.id));
-    if (!branchIds.has(c.activeBranchId)) throw new Error('当前分支无效');
-    for (const b of c.branches) if (!validId(b.id) || (b.leafId && !ids.has(b.leafId)) || !b.config || !Array.isArray(b.draftAttachments) || (b.parentBranchId && !branchIds.has(b.parentBranchId)) || (b.config.temperature !== undefined && (!Number.isFinite(b.config.temperature) || b.config.temperature < 0 || b.config.temperature > 2)) || (b.config.topP !== undefined && (!Number.isFinite(b.config.topP) || b.config.topP < 0 || b.config.topP > 1))) throw new Error('分支结构无效');
-  }
-}

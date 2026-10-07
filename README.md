@@ -68,6 +68,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily/Firecrawl/AnySearch 工具检索，以及 `web_fetch` 网页正文抓取与来源展示；模型还可调用 `datetime` 读取本机日期时间（含星期、时区偏移和 UTC 时刻），标题与压缩等后台请求不提供该工具。
 - 回答操作行的“请求详情”按钮可查看该回答实际发送的请求地址、请求头（密钥与自定义请求头显示为掩码，头名称保留）和请求体；失败请求附带上游返回的报文。记录随对话保存在本地 SQLite 的独立 `requests` 表里，重启后仍可查看，总量上限约 32 MB（超出后按最旧优先清理），删除会话时一并删除；记录时会把附件 base64 折叠为长度占位，避免数据库被二进制内容撑大。
 - 回答下方右键菜单提供三种格式的复制、编辑为新版本、重新生成、查看请求详情和创建分支，选中文字时优先给出选区复制；会话列表项右键打开与“…”相同的菜单。侧栏拖动只调整宽度，不会顺手选中文字。
+- 界面按职责拆分：`App.tsx` 只保留状态与编排，消息行、输入区、侧栏、大纲和浮层行为分别位于 `MessageRow`、`Composer`、`Sidebar`、`OutlinePanel` 与 `usePopover`；消息行按内容比较跳过重渲染，Markdown 只在自身文本变化时重新渲染。
 - 一轮回答中有多段推理时，每张推理摘要卡片显示各自的耗时（旧数据只有总耗时，仅在单段时回退显示）。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
@@ -110,6 +111,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 ```text
 ~/.config/DeepChan-chat/data/chat.sqlite
 ~/.config/DeepChan-chat/data/attachments/
+~/.config/DeepChan-chat/data/requests/
 ~/.config/DeepChan-chat/data/credentials.json
 ```
 
@@ -121,17 +123,17 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 
 使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、搜索服务 Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
 
-渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。应用内“请求详情”同样由主进程提供：`Authorization`、`x-api-key`、`x-goog-api-key` 以及在连接里配置的自定义请求头，在离开主进程前就已替换为掩码（只保留头名称，便于核对发出去的头）。请求记录写入本地 SQLite 的独立 `requests` 表，与其他数据一起受本地文件权限保护，但不会进入结构化导出和备份，导入备份时会清空。
+渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。应用内“请求详情”同样由主进程提供：`Authorization`、`x-api-key`、`x-goog-api-key` 以及在连接里配置的自定义请求头，在离开主进程前就已替换为掩码（只保留头名称，便于核对发出去的头）。请求记录写在数据目录下独立的 `requests/` 文件里（与 `attachments/` 并列），因此既不会进入结构化导出和备份（导入备份时清空），也不会撑大每次保存都要重写的数据库文件；目录 `0700`、文件 `0600`。
 
 排查上游返回的模糊 400/500（例如中转网关改写请求体）时，可用 `DEEPCHAN_DEBUG_REQUESTS=<目录> npm run dev` 把每次发往服务端的请求地址与请求体转储到该目录，用于核对实际负载。转储不含请求头（因此不含 API Key），文件权限 `0600`，默认关闭；其中包含聊天内容，排查完请删除。
 
 ## 验证
 
 ```bash
-npm run typecheck
-npm test
-npm run build
-npm run test:desktop
+npm run check          # 类型检查 + 单元测试
+npm run build          # 类型检查 + 前端打包 + 主进程打包
+npm run test:dev       # 启动 Vite 开发服务，验证开发页与设置界面能正常加载
+npm run test:desktop   # 构建后启动真实 Electron 窗口跑桌面回归
 ```
 
 有桌面会话时直接运行 `npm run test:desktop`。仅在确实没有显示器（CI、容器、纯 SSH）时才需要套一层虚拟显示：

@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
+import type { Model } from '../src/types';
+import { uid } from '../src/domain';
+import type { Message } from '../src/types';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -177,3 +180,67 @@ test('GPT thinking levels include xhigh and Gemini names default to vision and t
   assert.equal(shouldDefaultVisionAndTools('openrouter/gemini-3-flash'), true);
   assert.equal(shouldDefaultVisionAndTools('llama-3.1-70b'), false);
 });
+
+test('branch names stay unique after branches are renamed or deleted', () => {
+  const { c, b, a } = fixture();
+  const first = fork(c, a.id);
+  assert.equal(first.name, '分支');
+  const second = fork(c, a.id);
+  assert.equal(second.name, '分支 2');
+  assert.equal(uniqueBranchName(c.branches, '分支'), '分支 3', '已占用的名字必须跳过');
+  first.name = '已重命名';
+  removeBranch(c, second.id);
+  assert.equal(uniqueBranchName(c.branches, '分支'), '分支', '重命名与删除后名字重新可用');
+  assert.equal(uniqueBranchName(c.branches, '主线'), '主线 2', '“主线”与计数无关，同样要避让');
+  assert.equal(editMessage(c, c.messages[0].id, '改写后的问题').branch.name, '编辑');
+  assert.equal(editMessage(c, c.messages[0].id, '再改一次').branch.name, '编辑 2');
+  assert.equal(b.leafId, a.id);
+});
+
+test('a deleted model still shows the name recorded on the answer', () => {
+  const { c, b, a } = fixture();
+  const entry: Model = { id: 'm1', connectionId: 'c1', name: 'GPT Luna', model: 'gpt-6-luna', contextWindow: 100, maxOutput: 10, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
+  a.modelId = entry.id; a.modelName = entry.name;
+  assert.equal(messageModelLabel(a, [{ ...entry }]), 'GPT Luna');
+  assert.equal(messageModelLabel(a, []), 'GPT Luna', '模型被删除后回退到消息记录的名字');
+  assert.equal(messageModelLabel({ ...a, modelName: undefined }, []), '未知模型');
+  assert.equal(messageModelLabel({ ...a, modelId: undefined, modelName: undefined }, []), '未知模型');
+  assert.equal(b.leafId, a.id);
+});
+
+test('message comparison sees every field the row renders', () => {
+  const state = initialState(), c = createConversation(state.settings), b = c.branches[0];
+  const base = addMessage(c, b, 'assistant', '正文');
+  base.status = 'complete'; base.reasoning = '推理'; base.reasoningMs = 1200;
+  base.segments = [{ type: 'text', text: '正文' }, { type: 'reasoning', text: '推理', ms: 1200 }];
+  base.tools = [{ id: 't1', name: 'exa_search', input: '{}', output: '结果', status: 'done', started: 1, elapsed: 20 }];
+  base.sources = [{ title: '来源', url: 'https://example.com' }];
+  base.attachments = [{ id: uid(), name: 'a.png', mime: 'image/png', size: 3, data: 'data:image/png;base64,AAA=' }];
+  base.usage = { input: 10, output: 5, cachedInput: 2, elapsedMs: 100, generationMs: 90, firstTokenMs: 30 };
+  base.modelId = 'm1'; base.modelName = 'GPT Luna'; base.connectionName = '中转';
+  assert.equal(sameMessage(base, structuredClone(base)), true, '内容相同的新对象必须视为未变化');
+  assert.equal(sameMessage(base, base), true);
+  const changed = (mutate: (message: Message) => void) => { const copy = structuredClone(base); mutate(copy); return sameMessage(base, copy); };
+  assert.equal(changed(m => { m.text = '正文改'; }), false);
+  assert.equal(changed(m => { m.text = '正文字数相同'; }), false, '长度相同但内容不同也必须察觉');
+  assert.equal(changed(m => { m.reasoning = '推理改'; }), false);
+  assert.equal(changed(m => { m.reasoningMs = 1300; }), false);
+  assert.equal(changed(m => { m.status = 'streaming'; }), false);
+  assert.equal(changed(m => { m.edited = true; }), false);
+  assert.equal(changed(m => { m.error = '失败'; }), false);
+  assert.equal(changed(m => { m.modelName = '别的模型'; }), false);
+  assert.equal(changed(m => { m.connectionName = '别的连接'; }), false);
+  assert.equal(changed(m => { m.segments = [{ type: 'text', text: '正文改' }]; }), false);
+  assert.equal(changed(m => { m.segments = [{ type: 'reasoning', text: '推理', ms: 1 }, { type: 'text', text: '正文' }]; }), false);
+  assert.equal(changed(m => { m.tools[0].output = '结果改'; }), false);
+  assert.equal(changed(m => { m.tools[0].status = 'running'; }), false);
+  assert.equal(changed(m => { m.tools[0].elapsed = 21; }), false);
+  assert.equal(changed(m => { m.tools = []; }), false);
+  assert.equal(changed(m => { m.sources = []; }), false);
+  assert.equal(changed(m => { m.sources[0].url = 'https://other.example'; }), false);
+  assert.equal(changed(m => { m.attachments = []; }), false);
+  assert.equal(changed(m => { m.attachments[0].markdown = '# 转换'; }), false);
+  assert.equal(changed(m => { m.usage!.output = 6; }), false);
+  assert.equal(changed(m => { m.usage!.cachedInput = undefined; }), false);
+  assert.equal(changed(m => { m.usage = undefined; }), false);
+}); 
