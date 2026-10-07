@@ -70,6 +70,10 @@ export class Store {
   save(state: AppState) {
     this.resolveSecrets(state);
     state.settings.credentialStorageVersion = 1;
+    // Attachment bytes live in their own files. Restore any that the in-memory copy lost so a
+    // stale renderer payload can never empty a stored attachment (the request builder then has
+    // no blob to send and providers answer with an opaque 400).
+    for (const a of attachments(state)) if (validId(a.id) && !a.data) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     const copy = structuredClone(state);
     this.secrets.clear(); this.db.run('DELETE FROM secrets');
     for (const c of copy.settings.connections) { this.saveSecret(c.id, c.apiKey, copy.settings.secretPolicy); this.saveSecret('headers:' + c.id, JSON.stringify(c.headers), copy.settings.secretPolicy); c.apiKey = ''; c.headers = {}; }
@@ -81,9 +85,14 @@ export class Store {
     const keep = new Set<string>();
     for (const a of attachments(copy)) {
       if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');
+      // Every referenced attachment keeps its file, including one that is down to its converted
+      // Markdown: deleting that file would destroy the only remaining copy of the content.
+      const name = `${a.id}.txt`; keep.add(name);
       if (!a.data && a.markdown !== undefined) continue;
-      if (!/^data:[^;,]+;base64,[A-Za-z0-9+/]*={0,2}$/.test(a.data) || a.data.length > 15_000_000) throw new Error('附件格式无效或超过 10 MB');
-      const name = `${a.id}.txt`; keep.add(name); const file = join(this.directory, 'attachments', name);
+      if (!a.data) throw new Error(`附件“${a.name}”的内容已缺失，请重新添加该附件`);
+      if (!/^data:[^;,]+;base64,[A-Za-z0-9+/]*={0,2}$/.test(a.data)) throw new Error('附件格式无效');
+      if (a.data.length > 15_000_000) throw new Error('附件超过 10 MB');
+      const file = join(this.directory, 'attachments', name);
       if (!existsSync(file)) writeFileSync(file, a.data, { mode: 0o600 }); a.data = '';
     }
     this.db.run('INSERT OR REPLACE INTO state (id,payload) VALUES (1,?)', [JSON.stringify(copy)]);

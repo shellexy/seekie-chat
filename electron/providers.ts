@@ -1,19 +1,34 @@
 import { fetch, ProxyAgent } from 'undici';
 import * as os from 'node:os';
-import { generateGemini } from './gemini';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { generateGemini, sanitizeStoredParts } from './gemini';
 import { UsageCounter } from './usage';
-import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
+import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
 import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
 import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
-export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void }
+export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void }
 export type WebFetch = (url: string, signal: AbortSignal, settings: Settings, mode: WebFetchMode | undefined) => Promise<FetchedPage>;
-const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {} };
+const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {}, notice() {} };
 const CODEX_CLI_VERSION = '0.162.1';
 const CLAUDE_CODE_VERSION = '2.1.296';
 const CODEX_ORIGINATOR = 'codex_cli_rs';
+// Opt-in diagnostics for opaque upstream rejections: with DEEPCHAN_DEBUG_REQUESTS=<dir> every
+// outgoing body is dumped there, and rejected requests also record what the upstream answered
+// (credentials live in headers and are never written). Off by default, and a diagnostics failure
+// must never break a request.
+function dumpRequest(url: string, body: unknown, error?: string) {
+  const directory = process.env.DEEPCHAN_DEBUG_REQUESTS;
+  if (!directory) return;
+  try {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const name = `${error ? 'error' : 'request'}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}.json`;
+    writeFileSync(join(directory, name), JSON.stringify(error ? { url, error, body } : { url, body }, null, 2), { mode: 0o600 });
+  } catch { /* Diagnostics are best effort. */ }
+}
 export function endpoint(connection: Connection, path: string) {
   const base = connection.baseUrl.replace(/\/+$/, '');
   const url = new URL(base);
@@ -48,12 +63,14 @@ export function authHeaders(connection: Connection, model?: string | Pick<Model,
 async function requestUrl(connection: Connection, url: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
   const parsed = new URL(url);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('API 地址必须使用 HTTP 或 HTTPS');
+  dumpRequest(url, body);
   const dispatcher = connection.proxy ? new ProxyAgent(connection.proxy) : undefined;
   try {
     const response = await fetch(parsed, { method: body ? 'POST' : 'GET', headers: authHeaders(connection, model), body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(10, connection.timeout) * 1000)]), dispatcher });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1200);
+      dumpRequest(url, body, `${response.status} ${detail}`);
       const labels: Record<number, string> = { 401: '认证失败，请检查 API Key', 403: '没有权限访问该服务', 404: '模型或 API 路径不存在', 429: '服务限流或余额不足' };
       throw new Error(`${labels[response.status] || '服务请求失败'} (${response.status})：${detail}`);
     }
@@ -88,18 +105,74 @@ const webFetchTool = { name: 'web_fetch', description: '读取公开网页正文
 function searchParameters(value: unknown) {
   return value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value, null, 2) : '服务端没有返回显式搜索参数';
 }
+// A no-argument tool call arrives with empty arguments, and some gateways send the arguments as
+// an object instead of a JSON string. Replaying "" breaks OpenAI-compatible gateways
+// (OpenRouter / New API answer 400 "arguments must contain valid JSON") and stops the request.
+function replayArguments(value: unknown) {
+  if (typeof value === 'string') return value.trim() || '{}';
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return '{}';
+}
+interface PendingToolCall { index?: number; id: string; type: string; function: { name: string; arguments: string }; pendingStarted: number }
+function isCompleteJson(value: string) {
+  if (!value.trim()) return false;
+  try { JSON.parse(value); return true; } catch { return false; }
+}
+function lastToolCall(calls: PendingToolCall[], match: (call: PendingToolCall) => boolean) {
+  for (let index = calls.length - 1; index >= 0; index--) if (match(calls[index])) return calls[index];
+  return undefined;
+}
+// OpenAI streams one call fragment at a time under a stable index, but compatible gateways
+// (New API, OpenRouter) reuse that index, omit ids, or send several complete calls in one chunk.
+// Keying only by index merged parallel calls into a single "datetimeexa_search" whose arguments
+// were concatenated JSON objects, so the gateway rejected the whole request. Fall back to the id,
+// then to the last still-open call, and start a new call when a delta cannot be a fragment.
+function resolveToolCall(calls: PendingToolCall[], delta: any): PendingToolCall {
+  const name = typeof delta.function?.name === 'string' ? delta.function.name : '';
+  const args = typeof delta.function?.arguments === 'string' ? delta.function.arguments : '';
+  const identified = delta.id ? lastToolCall(calls, call => call.id === delta.id) : undefined;
+  if (identified) return identified;
+  const candidate = (typeof delta.index === 'number' ? lastToolCall(calls, call => call.index === delta.index) : undefined)
+    || (delta.id || typeof delta.index === 'number' ? undefined : calls.at(-1));
+  if (candidate && !(
+    // A different function name, a fresh complete JSON object, or another id means a new call.
+    (!!name && !!candidate.function.name && !candidate.function.name.endsWith(name))
+    || (isCompleteJson(candidate.function.arguments) && isCompleteJson(args))
+    || (!!delta.id && !!candidate.id && delta.id !== candidate.id)
+  )) return candidate;
+  const created: PendingToolCall = { index: typeof delta.index === 'number' ? delta.index : undefined, id: delta.id || `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`, type: delta.type || 'function', function: { name: '', arguments: '' }, pendingStarted: Date.now() };
+  calls.push(created);
+  return created;
+}
 function compatibleRaw(m: Message, protocol: string): any[] | undefined {
   const raw = m.raw as Result['raw'] | undefined;
-  return !m.edited && m.status === 'complete' && raw?.protocol === protocol ? raw.entries : undefined;
+  if (m.edited || m.status !== 'complete' || raw?.protocol !== protocol) return undefined;
+  return raw.entries.map(entry => {
+    // Entries stored by an earlier release (or produced by a gateway) can carry payloads that the
+    // provider rejects on replay: an empty tool-call argument string, or a Gemini part with no
+    // content field. Repair them here so an existing conversation keeps working.
+    if (Array.isArray(entry?.tool_calls)) return { ...entry, tool_calls: entry.tool_calls.map((call: any) => call?.function ? { ...call, function: { ...call.function, arguments: replayArguments(call.function.arguments) } } : call) };
+    if (entry?.type === 'function_call') return { ...entry, arguments: replayArguments(entry.arguments) };
+    if (entry?.role === 'model' && Array.isArray(entry.parts)) return { ...entry, parts: sanitizeStoredParts(entry.parts) };
+    if (Array.isArray(entry?.parts)) return { ...entry, parts: sanitizeStoredParts(entry.parts) };
+    return entry;
+  });
 }
 export function buildInput(protocol: string, messages: Message[], model?: Model): any[] {
   return messages.flatMap(m => {
     const raw = compatibleRaw(m, protocol); if (m.role === 'assistant' && raw?.length) return raw;
-    const converted = m.attachments.map(a => ({ attachment: a, markdown: markdownForUnsupported(a, protocol, model) })).filter(item => item.markdown);
-    const text = [m.text || (m.attachments.length ? '请查看附件。' : '（空消息）'), ...converted.map(({ attachment, markdown }) => `附件“${attachment.name}”的 Markdown 内容：\n${markdown}`)].join('\n\n');
-    const native = m.attachments.filter(a => !markdownForUnsupported(a, protocol, model));
-    const payload = native.map(a => {
-      const data = a.data.split(',')[1];
+    // A stored attachment can lose its bytes and keep only the converted Markdown. Never turn
+    // that into a native part with no payload: providers reject the opaque empty blob with a
+    // 400 ("required oneof field 'data' must have one initialized field") and stop the request.
+    const items = m.attachments.map(attachment => {
+      const data = attachmentBase64(attachment);
+      const native = !!data && canSendNative(protocol, model, attachment);
+      return { attachment, data, native, markdown: native ? '' : attachment.markdown || markdownForUnsupported(attachment, protocol, model) };
+    });
+    const lost = items.find(item => !item.native && !item.markdown);
+    if (lost) throw new Error(`附件“${lost.attachment.name}”的内容已缺失，请重新添加该附件后再发送`);
+    const text = [m.text || (m.attachments.length ? '请查看附件。' : '（空消息）'), ...items.filter(item => item.markdown).map(({ attachment, markdown }) => `附件“${attachment.name}”的 Markdown 内容：\n${markdown}`)].join('\n\n');
+    const payload = items.filter(item => item.native).map(({ attachment: a, data }) => {
       const format = a.name.split('.').at(-1)?.toLowerCase();
       if (protocol === 'gemini') return { inlineData: { mimeType: a.mime, data } };
       if (protocol === 'anthropic') return a.mime === 'application/pdf'
@@ -250,7 +323,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
     }
     const { response, close } = await request(connection, path, body, signal, model);
     const calls: { id: string; name: string; args: string }[] = [];
-    const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls = new Map<number, any>();
+    const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls: PendingToolCall[] = [];
     let finished = false;
     const anthropicUsage: Record<string, number> = {};
     const observeAnthropic = (snapshot: any) => {
@@ -272,12 +345,13 @@ export async function generate(connection: Connection, model: Model, config: Cha
             if (key === 'content' && typeof value === 'string' && value) { chatText += value; addText(value); }
             if (key === 'reasoning_content' && typeof value === 'string' && value) { chatReason += value; addReason(value); }
             if (key === 'tool_calls' && Array.isArray(value)) for (const c of value) {
-              const old = chatCalls.get(c.index) || { id: '', type: 'function', function: { name: '', arguments: '' }, pendingStarted: Date.now() };
+              const old = resolveToolCall(chatCalls, c);
               if (c.id) old.id = c.id;
-              if (c.function?.name) old.function.name += c.function.name;
-              if (c.function?.arguments) old.function.arguments += c.function.arguments;
-              chatCalls.set(c.index, old);
-              if (old.id && (old.function.name || old.function.arguments)) hooks.tool({ id: old.id, name: old.function.name || 'tool', input: old.function.arguments, output: '', status: 'pending', started: old.pendingStarted });
+              // Gateways may repeat the whole function name and may stream arguments as an object.
+              if (c.function?.name && !old.function.name.endsWith(c.function.name)) old.function.name += c.function.name;
+              if (typeof c.function?.arguments === 'string') old.function.arguments += c.function.arguments;
+              else if (c.function?.arguments) old.function.arguments = replayArguments(c.function.arguments);
+              if (old.id && old.function.name) hooks.tool({ id: old.id, name: old.function.name, input: replayArguments(old.function.arguments), output: '', status: 'pending', started: old.pendingStarted });
             }
           }
           if (choice?.finish_reason) finished = true;
@@ -286,10 +360,10 @@ export async function generate(connection: Connection, model: Model, config: Cha
           if (ev.type === 'response.output_text.delta') addText(ev.delta);
           if (ev.type === 'response.reasoning_summary_text.delta') addReason(ev.delta);
           if (ev.type === 'response.output_item.added' && ev.item?.type === 'web_search_call') updateResponseSearch(ev.item.id, { input: searchParameters(ev.item.action) });
-          if (ev.type === 'response.output_item.added' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: ev.item.arguments || '', output: '', status: 'pending', started: Date.now() });
+          if (ev.type === 'response.output_item.added' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: replayArguments(ev.item.arguments), output: '', status: 'pending', started: Date.now() });
           if (ev.type === 'response.output_item.done') responseItems.push(ev.item);
           if (ev.type === 'response.output_item.done' && ev.item?.type === 'web_search_call') updateResponseSearch(ev.item.id, { input: searchParameters(ev.item.action) });
-          if (ev.type === 'response.output_item.done' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: ev.item.arguments || '', output: '', status: 'pending', started: Date.now() });
+          if (ev.type === 'response.output_item.done' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: replayArguments(ev.item.arguments), output: '', status: 'pending', started: Date.now() });
           if (ev.type === 'response.output_text.annotation.added' && ev.annotation?.url) addSources([{ title: ev.annotation.title || ev.annotation.url, url: ev.annotation.url }]);
           if (ev.type === 'response.web_search_call.in_progress') updateResponseSearch(ev.item_id, { input: searchParameters(ev.action), status: 'running' });
           if (ev.type === 'response.web_search_call.searching' && (ev.action || ev.query)) updateResponseSearch(ev.item_id, { input: searchParameters(ev.action || { query: ev.query }) });
@@ -351,12 +425,13 @@ export async function generate(connection: Connection, model: Model, config: Cha
     if (!finished) throw new Error('流式连接提前结束，已收到的内容已保留');
     counter.finishRound();
     if (connection.protocol === 'chat') {
-      const toolCalls = [...chatCalls.values()].map(c => ({ id: c.id, type: c.type, function: c.function })); const assistant = { role: 'assistant', content: chatText || null, ...(chatReason ? { reasoning_content: chatReason } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
+      const toolCalls = chatCalls.map(c => ({ id: c.id, type: c.type, function: { name: c.function.name, arguments: replayArguments(c.function.arguments) } })); const assistant = { role: 'assistant', content: chatText || null, ...(chatReason ? { reasoning_content: chatReason } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
       input.push(assistant); entries.push(assistant);
       calls.push(...toolCalls.map(c => ({ id: c.id, name: c.function.name, args: c.function.arguments })));
     } else if (connection.protocol === 'responses') {
       for (const item of responseItems) {
         for (const c of item.content || []) for (const a of c.annotations || []) if (a.url) addSources([{ title: a.title || a.url, url: a.url }]);
+        if (item.type === 'function_call') item.arguments = replayArguments(item.arguments);
         // Native search records aren't needed for reconstructed stateless input.
         if (['message', 'reasoning', 'function_call'].includes(item.type)) { input.push(item); entries.push(item); }
         if (item.type === 'function_call') calls.push({ id: item.call_id || item.id, name: item.name, args: item.arguments });

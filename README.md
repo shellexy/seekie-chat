@@ -96,7 +96,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **本地读取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
 - **联网按钮**：同时启用或关闭联网搜索和读取网页；两项仍可在会话选项中分别调整。
 
-读取网页、外部服务搜索和 `datetime` 都要求模型支持工具调用。每个客户端工具各自限制每次回答最多 30 次调用，额度用完后该工具不再提供给模型，其他工具的额度不受影响；模型原生搜索由服务端触发，不计入此上限。`datetime` 无需参数，返回“本机时间 星期 | 时区 UTC 偏移 | UTC 时刻”一行文本，不产生引用来源。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
+读取网页、外部服务搜索和 `datetime` 都要求模型支持工具调用。每个客户端工具各自限制每次回答最多 30 次调用，额度用完后该工具不再提供给模型，其他工具的额度不受影响；模型原生搜索由服务端触发，不计入此上限。`datetime` 无需参数，返回“本机时间 星期 | 时区 UTC 偏移 | UTC 时刻”一行文本，不产生引用来源。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与任何函数工具（`datetime`、`web_fetch` 及外部搜索）同时使用需要 Gemini 3 或更新的模型，请求会一并发送 `toolConfig.includeServerSideToolInvocations`；较早的 Gemini 模型在原生搜索模式下不提供这些函数工具，需选择外部搜索模式才能使用。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 
@@ -120,6 +120,8 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。
 
+排查上游返回的模糊 400/500（例如中转网关改写请求体）时，可用 `DEEPCHAN_DEBUG_REQUESTS=<目录> npm run dev` 把每次发往服务端的请求地址与请求体转储到该目录，用于核对实际负载。转储不含请求头（因此不含 API Key），文件权限 `0600`，默认关闭；其中包含聊天内容，排查完请删除。
+
 ## 验证
 
 ```bash
@@ -129,11 +131,13 @@ npm run build
 npm run test:desktop
 ```
 
-无显示器的 Linux 环境可运行：
+有桌面会话时直接运行 `npm run test:desktop`。仅在确实没有显示器（CI、容器、纯 SSH）时才需要套一层虚拟显示：
 
 ```bash
 xvfb-run -a npm run test:desktop
 ```
+
+`npm run test:desktop` 会先构建再用 Playwright 启动真实 Electron 窗口，因此需要能创建窗口的显示环境；X11 和 Wayland 都可以。
 
 桌面回归测试使用临时目录、本地模拟 API 和模拟密钥，不访问真实供应商、不产生 API 费用。覆盖四种协议和系统提示词库、自动标题、分支上下文隔离、回答版本、手动编辑、压缩、凭据文件权限、密钥重启恢复及默认联网行为。
 

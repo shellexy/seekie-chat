@@ -89,8 +89,10 @@ async function assertUsageDetails(page, output = 60) {
   assert.ok(message.usage.elapsedMs > 0); assert.ok(message.usage.firstTokenMs >= 0 && message.usage.firstTokenMs <= message.usage.elapsedMs);
   const modelMeta = answer.locator('.answer-model-meta');
   assert.match(await modelMeta.innerText(), /^.+·\d{2}:\d{2}$/);
+  // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
+  const modelTooltip = page.locator('.answer-model-popover');
   await modelMeta.hover();
-  const modelTooltip = page.locator('.answer-model-popover'); await modelTooltip.waitFor();
+  try { await modelTooltip.waitFor({ timeout: 2000 }); } catch { await modelMeta.hover(); await modelTooltip.waitFor(); }
   assert.match(await modelTooltip.innerText(), /模拟 .+ \| 本地模拟 .+•\d{4}-\d{2}-\d{2}·\d{2}:\d{2}/);
   await page.mouse.move(5, 5); await modelTooltip.waitFor({ state: 'hidden' });
   const trigger = answer.getByRole('button', { name: '查看 token 用量与速度' });
@@ -302,7 +304,10 @@ try {
     const gripBox = await grip.boundingBox(), centerX = gripBox.x + gripBox.width / 2, centerY = gripBox.y + gripBox.height / 2;
     await page.mouse.move(centerX, centerY); await page.mouse.down();
     await waitFor(page, () => document.querySelector('.composer-resize').hasPointerCapture(1));
-    await page.mouse.move(centerX, centerY - 100, { steps: 10 }); await page.mouse.up(); await page.waitForTimeout(250);
+    // Chromium coalesces moves that land in one frame, and a coalesced batch followed by pointerup
+    // loses the intermediate positions; let each step settle so the drag reflects real pointer input.
+    for (let step = 1; step <= 5; step++) { await page.mouse.move(centerX, centerY - step * 20); await page.waitForTimeout(30); }
+    await page.mouse.up(); await page.waitForTimeout(250);
     return await input.evaluate(el => el.getBoundingClientRect().height);
   }
   let resizedHeight = await dragComposerResize();

@@ -126,7 +126,8 @@ async function runChat(request: RunRequest) {
       const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
         text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emit(); }, reasoning: s => { if (s) { if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emit(); },
         tool: t => { finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emit(); },
-        sources: sources => { message.sources = sources; emit(); }
+        sources: sources => { message.sources = sources; emit(); },
+        notice: message => notify(message)
       }, webFetch);
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
       const elapsedMs = performance.now() - started;

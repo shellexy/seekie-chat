@@ -13,6 +13,10 @@ export function attachmentKind(attachment: Pick<Attachment, 'mime' | 'name'>): A
   return 'document';
 }
 
+export function attachmentBase64(attachment: Pick<Attachment, 'data'>) {
+  return /^data:[^;,]+;base64,(.*)$/s.exec(attachment.data || '')?.[1] || '';
+}
+
 export function canSendNative(protocol: Protocol | string, model: Model | undefined, attachment: Pick<Attachment, 'mime' | 'name'>) {
   if (!model) return attachmentKind(attachment) === 'image';
   const kind = attachmentKind(attachment);
@@ -29,9 +33,9 @@ export function canSendNative(protocol: Protocol | string, model: Model | undefi
 export async function convertUnsupportedAttachments(messages: Message[], protocol: Protocol, model: Model) {
   for (const message of messages) for (const attachment of message.attachments) {
     if (canSendNative(protocol, model, attachment) || attachment.markdown) continue;
-    const match = /^data:[^;,]+;base64,(.*)$/s.exec(attachment.data);
-    if (!match) throw new Error(`无法转换附件“${attachment.name}”：文件内容不可用。`);
-    const buffer = Buffer.from(match[1], 'base64');
+    const data = attachmentBase64(attachment);
+    if (!data) throw new Error(`无法转换附件“${attachment.name}”：文件内容不可用。`);
+    const buffer = Buffer.from(data, 'base64');
     const extension = extname(attachment.name).toLowerCase() || (attachment.mime === 'text/csv' ? '.csv' : attachment.mime === 'application/json' ? '.json' : '');
     try {
       const format = extension ? formatFromExtension(extension) : null;

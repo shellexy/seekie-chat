@@ -54,8 +54,8 @@ test('Gemini native search sends Google Search and displays only server-returned
     });
     const { state, conversation, branch } = fixture(), tools: any[] = [];
     const result = await generate(connection, model, { ...branch.config, effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, sources() {}, tool: t => tools.push(t) });
-    assert.deepEqual(body.tools[0], { googleSearch: {} });
-    assert.equal(body.tools.at(-1).functionDeclarations[0].name, 'datetime');
+    // The fixture model id is not a Gemini 3 model, so native search is sent without function tools.
+    assert.deepEqual(body.tools, [{ googleSearch: {} }]);
     assert.equal(result.sources[0].title, 'Electron'); assert.equal(tools[0].name, 'google_search'); assert.equal(tools[0].status, 'done');
   } finally { await agent.close(); }
 });
@@ -166,6 +166,175 @@ test('Gemini background requests disable local tools', async () => {
     await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', localTools: false, effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
     assert.equal(body.tools, undefined);
     assert.doesNotMatch(body.systemInstruction.parts[0].text, /datetime/);
+  } finally { await agent.close(); }
+});
+test('Gemini never replays a part without a content field', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://gemini.fixture.invalid'); let second: any;
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, frames([
+      // A signature that arrives before any content, and a bare thought marker, must not become
+      // parts of their own: the provider rejects them ("required oneof field 'data' ...").
+      { candidates: [{ content: { parts: [{ thoughtSignature: 'leading-signature' }] } }] },
+      { candidates: [{ content: { parts: [{ text: '先想一下。', thought: true }] } }] },
+      { candidates: [{ content: { parts: [{ thought: true }] } }] },
+      { candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: 'clock-p', name: 'datetime', args: {} } }] }, finishReason: 'STOP' }] }
+    ]));
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('已获取时间。')]); });
+    const { state, conversation, branch } = fixture();
+    await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    const parts = second.contents[1].parts;
+    assert.equal(parts.length, 2, `只有真实内容才应成为 part: ${JSON.stringify(parts)}`);
+    for (const part of parts) {
+      const contentFields = ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse'].filter(field => part[field] !== undefined);
+      assert.equal(contentFields.length, 1, `每个 part 必须恰好设置一个内容字段: ${JSON.stringify(part)}`);
+      if (part.text !== undefined) assert.ok(part.text.length > 0, `空字符串文本会被上游视为未初始化: ${JSON.stringify(part)}`);
+    }
+    assert.equal(parts[0].text, '先想一下。');
+    assert.equal(parts[0].thoughtSignature, 'leading-signature', '签名分片应并入它后面第一个有内容的 part');
+    assert.equal(parts[1].functionCall.id, 'clock-p');
+  } finally { await agent.close(); }
+});
+test('Gemini opts into server-side tool invocations whenever functions accompany Google Search', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const gemini3 = { ...model, model: 'models/gemini-3.1-pro' }, path = '/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse';
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('现在是本机时间。')]); });
+    const { state, conversation, branch } = fixture();
+    // Native search with webpage reading switched off still sends datetime as a function declaration.
+    await generate(connection, gemini3, { ...branch.config, search: 'native', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    assert.ok(body.tools.some((tool: any) => tool.googleSearch));
+    assert.deepEqual(body.tools.find((tool: any) => tool.functionDeclarations).functionDeclarations.map((tool: any) => tool.name), ['datetime']);
+    assert.deepEqual(body.toolConfig, { includeServerSideToolInvocations: true }, '内置工具与函数调用同时出现时必须 opt-in');
+  } finally { await agent.close(); }
+});
+test('Gemini keeps native search alone on models that cannot mix in function calls', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const older = { ...model, model: 'models/gemini-2.5-pro' }, path = '/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse';
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('按记忆回答。')]); });
+    const { state, conversation, branch } = fixture();
+    await generate(connection, older, { ...branch.config, search: 'native', webFetch: 'auto', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    assert.deepEqual(body.tools, [{ googleSearch: {} }], '较早模型不应同时收到内置工具和函数声明');
+    assert.equal(body.toolConfig, undefined);
+    assert.doesNotMatch(body.systemInstruction.parts[0].text, /datetime/, '不提供工具时也不能要求模型调用它');
+  } finally { await agent.close(); }
+});
+test('Gemini external search sends function declarations without a native tool config', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path: streamPath, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('按记忆回答。')]); });
+    const { state, conversation, branch } = fixture(); state.settings.exaKey = 'fixture';
+    await generate(connection, model, { ...branch.config, search: 'exa', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    assert.deepEqual(body.tools[0].functionDeclarations.map((tool: any) => tool.name), ['exa_search', 'datetime']);
+    assert.equal(body.toolConfig, undefined, '没有内置工具时无需 opt-in');
+  } finally { await agent.close(); }
+});
+test('Gemini opts in when only the history contains function calls', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const gemini3 = { ...model, model: 'models/gemini-3.1-pro', tools: false }, path = '/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse';
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('好的。')]); });
+    const { state, conversation, branch } = fixture();
+    // A model with tool calling switched off still replays an earlier tool round from history, and
+    // Google requires the opt-in for that combination too.
+    const answer = addMessage(conversation, branch, 'assistant', '时间已获取。'); answer.status = 'complete';
+    answer.raw = { protocol: 'gemini', entries: [
+      { role: 'model', parts: [{ functionCall: { id: 'clock-old', name: 'datetime', args: {} } }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'datetime', id: 'clock-old', response: { datetime: '2026-10-15 22:00:00 星期四' } } }] }
+    ] };
+    const question = addMessage(conversation, branch, 'user', '那现在呢');
+    await generate(connection, gemini3, { ...branch.config, search: 'native', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    assert.deepEqual(body.tools, [{ googleSearch: {} }], '工具调用关闭时不应下发函数声明');
+    assert.deepEqual(body.toolConfig, { includeServerSideToolInvocations: true }, '历史里有函数调用时同样必须 opt-in');
+  } finally { await agent.close(); }
+});
+test('Gemini drops contentless parts coming from stored history', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path: streamPath, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('好的。')]); });
+    const { state, conversation, branch } = fixture();
+    // Both roles can carry the damage: a bare thought marker in the model turn and a stale empty
+    // part in the tool-result turn must never reach the provider.
+    const answer = addMessage(conversation, branch, 'assistant', '先想一下。'); answer.status = 'complete';
+    answer.raw = { protocol: 'gemini', entries: [
+      { role: 'model', parts: [{ text: '先想一下。', thought: true }, { thought: true }] },
+      { role: 'user', parts: [{ functionResponse: { name: 'datetime', response: { datetime: '现在' } } }, { thoughtSignature: 'stale' }] }
+    ] };
+    const question = addMessage(conversation, branch, 'user', '继续');
+    await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    for (const content of body.contents) {
+      for (const part of content.parts) {
+        const fields = ['text', 'inlineData', 'fileData', 'functionCall', 'functionResponse', 'executableCode', 'codeExecutionResult', 'toolCall', 'toolResponse'].filter(field => part[field] !== undefined);
+        assert.equal(fields.length, 1, `每个 part 必须恰好一个内容字段: ${JSON.stringify(part)}`);
+        if (part.text !== undefined) assert.ok(part.text.length > 0, `空字符串文本会被上游视为未初始化: ${JSON.stringify(part)}`);
+      }
+    }
+  } finally { await agent.close(); }
+});
+test('Gemini retries with an external provider when a relay drops tool_config', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const gemini3 = { ...model, model: 'models/gemini-3.1-pro' }, path = '/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse';
+    const pool = agent.get('https://gemini.fixture.invalid'); let first: any, second: any;
+    pool.intercept({ path, method: 'POST' }).reply(400, options => {
+      first = JSON.parse(String(options.body));
+      // A relay that forwards tools but silently drops tool_config leaves Google rejecting the mix.
+      return { error: { message: 'Please enable tool_config.include_server_side_tool_invocations to use Built-in tools with Function calling.' } };
+    });
+    pool.intercept({ path, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('现在是本机时间。')]); });
+    const { state, conversation, branch } = fixture(); const notices: string[] = [];
+    const result = await generate(connection, gemini3, { ...branch.config, search: 'native', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, notice: message => notices.push(message) });
+    assert.deepEqual(first.tools[0], { googleSearch: {} });
+    assert.deepEqual(first.toolConfig, { includeServerSideToolInvocations: true });
+    assert.equal(second.toolConfig, undefined, '放弃内置工具后不再需要 opt-in');
+    assert.equal(second.tools.some((tool: any) => tool.googleSearch), false);
+    // Keyless Firecrawl is the documented auto fallback when no search key is configured.
+    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['firecrawl_search', 'datetime']);
+    assert.equal(result.text, '现在是本机时间。');
+    assert.match(notices[0] || '', /未转发 tool_config/); assert.match(notices[0] || '', /Firecrawl/);
+    assert.equal(result.sources.length, 0);
+  } finally { await agent.close(); }
+});
+test('Gemini keeps the user configured external provider when falling back', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const gemini3 = { ...model, model: 'models/gemini-3.1-pro' }, path = '/v1beta/models/gemini-3.1-pro:streamGenerateContent?alt=sse';
+    const pool = agent.get('https://gemini.fixture.invalid'); let second: any;
+    pool.intercept({ path, method: 'POST' }).reply(400, { error: { message: 'Please enable tool_config.include_server_side_tool_invocations to use Built-in tools with Function calling.' } });
+    pool.intercept({ path, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('现在是本机时间。')]); });
+    const { state, conversation, branch } = fixture(); state.settings.exaKey = 'fixture'; const notices: string[] = [];
+    await generate(connection, gemini3, { ...branch.config, search: 'native', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, notice: message => notices.push(message) });
+    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['exa_search', 'datetime']);
+    assert.match(notices[0] || '', /Exa/);
+  } finally { await agent.close(); }
+});
+test('Gemini never replays an empty text part', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://gemini.fixture.invalid'); let second: any;
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, frames([
+      { candidates: [{ content: { parts: [{ text: '先取时间。' }] } }] },
+      { candidates: [{ content: { parts: [{ functionCall: { id: 'clock-e', name: 'datetime', args: {} }, thoughtSignature: 'call-signature' }] } }] },
+      // The provider treats an empty string as "oneof not initialized", so this chunk must not
+      // become a part of the replayed model turn (it caused a 400 on contents[1].parts[1]).
+      { candidates: [{ content: { parts: [{ text: '' }] } }] },
+      { candidates: [{ content: { parts: [{ text: '', thoughtSignature: 'late-signature' }] }, finishReason: 'STOP' }] }
+    ]));
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('现在是本机时间。')]); });
+    const { state, conversation, branch } = fixture();
+    await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    const parts = second.contents[1].parts;
+    assert.equal(parts.length, 2, `空文本分片不应成为 part: ${JSON.stringify(parts)}`);
+    assert.equal(parts[0].text, '先取时间。');
+    assert.equal(parts[1].functionCall.name, 'datetime');
+    assert.equal(parts[1].thoughtSignature, 'late-signature', '空文本分片携带的签名应并入相邻 part');
+    for (const part of parts) if (part.text !== undefined) assert.ok(part.text.length > 0);
   } finally { await agent.close(); }
 });
 test('Gemini model discovery paginates, filters unsupported models and strips models/ prefixes', async () => {

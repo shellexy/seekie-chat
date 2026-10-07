@@ -5,3 +5,4 @@ dist-electron/
 .env*
 !.env.example
 .playwright/
+deepchan-debug/

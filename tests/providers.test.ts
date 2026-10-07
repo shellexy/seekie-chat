@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MockAgent, setGlobalDispatcher } from 'undici';
 import { authHeaders, buildInput, endpoint, generate, listModels, request, sse } from '../electron/providers';
 import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
@@ -428,6 +431,183 @@ test('unknown tools are rejected softly once, then stop a repeating request', as
   const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
   await assert.rejects(generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal), /重复请求不可用/);
   await agent.close();
+});
+
+test('a no-argument tool call is replayed with valid JSON arguments', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    // Gateways omit arguments entirely (or send an object) for tools that take none.
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'clock-1', type: 'function', function: { name: 'datetime' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '现在时间已获取。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '现在几点');
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal);
+  const replayed = secondBody.messages[2].tool_calls[0].function;
+  assert.equal(replayed.arguments, '{}', 'an empty argument string is invalid JSON for OpenAI-compatible gateways');
+  assert.doesNotThrow(() => JSON.parse(replayed.arguments));
+  assert.match(secondBody.messages.at(-1).content, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期/);
+  assert.equal(result.text, '现在时间已获取。'); assert.equal(result.sources.length, 0);
+  await agent.close();
+});
+
+test('object-shaped tool arguments from a gateway are replayed as JSON text', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-obj', type: 'function', function: { name: 'exa_search', arguments: { query: '广州天气' } } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: '天气', url: 'https://example.com/weather', text: '多云' }] });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '广州多云。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'fixture'; const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '广州天气');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal);
+  const replayed = secondBody.messages[2].tool_calls[0].function;
+  assert.deepEqual(JSON.parse(replayed.arguments), { query: '广州天气' });
+  await agent.close();
+});
+
+test('responses replays an empty function_call argument string as valid JSON', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let secondBody: any;
+  const call = { type: 'function_call', call_id: 'clock-r', name: 'datetime', arguments: '' };
+  pool.intercept({ path: '/v1/responses', method: 'POST' }).reply(200, [
+    { type: 'response.output_item.done', item: call },
+    { type: 'response.completed', response: { output: [call], usage: { input_tokens: 10, output_tokens: 1 } } }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/responses', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ type: 'response.output_text.delta', delta: '已获取时间。' }, { type: 'response.completed', response: { output: [], usage: { input_tokens: 12, output_tokens: 2 } } }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '现在几点');
+  await generate(connection('responses'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal);
+  const replayed = secondBody.input.find((item: any) => item.type === 'function_call');
+  assert.equal(replayed.arguments, '{}'); assert.doesNotThrow(() => JSON.parse(replayed.arguments));
+  await agent.close();
+});
+
+test('attachments without stored bytes fall back to Markdown instead of an empty native part', () => {
+  const state = initialState(), c = createConversation(state.settings), message = addMessage(c, c.branches[0], 'user', '看这个文件');
+  const attachment = { id: crypto.randomUUID(), name: 'report.pdf', mime: 'application/pdf', size: 12, data: '', markdown: '# 转换后的正文' };
+  message.attachments = [attachment];
+  const pdfModel = { ...model, pdfInput: true };
+  const input = buildInput('gemini', [message], pdfModel);
+  assert.match(JSON.stringify(input), /转换后的正文/);
+  assert.doesNotMatch(JSON.stringify(input), /inlineData/, 'a blob without bytes must never reach the provider');
+  assert.doesNotMatch(JSON.stringify(input), /"data"/);
+  attachment.markdown = '';
+  assert.throws(() => buildInput('gemini', [message], pdfModel), /内容已缺失/);
+});
+
+test('stored raw entries are repaired when they are replayed', () => {
+  const state = initialState(), c = createConversation(state.settings);
+  const chatAnswer = addMessage(c, c.branches[0], 'assistant', '时间已获取');
+  chatAnswer.status = 'complete';
+  chatAnswer.raw = { protocol: 'chat', entries: [{ role: 'assistant', content: null, tool_calls: [{ id: 'clock', type: 'function', function: { name: 'datetime', arguments: '' } }] }] };
+  const replayed = buildInput('chat', [chatAnswer])[0];
+  assert.equal(replayed.tool_calls[0].function.arguments, '{}');
+  const responsesAnswer = addMessage(c, c.branches[0], 'assistant', '时间已获取');
+  responsesAnswer.status = 'complete';
+  responsesAnswer.raw = { protocol: 'responses', entries: [{ type: 'function_call', call_id: 'clock', name: 'datetime', arguments: '' }] };
+  assert.equal(buildInput('responses', [responsesAnswer])[0].arguments, '{}');
+  const geminiAnswer = addMessage(c, c.branches[0], 'assistant', '时间已获取');
+  geminiAnswer.status = 'complete';
+  geminiAnswer.raw = { protocol: 'gemini', entries: [{ role: 'model', parts: [{ thought: true }, { text: '先想一下。', thoughtSignature: 'signed' }, { thoughtSignature: 'trailing' }] }] };
+  const parts = buildInput('gemini', [geminiAnswer])[0].parts;
+  assert.deepEqual(parts.map((part: any) => Object.keys(part).filter(key => ['text', 'inlineData', 'functionCall'].includes(key))), [['text']]);
+  assert.equal(parts[0].thoughtSignature, 'signed');
+});
+
+test('parallel tool calls that reuse one index stay separate calls', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let secondBody: any;
+  // New API converts Gemini function calls into one chunk where every call reports index 0 and no
+  // id; merging them by index produced "datetimeexa_search" with concatenated arguments.
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { tool_calls: [
+      { index: 0, type: 'function', function: { name: 'datetime', arguments: '{}' } },
+      { index: 0, type: 'function', function: { name: 'exa_search', arguments: '{"query":"广州实时天气"}' } },
+      { index: 0, type: 'function', function: { name: 'exa_search', arguments: '{"query":"亚运会奖牌榜"}' } }
+    ] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: '结果', url: 'https://example.com/one', text: '第一条' }] }).times(2);
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '已经查好了。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'fixture'; const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '现在几点，广州下雨吗，奖牌榜呢');
+  const events: Array<{ id: string; name: string; status: string }> = [];
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => events.push(t), sources() {} });
+  const replayed = secondBody.messages[2].tool_calls;
+  assert.deepEqual(replayed.map((call: any) => call.function.name), ['datetime', 'exa_search', 'exa_search']);
+  assert.deepEqual(replayed.map((call: any) => JSON.parse(call.function.arguments)), [{}, { query: '广州实时天气' }, { query: '亚运会奖牌榜' }]);
+  assert.equal(new Set(replayed.map((call: any) => call.id)).size, 3, '每个调用都必须有独立 id');
+  for (const call of replayed) assert.ok(call.id, '回灌的 tool_call 必须带 id');
+  const results = secondBody.messages.slice(-3);
+  assert.deepEqual(results.map((message: any) => message.role), ['tool', 'tool', 'tool']);
+  assert.deepEqual(results.map((message: any) => message.tool_call_id), replayed.map((call: any) => call.id));
+  assert.equal(results[0].content.startsWith('20'), true, 'datetime 返回本机时间');
+  assert.match(results[1].content, /第一条/);
+  assert.equal(result.sources.length, 1);
+  assert.equal(new Set(events.filter(event => event.status === 'pending').map(event => event.id)).size, 3, '三个调用各自有独立的待执行事件');
+  assert.equal(events.filter(event => event.name === 'datetime').length, 3, 'datetime 经历 pending/running/done');
+  assert.equal(events.filter(event => event.name === 'exa_search').length, 6, '两个搜索调用各自经历 pending/running/done');
+  await agent.close();
+});
+
+test('fragmented arguments under one index still merge into a single call', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-frag', type: 'function', function: { name: 'exa_search', arguments: '{"query"' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"广州天气"}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: '天气', url: 'https://example.com/weather', text: '多云' }] });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '广州多云。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'fixture'; const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '广州天气');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal);
+  const replayed = secondBody.messages[2].tool_calls;
+  assert.equal(replayed.length, 1);
+  assert.deepEqual(JSON.parse(replayed[0].function.arguments), { query: '广州天气' });
+  assert.equal(replayed[0].id, 'call-frag');
+  await agent.close();
+});
+
+test('request diagnostics record what was sent and what the upstream answered', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const directory = mkdtempSync(join(tmpdir(), 'deepchan-dump-')), previous = process.env.DEEPCHAN_DEBUG_REQUESTS;
+  process.env.DEEPCHAN_DEBUG_REQUESTS = directory;
+  try {
+    agent.get('https://fixture.invalid').intercept({ path: '/v1/models', method: 'GET' }).reply(200, { data: [] });
+    const ok = await request(connection('chat'), 'models', undefined, new AbortController().signal); await ok.response.json(); ok.close();
+    agent.get('https://fixture.invalid').intercept({ path: '/v1/responses', method: 'POST' }).reply(400, { error: { message: 'Please enable tool_config.include_server_side_tool_invocations' } });
+    await assert.rejects(request(connection('responses'), 'responses', { model: 'm' }, new AbortController().signal), /include_server_side_tool_invocations/);
+    const files = readdirSync(directory).sort();
+    // The failing request is recorded twice: what was sent, plus the upstream answer for it.
+    const errors = files.filter(name => name.startsWith('error-')), requests = files.filter(name => name.startsWith('request-'));
+    assert.equal(errors.length, 1); assert.equal(requests.length, 2);
+    const sent = JSON.parse(readFileSync(join(directory, requests[0]), 'utf8'));
+    assert.match(sent.url, /\/v1\/models$/); assert.equal(sent.error, undefined);
+    const failed = JSON.parse(readFileSync(join(directory, errors[0]), 'utf8'));
+    assert.match(failed.url, /\/v1\/responses$/);
+    assert.match(failed.error, /^400 /); assert.match(failed.error, /include_server_side_tool_invocations/);
+    assert.deepEqual(failed.body, { model: 'm' });
+  } finally {
+    if (previous === undefined) delete process.env.DEEPCHAN_DEBUG_REQUESTS; else process.env.DEEPCHAN_DEBUG_REQUESTS = previous;
+    rmSync(directory, { recursive: true, force: true }); await agent.close();
+  }
 });
 
 test('background requests disable local tools so title and compression stay single round', async () => {
