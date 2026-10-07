@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { modelLabel } from './domain';
+import { defaultModelEffort, modelLabel } from './domain';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
 // A draft image may still be in flight from the main process when a saved draft is restored.
@@ -70,7 +70,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 <input hidden ref={fileRef} type="file" multiple onChange={e => { onAttach([...e.target.files || []]); e.target.value = ''; }}/>
                 <div className="composer-meta">
                   <div className="model-selector">
-                    <select aria-label="聊天模型" title={model ? modelLabel(model, connections) : '选择模型'} value={branch.config.modelId} disabled={busy} onChange={e => { const m = models.find(x => x.id === e.target.value); onUpdateConfig({ modelId: e.target.value, effort: m?.efforts.includes(branch.config.effort) ? branch.config.effort : m?.efforts[0] || 'auto', budget: Math.min(branch.config.budget, Math.max(1024, (m?.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : 'auto' }); }}>
+                    <select aria-label="聊天模型" title={model ? modelLabel(model, connections) : '选择模型'} value={branch.config.modelId} disabled={busy} onChange={e => { const m = models.find(x => x.id === e.target.value); onUpdateConfig({ modelId: e.target.value, effort: m?.efforts.includes(branch.config.effort) ? branch.config.effort : defaultModelEffort(m), budget: Math.min(branch.config.budget, Math.max(1024, (m?.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : 'auto' }); }}>
                       <option value="">选择模型</option>
                       {sortedModels.map(m => <option key={m.id} value={m.id}>
                         {modelLabel(m, connections)}

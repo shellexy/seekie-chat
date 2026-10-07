@@ -32,7 +32,15 @@ export function shouldDefaultVisionAndTools(...names: string[]): boolean {
     return /(?:^|\/)(?:gpt|gemini)(?:[-_.:/]|$)/.test(normalized) || /(?:^|\/)deepseek[- ]flash(?:[-_.:/]|$)/.test(normalized);
   });
 }
-export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', webFetch: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
+// Preference order for a model's initial effort: what the service recommends, then the usual middle
+// level if the model supports it, then whatever comes first.
+export function defaultModelEffort(model?: Model): string {
+  if (!model) return 'auto';
+  if (model.defaultEffort && model.efforts.includes(model.defaultEffort)) return model.defaultEffort;
+  if (model.efforts.includes('medium')) return 'medium';
+  return model.efforts[0] || 'auto';
+}
+export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', webFetch: 'auto', effort: defaultModelEffort(settings.models.find(m => m.id === settings.defaultModel)), budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
 export function ollamaWebSearchKey(settings: Settings): string {
   if (settings.ollamaKey) return settings.ollamaKey;
   return settings.connections.find(connection => {

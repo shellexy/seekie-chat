@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, defaultModelEffort, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, messageModelLabel, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -244,3 +244,15 @@ test('message comparison sees every field the row renders', () => {
   assert.equal(changed(m => { m.usage!.cachedInput = undefined; }), false);
   assert.equal(changed(m => { m.usage = undefined; }), false);
 }); 
+
+test('a model starts at the effort its service recommends', () => {
+  const base = { id: 'm', connectionId: 'c', name: 'm', model: 'm', contextWindow: 1000, maxOutput: 100, vision: false, tools: false, nativeSearch: false, reasoning: 'effort' as const, temperature: true };
+  // The service's own recommendation wins over the usual middle level…
+  assert.equal(defaultModelEffort({ ...base, efforts: ['low', 'medium', 'high'], defaultEffort: 'high' }), 'high');
+  // …then the middle level, then whatever comes first, and an unusable recommendation is ignored.
+  assert.equal(defaultModelEffort({ ...base, efforts: ['low', 'medium', 'high'] }), 'medium');
+  assert.equal(defaultModelEffort({ ...base, efforts: ['minimal', 'low'] }), 'minimal');
+  assert.equal(defaultModelEffort({ ...base, efforts: [] }), 'auto');
+  assert.equal(defaultModelEffort({ ...base, efforts: ['low'], defaultEffort: 'max' }), 'low', '不在支持列表里的默认档位不得使用');
+  assert.equal(defaultModelEffort(undefined), 'auto');
+});

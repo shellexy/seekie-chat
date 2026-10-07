@@ -13,7 +13,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: [
       { id: 'fixture-model' },
       // A service that describes its models, in the shape DeepSeek documents.
-      { id: 'gpt-4o', name: 'GPT-4o', context_window: 128_000, max_output_tokens: 16_384, input_modalities: ['text', 'image'], output_modalities: ['text'], effort: { supported_levels: ['low', 'medium', 'high'], default_level: 'medium' } },
+      { id: 'gpt-4o', name: 'GPT-4o', context_window: 128_000, max_output_tokens: 16_384, input_modalities: ['text', 'image'], output_modalities: ['text'], effort: { supported_levels: ['low', 'medium', 'high'], default_level: 'high' } },
       { id: 'deepseek-flash' }
     ] })); return; }
   const data = JSON.parse(body); calls.push({ path: req.url, data });
@@ -208,11 +208,13 @@ try {
   // The dialog shows what the service described, and the description becomes the new model's defaults.
   const describedRow = page.locator('.model-picker-row', { hasText: 'GPT-4o' });
   const describedFacts = await describedRow.innerText();
-  for (const fact of ['上下文 128,000', '输出上限 16,384', '输入 text / image', '输出 text', '思考 low / medium / high（默认 medium）']) assert.ok(describedFacts.includes(fact), `对话框应显示「${fact}」，实际：${describedFacts}`);
+  for (const fact of ['上下文 128,000', '输出上限 16,384', '输入 text / image', '输出 text', '思考 low / medium / high（默认 high）']) assert.ok(describedFacts.includes(fact), `对话框应显示「${fact}」，实际：${describedFacts}`);
   assert.match(await page.locator('.model-picker-row', { hasText: 'fixture-model' }).innerText(), /服务端未提供更多信息/);
+  // Model cards are ordered by name, so they are addressed by title rather than by position.
+  const cardFor = title => page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: title }) }).last();
   for (const [index, id] of ['gpt-4o', 'deepseek-flash'].entries()) {
     await addServerModel(id, { fetched: index === 0 });
-    const added = page.locator('.settings-card').last();
+    const added = cardFor(id === 'gpt-4o' ? 'GPT-4o' : id);
     assert.equal(await added.getByLabel('图片输入', { exact: true }).isChecked(), true, `${id} should default image input on`);
     assert.equal(await added.getByLabel('工具调用', { exact: true }).isChecked(), true, `${id} should default tool calls on`);
     if (id !== 'gpt-4o') continue;
@@ -220,6 +222,7 @@ try {
     assert.equal(await added.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '128000', '服务端给出的上下文窗口应作为默认值');
     assert.equal(await added.getByLabel('最大输出（token）', { exact: true }).inputValue(), '16384', '服务端给出的输出上限应作为默认值');
     assert.equal(await added.getByLabel('支持的等级（逗号分隔）', { exact: true }).inputValue(), 'low,medium,high');
+    assert.match(await added.innerText(), /切换到此模型时使用服务端建议的 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
   }
   await addServerModel('fixture-model');
   assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');
@@ -406,6 +409,7 @@ try {
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
   assert.equal(await page.evaluate(async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
+
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
   await page.locator('.branch-pill').click();
   const branchRows = page.locator('.branch-option');
