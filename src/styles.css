@@ -1166,6 +1166,14 @@ summary {
   font-size: 13px;
   line-height: 1.8;
 }
+/* 模型选择与思考等级贴着发送按钮，把左侧留给附件与角色。 */
+.composer-models {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  min-width: 0;
+}
 .composer-bottom {
   display: flex;
   align-items: center;
@@ -1180,7 +1188,6 @@ summary {
   color: var(--muted);
 }
 .send-button {
-  margin-left: auto;
   background: var(--accent);
   color: var(--on-accent);
   border: 0;
@@ -1431,7 +1438,8 @@ summary {
 }
 .config-popover {
   width: 310px;
-  right: 0;
+  /* 会话选项按钮现在靠左，弹层改为左对齐向右展开，否则右对齐会顶出输入框的左边缘。 */
+  left: 0;
   bottom: 35px;
   padding: 19px;
   max-height: 70vh;

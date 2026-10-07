@@ -575,3 +575,15 @@ test('resetting the built-in roles restores them and leaves user roles alone', (
   // 库是空的也照常补回。
   assert.deepEqual(resetBuiltInPresets([]).map(p => p.id), ['general', 'coding', 'writing', 'translator', 'whale_lady']);
 });
+
+test('the whale prompt is a built-in constant that outlives the role library', async () => {
+  const { WHALELADY_SYSTEM_PROMPT, defaultPromptPresets, resetBuiltInPresets } = await import('../src/domain');
+  assert.ok(WHALELADY_SYSTEM_PROMPT.startsWith('【PERSONA_LOAD】'), '内置提示词应是这段人格说明');
+  assert.match(WHALELADY_SYSTEM_PROMPT, /TIMEOUT_SIGNAL$/);
+  const whale = defaultPromptPresets().find(p => p.id === 'whale_lady');
+  assert.equal(whale!.content, WHALELADY_SYSTEM_PROMPT, '角色库里的鲸鱼娘应直接用这个内置提示词');
+  // 即使用户把角色删了，内置提示词依然在，将来那个"用鲸鱼娘开始对话"的按钮仍能取到。
+  const withoutRole = defaultPromptPresets().filter(p => p.id !== 'whale_lady');
+  assert.ok(!withoutRole.some(p => p.content === WHALELADY_SYSTEM_PROMPT), '删掉角色后库里不该再有它');
+  assert.equal(resetBuiltInPresets(withoutRole).find(p => p.id === 'whale_lady')!.content, WHALELADY_SYSTEM_PROMPT, '重置预设角色会把它按内置提示词补回');
+});

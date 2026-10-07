@@ -583,8 +583,18 @@ try {
   assert.equal(effortColors.closed, rgbOf(effortColors.muted), '思考等级框当前值仍为 --muted');
   assert.equal(effortColors.open, rgbOf(effortColors.text), '下拉列表文字为 --text');
   assert.equal(effortColors.background, rgbOf(effortColors.panel), '下拉列表底色与正文成对');
-  assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
-  await toolbar.getByRole('button', { name: '会话选项' }).click();
+  // 会话选项按钮的文字改成了角色预设名，可访问名里仍带着"会话选项"；mini-dot 去掉了。
+  const optionButton = toolbar.getByRole('button', { name: /会话选项/ });
+  assert.equal(await optionButton.count(), 1);
+  const optionText = (await optionButton.innerText()).trim();
+  assert.ok(optionText.length > 0, '按钮应显示角色预设名');
+  assert.ok(!optionText.includes('会话选项'), '按钮文字应改为角色预设名');
+  assert.equal(await optionButton.locator('.mini-dot').count(), 0, '不应再有 mini-dot');
+  // 模型选择与思考等级移到发送按钮左边。
+  const bottomOrder = await toolbar.evaluate(el => [...el.querySelectorAll('.composer-bottom > *')].map(c => c.className.split(' ')[0] || c.tagName.toLowerCase()));
+  const modelsAt = bottomOrder.indexOf('composer-models'), sendAt = bottomOrder.indexOf('send-button');
+  assert.ok(modelsAt >= 0 && modelsAt < sendAt, `模型选择应排在发送按钮左边：${bottomOrder.join(' → ')}`);
+  await optionButton.click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
   const searchMode = page.locator('.inline-config-field').first().locator('select');
   // 关闭 is offered last, after every concrete way of searching.

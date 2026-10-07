@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { defaultModelEffort, EFFORT_OFF, SEARCH_MODE_LABELS, WEB_FETCH_LABELS } from './domain';
+import { defaultModelEffort, EFFORT_OFF, SEARCH_MODE_LABELS, WEB_FETCH_LABELS, WHALELADY_SYSTEM_PROMPT } from './domain';
 import ModelPicker from './ModelPicker';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
@@ -30,6 +30,15 @@ export default function Composer({ branch, model, models, connections, busy, pen
   const composing = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null), optionsPopoverRef = useRef<HTMLDivElement>(null);
   const [options, setOptions] = useState(false);
+  // 按钮上显示当前分支用的角色名：优先按提示词内容匹配角色库；角色被删了但用的是内置的
+  // 鲸鱼娘提示词时，仍认得出她。
+  const roleName = (() => {
+    const system = branch?.config.system || '';
+    const matched = promptPresets.find(p => p.content === system);
+    if (matched) return matched.name || '未命名角色';
+    if (system === WHALELADY_SYSTEM_PROMPT) return '鲸鱼娘';
+    return '自定义提示词';
+  })();
   // The composer keeps its option popover, so it also owns closing it on Escape or outside clicks.
   useEffect(() => {
     if (!options) return;
@@ -70,35 +79,9 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 </button>
                 <input hidden ref={fileRef} type="file" multiple onChange={e => { onAttach([...e.target.files || []]); e.target.value = ''; }}/>
                 <div className="composer-meta">
-                  <div className="model-selector">
-                    <ModelPicker model={model} models={models} connections={connections} favorites={favoriteModels} recent={recentModels} disabled={busy}
-                      onSelect={m => onUpdateConfig({ modelId: m.id, effort: m.efforts.includes(branch.config.effort) ? branch.config.effort : defaultModelEffort(m),
-                        // Switching model keeps an explicit "off" but otherwise returns to the
-                        // user's preferred search mode: the old provider may not suit the new model.
-                        budget: Math.min(branch.config.budget, Math.max(1024, (m.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : defaultSearch })}
-                      onToggleFavorite={onToggleFavorite}/>
-                  </div>
-                  <div className="reasoning-selector">
-                    {model?.reasoning === 'budget' ? <select aria-label="思考等级" title="思考预算（token）" value={branch.config.budget} disabled={busy} onChange={e => onUpdateConfig({ budget: Number(e.target.value) })}>
-                      {!([1024,2048,4096,8192].includes(branch.config.budget)) && <option value={branch.config.budget}>
-                        {branch.config.budget}
-                      </option>}
-                      {[1024,2048,4096,8192].map(budget => <option key={budget} value={budget} disabled={budget >= model.maxOutput}>
-                        {budget}
-                      </option>)}
-                    </select> : <select aria-label="思考等级" title={model?.reasoning === 'effort' ? '选择当前模型的思考等级' : '当前模型未配置思考等级能力'} value={model?.reasoning === 'effort' ? branch.config.effort : 'auto'} disabled={busy || model?.reasoning !== 'effort'} onChange={e => onUpdateConfig({ effort: e.target.value })}>
-                      <option value="auto" title="不发送思考等级，由服务自己决定">
-                        {model?.reasoning === 'effort' ? 'auto' : '不支持'}
-                      </option>
-                      {/* none 是明确关闭思考，与 auto（不发送、由服务决定）不同，必须能选。 */}
-                      {model?.reasoning === 'effort' && model.efforts.filter(Boolean).map(level => <option key={level} value={level} title={level === EFFORT_OFF ? '关闭思考' : undefined}>
-                        {level}
-                      </option>)}
-                    </select>}
-                  </div>
                   <div className="popover-anchor">
-                    <button className="composer-option" onClick={() => setOptions(!options)}>
-                      <SettingsIcon size={14}/>会话选项{networkingEnabled && <span className="mini-dot"/>}
+                    <button className="composer-option" aria-label={`会话选项：${roleName}`} title={roleName} onClick={() => setOptions(!options)}>
+                      <SettingsIcon size={14}/>{roleName}
                     </button>
                     {options && <div className="popover config-popover" ref={optionsPopoverRef}>
                       <div className="config-popover-heading">
@@ -167,6 +150,34 @@ export default function Composer({ branch, model, models, connections, busy, pen
                     <Globe2 size={14}/>
                   </span>
                 </button>
+                <div className="composer-models">
+                  <div className="model-selector">
+                    <ModelPicker model={model} models={models} connections={connections} favorites={favoriteModels} recent={recentModels} disabled={busy}
+                      onSelect={m => onUpdateConfig({ modelId: m.id, effort: m.efforts.includes(branch.config.effort) ? branch.config.effort : defaultModelEffort(m),
+                        // Switching model keeps an explicit "off" but otherwise returns to the
+                        // user's preferred search mode: the old provider may not suit the new model.
+                        budget: Math.min(branch.config.budget, Math.max(1024, (m.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : defaultSearch })}
+                      onToggleFavorite={onToggleFavorite}/>
+                  </div>
+                  <div className="reasoning-selector">
+                    {model?.reasoning === 'budget' ? <select aria-label="思考等级" title="思考预算（token）" value={branch.config.budget} disabled={busy} onChange={e => onUpdateConfig({ budget: Number(e.target.value) })}>
+                      {!([1024,2048,4096,8192].includes(branch.config.budget)) && <option value={branch.config.budget}>
+                        {branch.config.budget}
+                      </option>}
+                      {[1024,2048,4096,8192].map(budget => <option key={budget} value={budget} disabled={budget >= model.maxOutput}>
+                        {budget}
+                      </option>)}
+                    </select> : <select aria-label="思考等级" title={model?.reasoning === 'effort' ? '选择当前模型的思考等级' : '当前模型未配置思考等级能力'} value={model?.reasoning === 'effort' ? branch.config.effort : 'auto'} disabled={busy || model?.reasoning !== 'effort'} onChange={e => onUpdateConfig({ effort: e.target.value })}>
+                      <option value="auto" title="不发送思考等级，由服务自己决定">
+                        {model?.reasoning === 'effort' ? 'auto' : '不支持'}
+                      </option>
+                      {/* none 是明确关闭思考，与 auto（不发送、由服务决定）不同，必须能选。 */}
+                      {model?.reasoning === 'effort' && model.efforts.filter(Boolean).map(level => <option key={level} value={level} title={level === EFFORT_OFF ? '关闭思考' : undefined}>
+                        {level}
+                      </option>)}
+                    </select>}
+                  </div>
+                </div>
                 {busy ? <button className="send-button stop" title="停止生成" onClick={onStop}>
                   <Square size={15} fill="currentColor"/>
                 </button> : <button className="send-button" title="发送消息" disabled={pending || !model || (!branch.draft.trim() && !branch.draftAttachments.length)} onClick={onSend}>

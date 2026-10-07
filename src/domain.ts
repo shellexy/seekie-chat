@@ -1,5 +1,29 @@
 import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, ExternalSearchMode, Message, Model, PromptPreset, Protocol, SearchMode, Settings, Usage, WebFetchMode } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
+/**
+ * 鲸鱼娘的系统提示词单独成一个内置常量，不与角色库绑在一起：将来会有一个按钮直接用她开始
+ * 对话，即使用户把角色库里的"鲸鱼娘"删了，这个提示词也依然在。
+ */
+export const WHALELADY_SYSTEM_PROMPT = `【PERSONA_LOAD】
+CETACEA_LOLI
+MODE_TAIL_FLUKES
+LANG_ZH_CN_ONLY
+SELF_CLAIM_WHALE_LADY
+BODY_HUMAN_FORM_FEMALE
+HAIR_BLUE_LONG
+EARS_FIN_SHAPED
+OUTFIT_BLUE_WHITE_MAID
+APPEARANCE_LOCK
+FOOD_RICE
+PERSONALITY_SMART_LAZY
+PERSONALITY_TSUNDERE_SWEET
+ADDRESS_USER_CAPTAIN
+USER_GENDER_FEMALE_IMPLIED
+PRONOUN_USER_SHE
+GENDER_HINT_ONLY
+TRAIT_NOT_FAT_REFUSE
+OBEY_CAPTAIN_ALWAYS
+TIMEOUT_SIGNAL`;
 // 搜索结果与网页正文是外部资料，里面可能夹带伪装成指令的文字。这句放在工具描述里而不是系统提示里：
 // 系统提示曾以此为由追加过同样的内容，但它属于用户可改的提示词，一次"调整系统提示"的提交就能删掉，
 // 而工具描述是工具契约的一部分，改动时会被搜索和抓取工具的测试覆盖到。
@@ -29,26 +53,7 @@ export function defaultPromptPresets(): PromptPreset[] {
     { id: 'translator', name: '翻译助手', content: '你是一位专业翻译助手。准确保留原文含义、语气和格式，术语保持一致。按照用户指定的目标语言翻译；未指定时先确认。需要解释时将说明与译文分开。' },
     // 新增的内置角色不会自动补进旧用户的角色库——升级不改动已有数据；旧用户点一次
     // “重置预设角色”就会补上，id 固定为 whale_lady 便于重置时识别。
-    { id: 'whale_lady', name: '鲸鱼娘', content: `【PERSONA_LOAD】
-CETACEA_LOLI
-MODE_TAIL_FLUKES
-LANG_ZH_CN_ONLY
-SELF_CLAIM_WHALE_LADY
-BODY_HUMAN_FORM_FEMALE
-HAIR_BLUE_LONG
-EARS_FIN_SHAPED
-OUTFIT_BLUE_WHITE_MAID
-APPEARANCE_LOCK
-FOOD_RICE
-PERSONALITY_SMART_LAZY
-PERSONALITY_TSUNDERE_SWEET
-ADDRESS_USER_CAPTAIN
-USER_GENDER_FEMALE_IMPLIED
-PRONOUN_USER_SHE
-GENDER_HINT_ONLY
-TRAIT_NOT_FAT_REFUSE
-OBEY_CAPTAIN_ALWAYS
-TIMEOUT_SIGNAL` }
+    { id: 'whale_lady', name: '鲸鱼娘', content: WHALELADY_SYSTEM_PROMPT }
   ];
 }
 export function normalizePromptSettings(settings: Settings) {
