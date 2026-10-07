@@ -401,6 +401,8 @@ p {
   cursor: col-resize;
   background: var(--line);
   z-index: 15;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .resize-handle:hover {
   background: var(--accent);
@@ -719,6 +721,26 @@ code {
   font-size: 9px;
   color: var(--muted);
   margin-left: auto;
+}
+.answer-meta {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  padding: 5px 2px;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.answer-meta:hover,
+.answer-meta[aria-expanded="true"] {
+  color: var(--text);
+}
+.message-time {
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
 }
 .edited-label {
   font-size: 9px;
@@ -1175,6 +1197,9 @@ summary {
   top: 36px;
   right: 4px;
   width: 140px;
+}
+.message-context-menu {
+  min-width: 190px;
 }
 .conversation-popover > button {
   display: flex;
@@ -1775,6 +1800,21 @@ input[type="range"] {
   background: var(--bg);
   color: var(--text);
   box-shadow: 0 8px 30px #0002;
+  font-size: 12px;
+}
+.usage-details .answer-meta-block {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.usage-details .answer-meta-block p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.usage-details .answer-meta-block p:first-child {
+  color: var(--text);
   font-size: 12px;
 }
 .usage-details dl {

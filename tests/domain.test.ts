@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, appendAssistantSegment, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, messageDateTime, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -8,7 +8,7 @@ function fixture() {
 }
 test('new model thinking levels use sensible defaults when the model is unknown', () => {
   assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['minimal', 'low', 'medium', 'high']);
-  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'medium', 'high', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'medium', 'high', 'xhigh', 'max']);
   assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['minimal', 'low', 'medium', 'high']);
 });
 test('GPT and DeepSeek Flash names default to vision and tool support', () => {
@@ -146,4 +146,34 @@ test('old settings receive a prompt library without changing existing conversati
   normalizePromptSettings(settings); assert.equal(settings.promptPresets.length, 4); assert.equal(c.branches[0].config.system, '用户自己的旧提示词');
   settings.promptPresets = []; settings.defaultPromptPresetId = ''; normalizePromptSettings(settings);
   assert.equal(settings.promptPresets.length, 0);
+});
+
+test('each reasoning segment records its own duration', () => {
+  const state = initialState(), c = createConversation(state.settings), b = c.branches[0], m = addMessage(c, b, 'assistant', '');
+  appendAssistantSegment(m, { type: 'reasoning', text: '第一段' });
+  appendReasoningDuration(m, 1200);
+  appendAssistantSegment(m, { type: 'tool', toolId: 't1' });
+  appendAssistantSegment(m, { type: 'reasoning', text: '第二段' });
+  appendReasoningDuration(m, 800);
+  appendReasoningDuration(m, 200);
+  appendAssistantSegment(m, { type: 'text', text: '回答' });
+  appendReasoningDuration(m, 5000);
+  assert.deepEqual(m.segments, [
+    { type: 'reasoning', text: '第一段', ms: 1200 },
+    { type: 'tool', toolId: 't1' },
+    { type: 'reasoning', text: '第二段', ms: 1000 },
+    { type: 'text', text: '回答' }
+  ]);
+  assert.equal(messageDateTime(new Date(2026, 9, 15, 23, 24).getTime()), '2026-10-15 23:24');
+});
+
+test('GPT thinking levels include xhigh and Gemini names default to vision and tools', () => {
+  assert.deepEqual(defaultModelEfforts('chat', 'gpt-6-luna'), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('responses', 'gpt-5.1'), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-flash'), ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'gemini-3.1-pro'), ['minimal', 'low', 'medium', 'high']);
+  assert.equal(shouldDefaultVisionAndTools('gemini-3.1-pro'), true);
+  assert.equal(shouldDefaultVisionAndTools('models/gemini-3.8-flash'), true);
+  assert.equal(shouldDefaultVisionAndTools('openrouter/gemini-3-flash'), true);
+  assert.equal(shouldDefaultVisionAndTools('llama-3.1-70b'), false);
 });

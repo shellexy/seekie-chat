@@ -34,7 +34,9 @@ export interface ToolEvent {
   id: string; name: string; input: string; output: string; status: 'pending' | 'running' | 'done' | 'error';
   started: number; elapsed?: number;
 }
-export type AssistantSegment = { type: 'text'; text: string } | { type: 'reasoning'; text: string } | { type: 'tool'; toolId: string };
+// A reasoning segment records how long that segment streamed, so an answer with several of them
+// can show a duration per card instead of one total on the last card.
+export type AssistantSegment = { type: 'text'; text: string } | { type: 'reasoning'; text: string; ms?: number } | { type: 'tool'; toolId: string };
 export interface Source { title: string; url: string }
 export interface Usage {
   input: number; output: number; estimated?: boolean;

@@ -5,7 +5,7 @@ import { Store, validateState, SECRET_MARKER } from './store';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { appendAssistantSegment, compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
+import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
@@ -111,9 +111,11 @@ async function runChat(request: RunRequest) {
     let reasoningStarted: number | undefined, reasoningElapsed = 0;
     const finishReasoning = () => {
       if (reasoningStarted === undefined) return;
-      reasoningElapsed += performance.now() - reasoningStarted;
+      const elapsed = performance.now() - reasoningStarted;
+      reasoningElapsed += elapsed;
       reasoningStarted = undefined;
       message.reasoningMs = reasoningElapsed;
+      appendReasoningDuration(message, elapsed);
     };
     try {
       let context = contextMessages(conversation, branch, message.parentId);

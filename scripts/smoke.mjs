@@ -87,17 +87,14 @@ async function assertUsageDetails(page, output = 60) {
   const message = await page.evaluate(async id => (await window.deepchan.load()).conversations.flatMap(c => c.messages).find(m => m.id === id), id);
   assert.equal(message.usage.input, 120); assert.equal(message.usage.output, output); assert.equal(message.usage.cachedInput, 30);
   assert.ok(message.usage.elapsedMs > 0); assert.ok(message.usage.firstTokenMs >= 0 && message.usage.firstTokenMs <= message.usage.elapsedMs);
-  const modelMeta = answer.locator('.answer-model-meta');
-  assert.match(await modelMeta.innerText(), /^.+·\d{2}:\d{2}$/);
-  // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
-  const modelTooltip = page.locator('.answer-model-popover');
-  await modelMeta.hover();
-  try { await modelTooltip.waitFor({ timeout: 2000 }); } catch { await modelMeta.hover(); await modelTooltip.waitFor(); }
-  assert.match(await modelTooltip.innerText(), /模拟 .+ \| 本地模拟 .+•\d{4}-\d{2}-\d{2}·\d{2}:\d{2}/);
-  await page.mouse.move(5, 5); await modelTooltip.waitFor({ state: 'hidden' });
-  const trigger = answer.getByRole('button', { name: '查看 token 用量与速度' });
+  // Model, connection, time and usage now share one control and one popover.
+  const trigger = answer.getByRole('button', { name: /^查看回答详情：/ });
+  assert.match(await trigger.innerText(), /^.+·\d{4}-\d{2}-\d{2} \d{2}:\d{2} · [\d,]+ 输入 · [\d,]+ 输出$/);
   const tooltip = page.getByRole('tooltip');
-  await trigger.hover(); await tooltip.waitFor();
+  // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
+  await trigger.hover();
+  try { await tooltip.waitFor({ timeout: 2000 }); } catch { await trigger.hover(); await tooltip.waitFor(); }
+  assert.match(await tooltip.locator('.answer-meta-block').innerText(), /模拟 .+\s+本地模拟 .+\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
@@ -329,7 +326,7 @@ try {
   await page.keyboard.press('Control+i');
   await page.locator('.chat-search-popover').waitFor({ state: 'hidden' });
   assert.equal(await input.evaluate(el => document.activeElement === el), true, 'Ctrl+I 聚焦消息输入框');
-  assert.equal(await page.locator('.message.assistant .answer-model-meta').first().getAttribute('aria-label'), '查看模型信息：模拟 chat');
+  assert.equal(await page.locator('.message.assistant .answer-meta').first().getAttribute('aria-label'), '查看回答详情：模拟 chat');
   const uploadButton = page.getByRole('button', { name: '添加图片或附件', exact: true });
   assert.equal((await uploadButton.innerText()).trim(), '');
   assert.equal(await page.locator('.composer-bottom input[type=file]').count(), 1);
@@ -454,7 +451,7 @@ try {
     await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.leafId === id; }, compressionFixture.originalLeaf);
     await waitFor(page, async id => [...document.querySelectorAll('.message.assistant')].at(-1)?.getAttribute('data-id') === id, compressionFixture.originalLeaf);
     assert.equal(await page.locator('.header-title small').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
-    assert.equal(await page.locator('.message.assistant .answer-model-meta').last().getAttribute('aria-label'), `查看模型信息：模拟 ${protocol}`);
+    assert.equal(await page.locator('.message.assistant .answer-meta').last().getAttribute('aria-label'), `查看回答详情：模拟 ${protocol}`);
     await assertUsageDetails(page, protocol === 'gemini' ? 72 : 60);
     // The in-app debug view must expose the outgoing request without ever exposing credentials.
     await page.locator('.message.assistant').last().getByRole('button', { name: '查看请求详情' }).click();
@@ -472,6 +469,22 @@ try {
     await debugWindow.waitFor({ state: 'hidden' });
     console.log('stage: protocol complete', protocol);
   }
+  // Right click menus, and the timestamp shown on user messages.
+  await page.locator('.conversation-item').first().click({ button: 'right' });
+  const listMenu = page.locator('.conversation-popover');
+  await listMenu.waitFor();
+  const listMenuText = await listMenu.innerText();
+  assert.match(listMenuText, /重命名/); assert.match(listMenuText, /删除会话/);
+  await page.keyboard.press('Escape'); await listMenu.waitFor({ state: 'hidden' });
+  await page.locator('.message.assistant').last().click({ button: 'right' });
+  const messageMenu = page.locator('.message-context-menu');
+  await messageMenu.waitFor();
+  const messageMenuText = await messageMenu.innerText();
+  assert.match(messageMenuText, /复制最后一段正文/); assert.match(messageMenuText, /重新生成并保留旧回答/); assert.match(messageMenuText, /查看请求详情/);
+  await page.screenshot({ path: join(directory, 'message-context-menu.png') });
+  await page.keyboard.press('Escape'); await messageMenu.waitFor({ state: 'hidden' });
+  assert.match(await page.locator('.message.user .message-time').last().innerText(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  console.log('stage: context menus');
   saved = await page.evaluate(() => window.deepchan.load());
   assert.equal(saved.conversations.length, 4);
   assert.equal(logs.length, 0, logs.join('\n'));
@@ -506,7 +519,7 @@ try {
     await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); return { id: c.id, selectedId };
   });
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
-  const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: '查看 token 用量与速度' });
+  const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: /^查看回答详情：/ });
   await legacyTrigger.click();
   await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 4);
   assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--']);

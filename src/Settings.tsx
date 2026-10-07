@@ -54,7 +54,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       const previousDefaults = defaultModelEfforts(connection?.protocol || 'chat', m.model);
       const stillUsingDefaults = m.efforts.length === previousDefaults.length && m.efforts.every((effort, index) => effort === previousDefaults[index]);
       if (stillUsingDefaults) next.efforts = defaultModelEfforts(connection?.protocol || 'chat', values.model);
-      else if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim()) && !next.efforts.includes('max')) next.efforts = [...next.efforts, 'max'];
+      else if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim())) next.efforts = [...new Set([...next.efforts, 'xhigh', 'max'])];
       if (/^qwen(?:\d|[-/]|$)/i.test(values.model.trim())) Object.assign(next, { vision: true, tools: true, nativeSearch: true, videoInput: true });
     }
     if ((typeof values.model === 'string' || typeof values.name === 'string') && shouldDefaultVisionAndTools(next.model, next.name)) Object.assign(next, { vision: true, tools: true });

@@ -21,13 +21,15 @@ export function normalizeSettings(settings: Settings) {
 export const uid = () => crypto.randomUUID();
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
-  if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim())) return ['low', 'medium', 'high', 'max'];
+  if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(model.trim())) return ['low', 'medium', 'high', 'xhigh', 'max'];
   return ['minimal', 'low', 'medium', 'high'];
 }
 export function shouldDefaultVisionAndTools(...names: string[]): boolean {
   return names.some(name => {
     const normalized = name.trim().toLowerCase().replace(/(^|\/)models\//g, '$1');
-    return /(?:^|\/)gpt(?:[-_.:/]|$)/.test(normalized) || /(?:^|\/)deepseek[- ]flash(?:[-_.:/]|$)/.test(normalized);
+    // Gemini models are also served through Chat Completions / Responses connections, where the
+    // protocol alone cannot tell that the model accepts images and tools.
+    return /(?:^|\/)(?:gpt|gemini)(?:[-_.:/]|$)/.test(normalized) || /(?:^|\/)deepseek[- ]flash(?:[-_.:/]|$)/.test(normalized);
   });
 }
 export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', webFetch: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
@@ -88,6 +90,14 @@ export function addMessage(conversation: Conversation, branch: Branch, role: Mes
   const message: Message = { id: uid(), parentId, role, text, reasoning: '', attachments: [], tools: [], sources: [], status: role === 'assistant' ? 'streaming' : 'complete', created: Date.now() };
   conversation.messages.push(message); branch.leafId = message.id; branch.updated = conversation.updated = Date.now();
   return message;
+}
+export function appendReasoningDuration(message: Message, elapsedMs: number) {
+  const segment = message.segments?.at(-1);
+  if (segment?.type === 'reasoning') segment.ms = (segment.ms ?? 0) + elapsedMs;
+}
+export function messageDateTime(timestamp: number) {
+  const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 export function appendAssistantSegment(message: Message, segment: AssistantSegment) {
   const segments = message.segments ??= [];

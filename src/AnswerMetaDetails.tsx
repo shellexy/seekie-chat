@@ -1,13 +1,12 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { messageDateTime } from './domain';
 import type { Usage } from './types';
 
-export function messageDate(timestamp: number) {
-  const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}·${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-export default function UsageDetails({ usage }: { usage: Usage }) {
+// One control for everything about a finished answer: which model answered, through which
+// connection, when, and what it cost. The popover keeps the usage metrics in the same
+// definition list the smoke tests and the docs already describe.
+export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage }) {
   const [open, setOpen] = useState(false), [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
   const pinned = useRef(false), closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined), id = useId();
@@ -41,25 +40,32 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
     };
   }, [open]);
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
-  const totalDuration = usage.elapsedMs === undefined ? '--' : `${(usage.elapsedMs / 1000).toFixed(2)} s`;
-  const speedDuration = usage.generationMs ?? usage.elapsedMs;
-  const speed = speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
+  const totalDuration = usage?.elapsedMs === undefined ? '--' : `${(usage!.elapsedMs / 1000).toFixed(2)} s`;
+  const speedDuration = usage ? usage.generationMs ?? usage.elapsedMs : undefined;
+  const speed = usage && speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
   return <>
-    <button ref={trigger} className="usage" aria-label="查看 token 用量与速度" aria-expanded={open} aria-describedby={open ? id : undefined}
+    <button ref={trigger} className="answer-meta" aria-label={`查看回答详情：${modelName}`} aria-expanded={open} aria-describedby={open ? id : undefined}
       onPointerEnter={show} onPointerLeave={leave} onFocus={show} onBlur={leave}
       onClick={() => { if (pinned.current) close(); else { pinned.current = true; show(); } }}>
-      {usage.input.toLocaleString()} 输入 · {usage.output.toLocaleString()} 输出
+      {modelName}·{messageDateTime(timestamp)}{usage && <> · {usage.input.toLocaleString()} 输入 · {usage.output.toLocaleString()} 输出</>}
     </button>
     {open && createPortal(<div ref={panel} id={id} className="usage-details" role="tooltip" style={position} onPointerEnter={show} onPointerLeave={leave}>
-      <dl>
-        <dt>输入：</dt><dd>{count(usage.input)}</dd>
-        <dt>输入（缓存）：</dt><dd>{count(usage.cachedInput)}</dd>
-        <dt>输出：</dt><dd>{count(usage.output)}</dd>
-        <dt>总耗时：</dt><dd>{totalDuration}</dd>
-        <dt>速度：</dt><dd>{speed}</dd>
-        <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
-      </dl>
-      <p>总耗时包含整个生成请求及工具等待；缓存为输入中的命中量。速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
+      <div className="answer-meta-block">
+        <p><strong>{modelName}</strong></p>
+        <p>{connectionName}</p>
+        <p>{messageDateTime(timestamp)}</p>
+      </div>
+      {usage && <>
+        <dl>
+          <dt>输入：</dt><dd>{count(usage.input)}</dd>
+          <dt>输入（缓存）：</dt><dd>{count(usage.cachedInput)}</dd>
+          <dt>输出：</dt><dd>{count(usage.output)}</dd>
+          <dt>总耗时：</dt><dd>{totalDuration}</dd>
+          <dt>速度：</dt><dd>{speed}</dd>
+          <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
+        </dl>
+        <p>总耗时包含整个生成请求及工具等待；缓存为输入中的命中量。速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
+      </>}
     </div>, document.body)}
   </>;
 }
