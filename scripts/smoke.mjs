@@ -153,19 +153,17 @@ async function assertUsageDetails(page, output = 60) {
     // 思考等级与角色预设名排在同一行。
     assert.equal(meta.lines.filter(line => line.includes('思考等级') && line.includes('角色预设')).length, 1, `思考等级与角色预设名应在同一行，实际分行：${JSON.stringify(meta.lines)}`);
   }
-  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','生成速度：','首个输出：','首字耗时：']);
+  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','端对端速度：','生成速度：','首 Token 生成时间：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
   assert.equal(values[3], `${(message.usage.elapsedMs / 1000).toFixed(2)} s`);
-  assert.equal(values[4], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
-  // 生成速度：生成耗时再减去首字耗时。
+  assert.equal(values[4], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`, '端对端速度按输出 ÷ 生成耗时');
   // 生成速度扣掉的是模型第一个输出之前的等待；推理也算输出，所以不能扣首字耗时。
   const generationMs = message.usage.generationMs ?? message.usage.elapsedMs;
   const firstOutput = message.usage.firstOutputMs ?? message.usage.firstTokenMs;
   const generationOnly = generationMs - firstOutput;
   assert.equal(values[5], generationOnly > 0 ? `${(output / (generationOnly / 1000)).toFixed(1)} tps` : '--', '生成速度应扣除首个输出之前的等待');
-  assert.equal(values[6], `${(firstOutput / 1000).toFixed(2)} s`, '首个输出应是模型开始出 token 的时刻');
-  assert.equal(values[7], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  assert.equal(values[6], `${(firstOutput / 1000).toFixed(2)} s`, '首 Token 生成时间应是模型开始出 token 的时刻');
   // 模型先思考时，"首个输出"应早于"正文首字"——两者不是一回事，生成速度用的是前者。
   if (message.reasoning) assert.ok(message.usage.firstOutputMs < message.usage.firstTokenMs, `首个输出应早于正文首字，实际 ${message.usage.firstOutputMs} vs ${message.usage.firstTokenMs}`);
   const box = await tooltip.boundingBox();
@@ -1058,8 +1056,8 @@ try {
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: /^查看回答详情：/ });
   await legacyTrigger.click();
-  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 6);
-  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--','--']);
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 5);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--']);
   assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
   await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);

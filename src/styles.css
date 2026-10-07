@@ -773,8 +773,8 @@ code {
 .tool-card {
   font-size: 12px;
   color: var(--muted);
-  /* 收起时没有边框和背景，行与行之间全靠这个间距分开——去掉它，推理摘要会紧贴住下面的正文。 */
-  margin-bottom: 8px;
+  /* 收起时没有边框和背景，贴着下面的正文，像一行标签。 */
+  margin-bottom: 0;
 }
 .thinking[open],
 .tool-card[open] {
