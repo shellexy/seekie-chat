@@ -130,6 +130,16 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 
 排查上游返回的模糊 400/500（例如中转网关改写请求体）时，可用 `DEEPCHAN_DEBUG_REQUESTS=<目录> npm run dev` 把每次发往服务端的请求地址与请求体转储到该目录，用于核对实际负载。转储不含请求头（因此不含 API Key），文件权限 `0600`，默认关闭；其中包含聊天内容，排查完请删除。
 
+## 安装与打包
+
+`npm run dist:deb` 用 electron-builder 产出 `release/deepchan-chat_<版本>_amd64.deb`。安装后：
+
+- 程序图标取自 `build/icon.png`，随包装进 `usr/share/icons/hicolor/512x512/apps/deepchan-chat.png`，任务栏与应用菜单都能命中。
+- 桌面项由 electron-builder 生成，`Name=DeepChan Chat`、`Comment=DeepChan Chat with DeepSeek`、`StartupWMClass=com.github.shellexy.deepchan-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
+- 应用数据仍在 `~/.local/share/DeepChan-chat`（或 `DEEPCHAN_DATA_DIR` 指定的位置），与从源码运行完全一致。
+
+同一张图标还用在窗口任务栏与新建对话页（128×128）；侧栏顶栏按设计不显示图标。
+
 ## 验证
 
 ```bash
@@ -137,6 +147,7 @@ npm run check          # 类型检查 + 单元测试
 npm run build          # 类型检查 + 前端打包 + 主进程打包
 npm run test:dev       # 启动 Vite 开发服务，验证开发页与设置界面能正常加载
 npm run test:desktop   # 构建后启动真实 Electron 窗口跑桌面回归
+npm run dist:deb       # 打包 Linux deb，产物在 release/
 ```
 
 有桌面会话时直接运行 `npm run test:desktop`。仅在确实没有显示器（CI、容器、纯 SSH）时才需要套一层虚拟显示：

@@ -158,7 +158,13 @@ try {
   const titleRows = await page.evaluate(() => ({ sidebar: document.querySelector('.sidebar-top')?.getBoundingClientRect().height, chat: document.querySelector('.chat-header')?.getBoundingClientRect().height, controls: document.querySelector('.window-controls')?.getBoundingClientRect().height }));
   assert.equal(titleRows.sidebar, titleRows.controls, '对话列表顶栏与窗口控件等高');
   assert.equal(titleRows.chat, titleRows.controls, '聊天顶栏与窗口控件等高');
-  assert.equal(await page.locator('.brand-mark').count(), 0, '隐藏对话列表顶栏 logo 图标');
+  // 侧栏顶栏按设计不显示图标（.brand-mark 未渲染），新建对话页才用 build/icon.png。
+  assert.equal(await page.locator('.brand-mark').count(), 0, '侧栏顶栏不显示图标');
+  const welcome = page.locator('.welcome-icon');
+  if (await welcome.count()) {
+    assert.match(await welcome.getAttribute('src'), /icon-.*\.png$/, '图标应是 Vite 打包后的哈希资源');
+    assert.equal(await welcome.evaluate(el => el.getBoundingClientRect().width), 128);
+  }
   assert.equal(await page.locator('.local-note').count(), 0, '隐藏侧栏底部本地保存提示');
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');

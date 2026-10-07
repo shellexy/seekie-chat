@@ -7,3 +7,4 @@ dist-electron/
 .playwright/
 deepchan-debug/
 *.swp
+release/

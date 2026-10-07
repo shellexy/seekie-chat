@@ -252,24 +252,8 @@ p {
   gap: 9px;
   align-items: center;
 }
-.brand-mark {
-  width: 31px;
-  height: 31px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.brand-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  margin-left: -6px;
-  margin-top: 13px;
-}
+/* 侧栏顶栏按设计不显示图标，图标只在窗口任务栏与新建对话页出现；原先的 .brand-mark 与
+   .brand-dot 已随之移除。 */
 .new-chat {
   justify-content: flex-start;
   padding: 10px;
@@ -513,19 +497,11 @@ p {
   text-align: center;
 }
 .welcome-icon {
-  width: 64px;
-  height: 64px;
-  background: var(--accent-bg);
-  border-radius: 20px;
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 30px;
-  transform: rotate(-5deg);
-}
-.welcome-icon svg {
-  transform: rotate(5deg);
+  width: 128px;
+  height: 128px;
+  border-radius: 16px;
+  object-fit: cover;
+  margin-bottom: 10px;
 }
 .eyebrow {
   color: var(--accent);

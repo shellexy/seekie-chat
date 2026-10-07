@@ -258,6 +258,9 @@ function register() {
 }
 async function openWindow() {
   win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
+    // Electron 不会替我们从 package.json 取图标；构建时把 build/icon.png 复制到主进程旁边，
+    // 这样无论从哪个工作目录启动都能按 __dirname 找到。
+    icon: join(__dirname, 'icon.png'),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   const sendWindowState = () => { if (win && !win.isDestroyed()) win.webContents.send('window-state', { maximized: win.isMaximized() }); };
   win.on('maximize', sendWindowState); win.on('unmaximize', sendWindowState);

@@ -15,6 +15,7 @@ import WindowControls from './WindowControls';
 import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
 import MessageRow from './MessageRow';
+import { brandIcon } from './brand';
 type Task = { conversationId: string; branchId: string; kind: string };
 function searchableParts(message: Message) {
   if (message.role === 'user') return [{ kind: '提问', text: message.text }];
@@ -549,9 +550,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     <div className="workspace-body"><section className="chat-panel" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void attach([...e.dataTransfer.files]); }}>
       <div className={`message-scroll ${editing ? "is-editing" : ""}`} ref={scrollRef} onScroll={onScroll}>
             {!messages.length ? <div className="welcome">
-                <div className="welcome-icon">
-                  <Sparkles size={27}/>
-                  </div>
+                <img className="welcome-icon" src={brandIcon} alt=""/>
                     <span className="eyebrow">一个想法，多种可能</span>
                       <h1>今天，想聊些什么？</h1>
                       <p>连接你喜欢的模型，让思路在对话中展开。</p>

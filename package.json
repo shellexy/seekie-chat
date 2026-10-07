@@ -4,6 +4,10 @@
   "private": true,
   "productName": "DeepChan-chat",
   "description": "Linux desktop LLM chat with conversation branches",
+  "author": "Shellexy <299902+shellexy@users.noreply.github.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/shellexy/deepchan-chat",
+  "desktopName": "com.github.shellexy.deepchan-chat",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -13,7 +17,8 @@
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "test:dev": "node scripts/check-dev.mjs",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "dist:deb": "npm run build && electron-builder --linux deb"
   },
   "dependencies": {
     "@firecrawl/anydoc": "^0.2.4",
@@ -33,6 +38,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.4.0",
     "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "playwright": "^1.64.0",
     "tsx": "^4.19.0",
@@ -41,5 +47,51 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "build": {
+    "appId": "com.github.shellexy.deepchan-chat",
+    "productName": "DeepChan-chat",
+    "executableName": "deepchan-chat",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "dist-electron/icon.png"
+    ],
+    "linux": {
+      "target": [
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "Network;Chat;Development;",
+      "executableName": "deepchan-chat",
+      "desktop": {
+        "entry": {
+          "Name": "DeepChan Chat",
+          "StartupWMClass": "com.github.shellexy.deepchan-chat",
+          "Keywords": "chat;llm;deepseek;ai;",
+          "StartupNotify": "true"
+        }
+      },
+      "description": "DeepChan Chat with DeepSeek"
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libsecret-1-0"
+      ]
+    }
   }
 }
