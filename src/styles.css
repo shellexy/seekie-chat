@@ -154,7 +154,9 @@ p {
   flex-shrink: 0;
 }
 .icon-button:hover,
-.icon-button.selected {
+.icon-button.selected,
+/* 连接已停用时，开关本身要显出"这是个正在生效的状态"，而不只是可点的按钮。 */
+.icon-button.on {
   color: var(--text);
   background: var(--hover);
 }
@@ -1531,6 +1533,27 @@ summary {
 }
 .card-heading h3 {
   margin: 0;
+}
+/* 删除与启用/禁用是同一类生命周期操作并排放；space-between 会把多个按钮各自撑开，所以要包一层。 */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 停用的连接：标签变淡并带一个点，不用点进去也能看出哪个停了。opacity 与已添加的模型行
+   统一取 0.8：0.6 会把连接名压到 1.84:1 对比度，连接名是识别"哪个停了"的唯一依据。 */
+.connection-tabs button.stopped {
+  color: var(--muted);
+  opacity: 0.8;
+}
+.connection-tabs .stopped-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+  vertical-align: middle;
 }
 .field {
   display: flex;

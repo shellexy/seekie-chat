@@ -178,6 +178,16 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek', exact: true }).click();
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek');
+  // 禁用开关：可逆、无确认，停用后标签变淡带点，模型不再出现在选择器里。
+  const deepseekTab = page.locator('.connection-tabs button', { hasText: 'DeepSeek' });
+  assert.equal(await page.getByRole('button', { name: '禁用连接' }).count(), 1, '删除按钮右侧应有禁用开关');
+  await page.getByRole('button', { name: '禁用连接' }).click();
+  assert.equal(await page.locator('.connection-tabs button.stopped', { hasText: 'DeepSeek' }).count(), 1, '停用的连接标签应变淡并带点');
+  assert.equal(await deepseekTab.getAttribute('title'), 'DeepSeek（已禁用）');
+  assert.equal(await page.locator('.stopped-dot').count(), 1);
+  assert.equal(await page.getByRole('button', { name: '启用连接' }).count(), 1, '停用后按钮应变为启用');
+  await page.getByRole('button', { name: '启用连接' }).click();
+  assert.equal(await page.locator('.connection-tabs button.stopped').count(), 0, '重新启用后不应再有停用标记');
   assert.equal(await page.getByLabel('连接名称', { exact: true }).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '连接名称与输入框并排');
   assert.equal(await page.getByLabel(/^接口协议/).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '接口协议标签与选项并排');
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'chat', 'DeepSeek 预设默认走 OpenAI 兼容协议');
@@ -704,6 +714,25 @@ try {
   await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 2);
   throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
   assert.equal(await activeModel(), await page.evaluate(async () => (await window.deepchan.load()).settings.defaultModel), '关闭开关后新对话回到默认聊天模型');
+  // 停用默认模型所属的连接之后，新对话不能静默地开在它上面，而且它要从模型选择器里消失。
+  const stopped = await page.evaluate(async () => {
+    const s = await window.deepchan.load();
+    const model = s.settings.models.find(m => m.id === s.settings.defaultModel);
+    const connection = s.settings.connections.find(c => c.id === model.connectionId);
+    s.settings.connections.forEach(c => { if (c.id === connection.id) c.disabled = true; });
+    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+    return { modelId: model.id, connectionId: connection.id, label: `${model.name} | ${connection.name}` };
+  });
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 3);
+  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
+  assert.notEqual(await activeModel(), stopped.modelId, '停用连接后新对话不应继续开在它的模型上');
+  await page.getByRole('button', { name: '聊天模型' }).first().click();
+  await page.locator('.model-select-popover').waitFor();
+  assert.equal(await page.locator('.model-select-popover').getByRole('option', { name: stopped.label }).count(), 0, `停用连接的模型不应出现在选择器中：${stopped.label}`);
+  await page.keyboard.press('Escape');
+  await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
+  await page.evaluate(async connectionId => { const s = await window.deepchan.load(); s.settings.connections.forEach(c => { if (c.id === connectionId) c.disabled = false; }); await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, stopped.connectionId);
   // Leave the app on the conversation the following stages expect, and drop the two throwaway chats
   // so the final conversation count still means "no extra conversation leaked".
   await page.evaluate(async payload => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, { keep: resume, drop: throwaway });

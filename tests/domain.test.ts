@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, enabledModels, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -464,4 +464,33 @@ test('none is a real effort level and is never picked as the implicit default', 
   assert.equal(defaultModelEffort({ ...deepseek, efforts: ['minimal', 'low', 'medium', 'high'] }), 'medium', '用户自己配的等级表仍然按 medium 起步');
   // 兜底也跳过 none：没有依据时替用户关掉思考是最糟的默认。
   assert.equal(defaultModelEffort({ ...deepseek, efforts: ['none'] }), 'auto', '只有 none 可选时退回 auto，而不是替用户关掉思考');
+});
+
+test('a disabled connection drops out of selection but keeps existing conversations usable', () => {
+  const settings = initialState().settings;
+  settings.connections = [
+    { id: 'a', name: 'A', protocol: 'chat', baseUrl: 'https://a.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' },
+    { id: 'b', name: 'B', protocol: 'chat', baseUrl: 'https://b.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }
+  ];
+  const model = (id: string, connectionId: string): Model => ({ id, connectionId, name: id, model: id, contextWindow: 10000, maxOutput: 4096, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false });
+  settings.models = [model('ma', 'a'), model('mb', 'b')];
+  settings.defaultModel = 'ma';
+  settings.recentModels = ['ma'];
+  assert.deepEqual(enabledModels(settings).map(m => m.id), ['ma', 'mb']);
+  // 陷阱：停用默认模型所属的连接之后，新对话不能静默地继续开在它上面。
+  settings.connections[0].disabled = true;
+  assert.deepEqual(enabledModels(settings).map(m => m.id), ['mb'], '停用连接的模型不再参与选择');
+  assert.equal(newChatModelId(settings), 'mb', '默认模型与最近使用都停用时改选启用的模型');
+  assert.deepEqual(settings.recentModels, ['ma'], '最近使用记录本身不被清理，停用后重新启用即可恢复');
+  assert.equal(connectionEnabled(settings, 'b'), true, '未设置该字段视为启用');
+  assert.equal(connectionEnabled(settings, 'a'), false);
+  assert.equal(connectionEnabled(settings, 'missing'), true, '连接已被删除时不当成停用');
+  // 全部停用时退回原顺序：禁用不阻断发送，应用不能退化成没有模型可选的空白。
+  settings.connections[1].disabled = true;
+  assert.equal(newChatModelId(settings), 'ma');
+  // 旧数据没有该字段，加载后一律视为启用。
+  const legacy = initialState().settings;
+  legacy.connections = [{ id: 'c', name: 'legacy', protocol: 'chat', baseUrl: 'https://c.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  normalizeSettings(legacy);
+  assert.equal(legacy.connections[0].disabled, false);
 });

@@ -33,6 +33,8 @@ export function normalizeSettings(settings: Settings) {
   if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) settings.preferredExternalSearch = 'auto';
   if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) settings.defaultWebFetch = 'auto';
   if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
+  // 停用开关是后加的：旧数据没有该字段，一律视为启用。
+  for (const c of settings.connections) if (typeof c.disabled !== 'boolean') c.disabled = false;
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
@@ -92,10 +94,24 @@ export function rememberRecentModel(settings: Settings, modelId: string, promote
  * 新对话的起始模型：开启"最近使用"时优先最近用过的，记录里已被删除的模型直接跳过；
  * 没有可用记录才回到设置里的默认聊天模型。
  */
+/** 停用的连接不算候选。`disabled` 缺省视为启用，所以旧备份导入后全部可用。 */
+export function connectionEnabled(settings: Settings, connectionId: string): boolean {
+  return settings.connections.find(c => c.id === connectionId)?.disabled !== true;
+}
+/** 可以被选中的模型：所属连接没有停用。模型选择器与新对话都用它。 */
+export function enabledModels(settings: Settings): Model[] {
+  const stopped = new Set(settings.connections.filter(c => c.disabled).map(c => c.id));
+  return settings.models.filter(m => !stopped.has(m.connectionId));
+}
 export function newChatModelId(settings: Settings): string {
-  const ids = new Set(settings.models.map(m => m.id));
-  if (settings.useRecentModel) for (const id of settings.recentModels || []) if (ids.has(id)) return id;
-  return ids.has(settings.defaultModel) ? settings.defaultModel : settings.models[0]?.id || '';
+  // 默认模型与最近使用都按启用状态过滤，否则停用一个服务之后，新对话会静默地开在它的模型
+  // 上——不报错、界面也完全正常，只是你以为已经停用了它。兜底放在最后统一做：逐组兜底会让
+  // 第一个停用的最近使用项把自己选回来，根本走不到后面的默认模型。全部停用时退回原顺序，
+  // 因为禁用不阻断发送，应用不该退化成没有模型可选的空白。
+  const available = new Set(enabledModels(settings).map(m => m.id));
+  const fallback = new Set(settings.models.map(m => m.id));
+  const order = [...(settings.useRecentModel ? settings.recentModels || [] : []), settings.defaultModel, ...settings.models.map(m => m.id)];
+  return order.find(id => available.has(id)) || order.find(id => fallback.has(id)) || '';
 }
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
   if (protocol === 'gemini') return ['none', 'minimal', 'low', 'medium', 'high'];

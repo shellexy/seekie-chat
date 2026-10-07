@@ -7,6 +7,9 @@ export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;
   headers: Record<string, string>; timeout: number; proxy: string;
+  // 临时停用：配置与模型都保留，只是不再出现在模型选择器里，新对话也不会选它。已有会话
+  // 仍可继续使用，因为历史消息引用的是模型而不是连接。
+  disabled?: boolean;
 }
 export interface Model {
   id: string; connectionId: string; name: string; model: string;

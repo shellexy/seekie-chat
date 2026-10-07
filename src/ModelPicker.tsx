@@ -22,7 +22,10 @@ export default function ModelPicker({ model, models, connections, favorites, rec
   // Rows are looked up by key rather than pushed into an array: a ref callback runs again on every
   // render, and a model listed under two sections would otherwise be visited twice per re-render.
   const nodes = useRef(new Map<string, HTMLButtonElement>());
-  const byName = [...models].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
+  // 停用连接上的模型不参与选择。触发按钮仍然显示当前模型的名称——它在分支配置里，没有变；
+  // 只是这个模型不再出现在列表中，这本身就是"它所属的连接已停用"的信号。
+  const stopped = new Set(connections.filter(c => c.disabled).map(c => c.id));
+  const byName = models.filter(m => !stopped.has(m.connectionId)).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
   // A favourited model already has a permanent entry, so the recent section skips it; the full list
   // keeps everything, because that section is what makes every model reachable.
   const starred = byName.filter(m => favorites.includes(m.id));
