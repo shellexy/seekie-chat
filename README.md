@@ -30,7 +30,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
 
-DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`，上下文窗口为 1,048,576 token、最大输出为 393,216 token（384K），启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。OpenAI 预设名为“+ OpenAI”，默认使用 Responses 协议（推理摘要等新特性只有它有）；想用 Chat Completions 的人可以在连接里改协议。以 OpenAI 兼容协议连接时，“GPT 模型自动使用 Responses 协议”默认开启，模型 ID 形如 `gpt-6-astra`、`gpt-6-luna`、`gpt-6.1-sol` 的模型会改用 Responses 协议，`gpt-oss` 等不匹配的模型仍走 Chat Completions；该选项可随时关闭。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
+DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`，上下文窗口为 1,048,576 token、最大输出为 393,216 token（384K），启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。OpenAI 预设名为“+ OpenAI”，默认使用 Responses 协议（推理摘要等新特性只有它有）；想用 Chat Completions 的人可以在连接里改协议。模型服务预设新增“+ OpenRouter”：OpenAI Chat 兼容的模型聚合服务，地址 `https://openrouter.ai/api/v1`，模型 ID 带厂商前缀（如 `openai/gpt-6`），从服务端列表添加时会带上它报告的上下文长度与模态。以 OpenAI 兼容协议连接时，“GPT 模型自动使用 Responses 协议”默认开启，模型 ID 形如 `gpt-6-astra`、`gpt-6-luna`、`gpt-6.1-sol` 的模型会改用 Responses 协议，`gpt-oss` 等不匹配的模型仍走 Chat Completions；该选项可随时关闭。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `none, minimal, low, medium, high`。注意：Ollama 的 gemma4 只认思考等级，改成“思考预算”会导致完全不思考，也看不到思考摘要。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
@@ -52,7 +52,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 设置页面的“系统提示词库”提供通用助手、编程助手、写作助手、翻译助手，并支持新增、编辑和删除角色、选择新对话的默认角色。完成修改后点击“保存设置”。提示词库保存在本地数据库中，并包含在结构化备份里。
 
-在设置页“系统提示词库”添加角色后，新角色卡片排在已有角色卡片之前。页面底部的“重置预设角色”把程序自带的角色恢复成默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。“新对话默认角色”下拉里不会出现两个“通用助手”：角色库里有这个角色时，只显示角色本身，没有时才显示兜底的“通用助手（内置提示词）”。在聊天输入框的“会话选项”中，通过“系统提示词 / 角色预设”选择角色。选择后会复制提示词到当前分支，下面的文本框可继续编辑。已有会话和其他分支不随库中的编辑或删除而改变；新分支继承创建时的提示词。升级旧数据时补充初始角色库，保留已有分支提示词。
+在设置页“系统提示词库”添加角色后，新角色卡片排在已有角色卡片之前。页面底部的“重置预设角色”把程序自带的角色恢复成默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。删除角色与重置预设角色都会先弹出确认框。“新对话默认角色”下拉里不会出现两个“通用助手”：角色库里有这个角色时，只显示角色本身，没有时才显示兜底的“通用助手（内置提示词）”。在聊天输入框的“会话选项”中，通过“系统提示词 / 角色预设”选择角色。选择后会复制提示词到当前分支，下面的文本框可继续编辑。已有会话和其他分支不随库中的编辑或删除而改变；新分支继承创建时的提示词。升级旧数据时补充初始角色库，保留已有分支提示词。
 
 ## 已实现
 

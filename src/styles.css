@@ -816,14 +816,42 @@ summary {
 .tool-status.error {
   color: #b35247;
 }
+/* 来源默认收成一行：搜索一次能带回十几条，全部铺开会把回答区撑得很长。点一下才展开。 */
 .sources {
+  margin-top: 14px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.sources summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 3px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.sources summary::-webkit-details-marker {
+  display: none;
+}
+.sources summary::after {
+  content: "⌄";
+}
+.sources[open] summary::after {
+  content: "⌃";
+}
+.sources-count {
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--text);
+}
+.sources-list {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 14px;
-  font-size: 10px;
-  color: var(--muted);
+  margin-top: 6px;
 }
 .sources button {
   font-size: 10px;

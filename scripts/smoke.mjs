@@ -132,10 +132,15 @@ async function assertUsageDetails(page, output = 60) {
 }
 let desktop;
 const logs = [];
+// 删除角色、重置预设角色等操作会先弹确认框；测试要能分别验证"确认"与"取消"两条路。
+let acceptDialogs = true;
 async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
+  // 只有角色相关的确认框接受，其余（删除连接、删除分支、删除会话）保持 Playwright 原先的
+  // 默认拒绝，免得把测试没打算执行的破坏性操作放行。
+  page.on('dialog', dialog => { if (acceptDialogs && /角色/.test(dialog.message())) void dialog.accept(); else void dialog.dismiss(); });
   await page.locator('.window-controls').waitFor(); return page;
 }
 try {
@@ -195,7 +200,7 @@ try {
   assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
   // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
-  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic', 'OpenAI', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
+  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic', 'OpenAI', 'OpenRouter', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
   }
@@ -630,11 +635,21 @@ try {
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
   await page.getByLabel('角色名称', { exact: true }).first().fill('临时角色');
   await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '临时角色' }) }).getByLabel('角色系统提示词', { exact: true }).fill('仅用于测试删除。');
+  // 删除角色与重置预设角色都要先确认。
+  acceptDialogs = false;
   await page.getByTitle('删除角色：临时角色', { exact: true }).click();
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '临时角色' }) }).count(), 1, '取消确认时不应删除角色');
+  acceptDialogs = true;
+  await page.getByTitle('删除角色：临时角色', { exact: true }).click();
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '临时角色' }) }).count(), 0, '确认后角色应被删除');
   // “重置预设角色”把程序自带的角色恢复成默认，并补回被删掉的；用户自己的角色不动。
   await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).fill('被我改过的内置提示词。');
   await page.getByTitle('删除角色：通用助手', { exact: true }).click();
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 0, '通用助手应已被删除');
+  acceptDialogs = false;
+  await page.getByRole('button', { name: '重置预设角色', exact: true }).click();
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 0, '取消确认时不应重置预设角色');
+  acceptDialogs = true;
   await page.getByRole('button', { name: '重置预设角色', exact: true }).click();
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 1, '重置后通用助手应被补回');
   assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).count(), 1, '用户添加的角色不应受影响');
@@ -983,11 +998,29 @@ try {
       { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '# 附件预览内容\n\n' + '这是附件正文。\n\n'.repeat(30) + '### 深层标题\n\n已在应用内打开。' },
       { id: crypto.randomUUID(), name: 'plain.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '这份文档没有标题。\n\n正文应占满查看区域。' },
       { id: crypto.randomUUID(), name: 'clip.mp4', mime: 'video/mp4', size: 1, data: 'data:video/mp4;base64,' }
-    ], tools: [], sources: [], status: 'complete', created: Date.now() };
+    ], tools: [], sources: [
+      { url: 'https://example.com/one', title: '第一条来源' },
+      { url: 'https://example.com/two', title: '第二条来源' },
+      { url: 'https://example.com/three', title: '第三条来源' }
+    ], status: 'complete', created: Date.now() };
     conversation.messages.push(message); branch.leafId = message.id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
   }, imageData);
-  const imageTrigger = page.getByRole('button', { name: '查看图片：preview.png' }); await imageTrigger.waitFor(); await imageTrigger.click();
+  const imageTrigger = page.getByRole('button', { name: '查看图片：preview.png' }); await imageTrigger.waitFor();
+  // 来源默认收成一行，点一下才展开：一次搜索能带回十几条，全部铺开会把回答区撑得很长。
+  const sourcesBox = page.locator('.message').last().locator('.sources');
+  const lastSourcesOpen = want => page.waitForFunction(wanted => { const list = document.querySelectorAll('.sources'); return list[list.length - 1]?.hasAttribute('open') === wanted; }, want);
+  assert.equal(await sourcesBox.locator('summary').count(), 1, '来源应是一个可展开的折叠块');
+  assert.equal(await sourcesBox.evaluate(el => el.hasAttribute('open')), false, '来源默认收起');
+  assert.equal(await sourcesBox.locator('.sources-list button').count(), 3, '展开后应有三条来源');
+  const collapsedHeight = await sourcesBox.evaluate(el => el.getBoundingClientRect().height);
+  await sourcesBox.locator('summary').click();
+  await lastSourcesOpen(true);
+  const expandedHeight = await sourcesBox.evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(expandedHeight > collapsedHeight, `展开后应更高：${collapsedHeight} -> ${expandedHeight}`);
+  await sourcesBox.locator('summary').click();
+  await lastSourcesOpen(false);
+  await imageTrigger.click();
   const imageDialog = page.getByRole('dialog', { name: '查看附件：preview.png' }); await imageDialog.waitFor();
   assert.equal(await imageDialog.locator('.attachment-viewer-zoom span').innerText(), '100%');
   await imageDialog.getByRole('button', { name: '向左旋转' }).click();

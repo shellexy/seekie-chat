@@ -770,6 +770,11 @@ test('a described model list keeps names, limits and modalities', () => {
   assert.deepEqual(parseServerModel({ id: 'deepseek-flash', effort: { supported_levels: ['none', 'low', 'high', 'max'] } }),
     { id: 'deepseek-flash', efforts: ['none', 'low', 'high', 'max'] });
   assert.deepEqual(parseServerModel({ id: 'gemma4:31b', effort: { supported_levels: ['none', 'low'], default_level: 'low' } }), { id: 'gemma4:31b', efforts: ['none', 'low'], defaultEffort: 'low' });
+  // OpenRouter 的形状：上下文长度叫 context_length，模态嵌在 architecture 里。
+  assert.deepEqual(parseServerModel({
+    id: 'openai/gpt-6', name: 'GPT-6', context_length: 400_000,
+    architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] }
+  }), { id: 'openai/gpt-6', name: 'GPT-6', contextWindow: 400_000, inputModalities: ['text', 'image'], outputModalities: ['text'] });
   // A plain OpenAI entry describes nothing beyond its id.
   assert.deepEqual(parseServerModel({ id: 'gpt-4o', object: 'model', created: 1, owned_by: 'openai' }), { id: 'gpt-4o' });
   // Camel case gateways and bare strings are accepted, and display names win over resource names.

@@ -16,6 +16,8 @@ const templates = [
   // OpenAI 预设默认走 Responses：推理摘要等新特性只有它有。想用 Chat Completions 的人
   // 可以在连接里改协议。
   { name: 'OpenAI', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
+  // OpenRouter 是 OpenAI Chat 兼容的模型聚合服务，模型 ID 带厂商前缀（如 openai/gpt-6）。
+  { name: 'OpenRouter', protocol: 'chat', baseUrl: 'https://openrouter.ai/api/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
   { name: 'Gemini', protocol: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
   { name: 'Ollama', protocol: 'chat', baseUrl: 'http://localhost:11434/v1' },
@@ -179,11 +181,11 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
              会出现两个"通用助手"。此时只留角色本身；删掉了它，兜底项才回来。 */}
              {!generalRole && <option value="">通用助手（内置提示词）</option>}{draft.promptPresets.map(p => <option key={p.id} value={p.id}>{p.name || '未命名角色'}</option>)}</select></label></div>
       <div className="section-heading"><h3>角色预设</h3><button onClick={() => change({ promptPresets: [{ id: uid(), name: '新角色', content: '' }, ...draft.promptPresets] })}><Plus size={15}/>添加角色</button></div>
-      {draft.promptPresets.map(p => <div className="settings-card" key={p.id}><div className="card-heading"><h3>{p.name || '新角色'}</h3><button className="icon-button danger" title={`删除角色：${p.name}`} onClick={() => change({ promptPresets: draft.promptPresets.filter(x => x.id !== p.id), defaultPromptPresetId: draft.defaultPromptPresetId === p.id ? '' : draft.defaultPromptPresetId })}><Trash2 size={16}/></button></div>
+      {draft.promptPresets.map(p => <div className="settings-card" key={p.id}><div className="card-heading"><h3>{p.name || '新角色'}</h3><button className="icon-button danger" title={`删除角色：${p.name}`} onClick={() => { if (!confirm(`删除角色“${p.name || '新角色'}”？已有会话里的提示词不受影响。`)) return; change({ promptPresets: draft.promptPresets.filter(x => x.id !== p.id), defaultPromptPresetId: draft.defaultPromptPresetId === p.id ? '' : draft.defaultPromptPresetId }); }}><Trash2 size={16}/></button></div>
         <label className="field">角色名称<input aria-label="角色名称" value={p.name} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, name: e.target.value } : x) })}/></label>
         <label className="field">角色系统提示词<textarea aria-label="角色系统提示词" rows={6} value={p.content} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, content: e.target.value } : x) })} placeholder="描述这个角色的职责、回答风格和约束…"/></label>
       </div>)}{!draft.promptPresets.length && <div className="empty-card">还没有角色预设，点击“添加角色”创建。</div>}
-      <div className="button-row"><button onClick={() => { const presets = resetBuiltInPresets(draft.promptPresets); change({ promptPresets: presets, defaultPromptPresetId: draft.defaultPromptPresetId || (presets.some(p => p.id === 'general') ? 'general' : '') }); }}><RotateCcw size={15}/>重置预设角色</button></div>
+      <div className="button-row"><button onClick={() => { if (!confirm('重置预设角色？程序自带的角色会恢复默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。')) return; const presets = resetBuiltInPresets(draft.promptPresets); change({ promptPresets: presets, defaultPromptPresetId: draft.defaultPromptPresetId || (presets.some(p => p.id === 'general') ? 'general' : '') }); }}><RotateCcw size={15}/>重置预设角色</button></div>
       <p className="muted">把程序自带的角色恢复成默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。</p>
     </>}
     {tab === 'search' && <><h2>联网搜索</h2><p className="muted">新对话默认自动联网：搜索优先当前模型支持的原生搜索，然后按已配置的 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 选择服务；没有配置搜索 Key 时自动使用 Firecrawl 免 Key 搜索。Firecrawl、AnySearch、Tavily 也支持在会话中手动选择免 Key 搜索。读取网页按已配置的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch 顺序尝试；三家免 Key 服务无 Key 时也会自动尝试，失败后回退到本地读取网页。</p>

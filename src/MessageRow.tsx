@@ -60,7 +60,7 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, 
     </div> : <>
       <div className="message-attachments">{message.attachments.map(attachment => <AttachmentPreview key={attachment.id} attachment={attachment} onOpen={onOpenAttachment}/>)}</div>
       {role === 'assistant' ? <AssistantContent message={message} taskKind={taskKind}/> : message.text ? <div className="message-content"><Markdown text={message.text}/></div> : null}
-      {!!message.sources.length && <div className="sources"><span>来源</span>{message.sources.map((source, index) => <button title={source.url} key={source.url} onClick={() => onOpenExternal(source.url)}>{index + 1} · {source.title}</button>)}</div>}
+      {!!message.sources.length && <details className="sources"><summary>来源<span className="sources-count">{message.sources.length}</span></summary><div className="sources-list">{message.sources.map((source, index) => <button title={source.url} key={source.url} onClick={() => onOpenExternal(source.url)}>{index + 1} · {source.title}</button>)}</div></details>}
       {message.error && <div className="message-error">{message.error}</div>}
       <div className="message-toolbar">
         {role === 'user' && <span className="message-time">{messageDateTime(message.created)}</span>}

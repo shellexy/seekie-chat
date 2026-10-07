@@ -513,14 +513,16 @@ export function parseServerModel(entry: unknown): ServerModel {
   const count = (...values: unknown[]) => { for (const value of values) { const number = Number(value); if (Number.isFinite(number) && number > 0) return Math.floor(number); } return undefined; };
   const list = (...values: unknown[]) => { for (const value of values) if (Array.isArray(value) && value.length) return value.filter(item => typeof item === 'string' && item.trim()).map(item => String(item).trim()); return undefined; };
   const effort = (model.effort ?? model.reasoning ?? {}) as Record<string, any>;
+  // OpenRouter 把上下文长度放在 context_length、模态放在嵌套的 architecture 里。
+  const architecture = (model.architecture ?? {}) as Record<string, any>;
   const parsed: ServerModel = {
     id: text(model.id, model.model, model.name) || '',
     // `displayName`/`display_name` win: Gemini uses `name` for the resource path, not for display.
     name: text(model.display_name, model.displayName, model.name),
-    contextWindow: count(model.context_window, model.contextWindow, model.inputTokenLimit, model.input_token_limit),
+    contextWindow: count(model.context_window, model.contextWindow, model.context_length, model.inputTokenLimit, model.input_token_limit),
     maxOutput: count(model.max_output_tokens, model.maxOutputTokens, model.outputTokenLimit, model.output_token_limit, model.max_tokens),
-    inputModalities: list(model.input_modalities, model.inputModalities),
-    outputModalities: list(model.output_modalities, model.outputModalities),
+    inputModalities: list(model.input_modalities, model.inputModalities, architecture.input_modalities),
+    outputModalities: list(model.output_modalities, model.outputModalities, architecture.output_modalities),
     // `none` 保留：它是"关闭思考"的一等档位（DeepSeek、Ollama 都这样定义），不是可以丢的同义词。
     efforts: list(effort.supported_levels, effort.supportedLevels),
     defaultEffort: text(effort.default_level, effort.defaultLevel)
