@@ -1,5 +1,4 @@
 import { fetch, ProxyAgent } from 'undici';
-import * as os from 'node:os';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateGemini, sanitizeStoredParts } from './gemini';
@@ -13,8 +12,6 @@ export interface Result { text: string; reasoning: string; raw: { protocol: stri
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void; record?: (entry: RequestRecord) => void }
 export type WebFetch = (url: string, signal: AbortSignal, settings: Settings, mode: WebFetchMode | undefined) => Promise<FetchedPage>;
 const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {}, notice() {}, record() {} };
-const CODEX_CLI_VERSION = '0.162.1';
-const CLAUDE_CODE_VERSION = '2.1.296';
 const CODEX_ORIGINATOR = 'codex_cli_rs';
 // Same placeholder the store uses for secrets; the debug view must never carry a real credential.
 const REDACTED = '••••••••';
@@ -54,23 +51,13 @@ export function endpoint(connection: Connection, path: string) {
   const version = connection.protocol === 'gemini' ? '/v1beta' : '/v1';
   return `${base}${url.pathname !== '/' ? '' : version}/${path}`;
 }
-function modelUserAgent(modelNames: string[]) {
-  const matches = (pattern: RegExp) => modelNames.some(name => pattern.test(name.trim()));
-  if (isCodexModel(modelNames)) {
-    const architecture = ({ x64: 'x86_64', arm64: 'aarch64' } as Record<string, string>)[os.arch()] || os.arch();
-    return `codex_cli_rs/${CODEX_CLI_VERSION} (${os.type()} ${os.release()}; ${architecture})`;
-  }
-  if (matches(/(?:^|\/)claude(?:[-_/\s]|$)/i)) return `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`;
-  return undefined;
-}
 function isCodexModel(modelNames: string[]) { return modelNames.some(name => /(?:^|\/)gpt(?:[-_/\s]|$)/i.test(name.trim())); }
 function hasHeader(headers: Record<string, string>, name: string) { return Object.keys(headers).some(key => key.toLowerCase() === name.toLowerCase()); }
 export function authHeaders(connection: Connection, model?: string | Pick<Model, 'model' | 'name'>) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...connection.headers };
   const modelNames = typeof model === 'string' ? [model] : model ? [model.model, model.name] : [];
+  // 只按自定义请求头发 User-Agent，不再冒充 Codex CLI 或 Claude Code。
   const codexModel = isCodexModel(modelNames);
-  const userAgent = !hasHeader(connection.headers, 'user-agent') ? modelUserAgent(modelNames) : undefined;
-  if (userAgent) headers['User-Agent'] = userAgent;
   if (codexModel && !hasHeader(connection.headers, 'originator')) headers.originator = CODEX_ORIGINATOR;
   if (codexModel && connection.protocol === 'responses' && !hasHeader(connection.headers, 'openai-beta')) headers['OpenAI-Beta'] = 'responses=experimental';
   if (connection.protocol === 'anthropic') { headers['anthropic-version'] = '2023-06-01'; if (connection.apiKey) headers['x-api-key'] = connection.apiKey; }

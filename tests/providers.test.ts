@@ -12,30 +12,33 @@ import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
-test('model family User-Agent defaults identify Codex or Claude Code and respect custom headers', () => {
+test('no User-Agent is sent by default, while Codex originator and Responses beta are kept', () => {
+  // 不再冒充 Codex CLI / Claude Code：默认不带 User-Agent，让 undici 用自己的默认值。
+  assert.equal(authHeaders(connection('responses'), 'gpt-4o')['User-Agent'], undefined);
+  assert.equal(authHeaders(connection('anthropic'), 'anthropic/claude-sonnet-4')['User-Agent'], undefined);
+  assert.equal(authHeaders(connection('chat'), 'deepseek-flash')['User-Agent'], undefined);
+  assert.equal(authHeaders(connection('responses'), { model: 'compatible-id', name: 'GPT 4o' })['User-Agent'], undefined, '按展示名识别也不该再补 UA');
+  assert.equal(authHeaders(connection('anthropic'), { model: 'compatible-id', name: 'Claude Sonnet 4' })['User-Agent'], undefined);
+  // originator 与 OpenAI-Beta 属于功能性请求头，保留。
   const codexHeaders = authHeaders(connection('responses'), 'gpt-4o');
-  assert.match(codexHeaders['User-Agent'], /^codex_cli_rs\/0\.162\.1 \(/);
   assert.equal(codexHeaders.originator, 'codex_cli_rs');
   assert.equal(codexHeaders['OpenAI-Beta'], 'responses=experimental');
   const claudeHeaders = authHeaders(connection('anthropic'), 'anthropic/claude-sonnet-4');
-  assert.match(claudeHeaders['User-Agent'], /^claude-cli\/2\.1\.296 \(external, cli\)$/);
   assert.equal(claudeHeaders.originator, undefined);
-  assert.match(authHeaders(connection('responses'), { model: 'compatible-id', name: 'GPT 4o' })['User-Agent'], /^codex_cli_rs\//);
-  assert.match(authHeaders(connection('anthropic'), { model: 'compatible-id', name: 'Claude Sonnet 4' })['User-Agent'], /^claude-cli\//);
-  assert.equal(authHeaders(connection('chat'), 'deepseek-flash')['User-Agent'], undefined);
+  // 自定义请求头照旧原样透出。
   const custom = authHeaders({ ...connection('responses'), headers: { 'user-agent': 'custom-agent/1.0', Originator: 'custom-origin', 'openai-beta': 'custom-beta' } }, 'gpt-4o');
   assert.equal(custom['user-agent'], 'custom-agent/1.0'); assert.equal(custom.Originator, 'custom-origin'); assert.equal(custom['openai-beta'], 'custom-beta');
 });
-for (const [modelName, protocol, prefix, originator] of [['gpt-4o', 'responses', 'codex_cli_rs/', 'codex_cli_rs'], ['claude-3-7-sonnet', 'anthropic', 'claude-cli/', '']] as const) test(`HTTP requests for ${modelName} send the matching client headers`, async () => {
-  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent); let userAgent = '', requestOriginator = '';
+for (const [modelName, protocol, originator] of [['gpt-4o', 'responses', 'codex_cli_rs'], ['claude-3-7-sonnet', 'anthropic', '']] as const) test(`HTTP requests for ${modelName} send the matching client headers`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent); let requestOriginator = '';
   agent.get('https://fixture.invalid').intercept({ path: '/v1/models', method: 'GET' }).reply(options => {
     const headers = new Headers(options.headers as HeadersInit);
-    userAgent = headers.get('user-agent') || ''; requestOriginator = headers.get('originator') || '';
+    requestOriginator = headers.get('originator') || '';
     return { statusCode: 200, data: { data: [] } };
   });
   const { response, close } = await request(connection(protocol), 'models', undefined, new AbortController().signal, modelName);
   await response.json(); close();
-  assert.ok(userAgent.startsWith(prefix), userAgent); assert.equal(requestOriginator, originator);
+  assert.equal(requestOriginator, originator);
   await agent.close();
 });
 test('usage aggregation counts cumulative frames once and keeps unknown cache distinct from zero across rounds', () => {
