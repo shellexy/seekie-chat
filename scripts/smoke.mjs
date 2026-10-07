@@ -561,8 +561,45 @@ try {
   const videoSizing = await videoDialog.locator('video').evaluate(video => ({ objectFit: getComputedStyle(video).objectFit, width: video.getBoundingClientRect().width, height: video.getBoundingClientRect().height, parentWidth: video.parentElement.getBoundingClientRect().width, parentHeight: video.parentElement.getBoundingClientRect().height }));
   assert.equal(videoSizing.objectFit, 'contain'); assert.equal(videoSizing.width, videoSizing.parentWidth); assert.equal(videoSizing.height, videoSizing.parentHeight);
   await videoDialog.getByRole('button', { name: '关闭附件预览' }).click(); await videoDialog.waitFor({ state: 'hidden' });
+  const versionFixture = await page.evaluate(async () => {
+    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), parentBranch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const user = { id: crypto.randomUUID(), parentId: parentBranch.leafId, role: 'user', text: '切换失败回答版本', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
+    const failed = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '', reasoning: '', attachments: [], tools: [], sources: [], status: 'error', error: '模拟生成失败', modelId: parentBranch.config.modelId, created: Date.now() };
+    const complete = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '成功回答版本', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', modelId: parentBranch.config.modelId, created: Date.now() };
+    conversation.messages.push(user, failed, complete);
+    const makeBranch = (message, name) => ({ ...structuredClone(parentBranch), id: crypto.randomUUID(), name, parentBranchId: parentBranch.id, originId: message.id, leafId: message.id, summary: undefined, draft: '', draftAttachments: [], scrollTop: 0, updated: Date.now() });
+    const failedBranch = makeBranch(failed, '失败回答分支'), completeBranch = makeBranch(complete, '成功回答分支');
+    conversation.branches.push(failedBranch, completeBranch); conversation.activeBranchId = completeBranch.id;
+    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    return { conversationId: conversation.id, failedId: failed.id, completeId: complete.id, failedBranchId: failedBranch.id, completeBranchId: completeBranch.id };
+  });
+  const completeVersion = page.locator(`.message.assistant[data-id="${versionFixture.completeId}"]`); await completeVersion.waitFor();
+  const previousVersion = completeVersion.getByTitle('上一个版本'); assert.equal(await previousVersion.isDisabled(), false);
+  await previousVersion.click();
+  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.failedBranchId });
+  const failedVersion = page.locator(`.message.assistant[data-id="${versionFixture.failedId}"]`); await failedVersion.waitFor();
+  assert.equal(await failedVersion.getByTitle('下一个版本').isDisabled(), false, '失败回答之后仍可切换到下一个版本');
+  await failedVersion.getByTitle('下一个版本').click();
+  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
+
+  const thinkingFixture = await page.evaluate(async () => {
+    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const user = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '检查思考摘要自动收起', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
+    const answer = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '', reasoning: '正在生成的思考摘要。', attachments: [], tools: [], sources: [], status: 'streaming', modelId: branch.config.modelId, created: Date.now() };
+    conversation.messages.push(user, answer); branch.leafId = answer.id;
+    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    return { conversationId: conversation.id, answerId: answer.id };
+  });
+  const thinking = page.locator(`.message.assistant[data-id="${thinkingFixture.answerId}"] .thinking`); await thinking.waitFor();
+  await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === true, thinkingFixture.answerId);
+  await page.evaluate(async ({ conversationId, answerId }) => {
+    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === conversationId), answer = conversation.messages.find(m => m.id === answerId);
+    answer.status = 'complete'; answer.text = '思考摘要结束后的回答。'; await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+  }, thinkingFixture);
+  await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === false, thinkingFixture.answerId);
+  await thinking.locator('summary').click(); assert.equal(await thinking.evaluate(el => el.open), true, '回答完成后仍可手动展开思考摘要');
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.
