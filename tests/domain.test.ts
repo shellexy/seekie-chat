@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addMessage, contextMessages, createConversation, defaultModelEfforts, editMessage, fork, initialState, pathTo, removeBranch } from '../src/domain';
+import { addMessage, contextMessages, createConversation, defaultModelEfforts, editMessage, fork, initialState, pathTo, removeBranch, shouldDefaultVisionAndTools } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -10,6 +10,10 @@ test('new model thinking levels use sensible defaults when the model is unknown'
   assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['minimal', 'low', 'medium', 'high']);
   assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'medium', 'high', 'max']);
   assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['minimal', 'low', 'medium', 'high']);
+});
+test('GPT and DeepSeek Flash names default to vision and tool support', () => {
+  for (const name of ['gpt-4o', 'GPT-5', 'openai/gpt-4.1', 'gpt-oss-120b', 'models/deepseek-flash', 'deepseek/deepseek-flash-v2', 'DeepSeek Flash']) assert.equal(shouldDefaultVisionAndTools(name), true, name);
+  for (const name of ['deepseek-r1', 'local-custom-model']) assert.equal(shouldDefaultVisionAndTools(name), false, name);
 });
 test('forks share the selected prefix and isolate subsequent context', () => {
   const { c, b, a } = fixture(); addMessage(c, b, 'user', '原有后续');

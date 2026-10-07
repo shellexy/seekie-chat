@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Check, ChevronRight, ExternalLink, Plus, Trash2, Wifi } from 'lucide-react';
 import { api } from './api';
-import { defaultModelEfforts, uid } from './domain';
+import { defaultModelEfforts, shouldDefaultVisionAndTools, uid } from './domain';
 import type { Connection, Model, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
@@ -42,8 +42,9 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     if (!connection) return;
     const gemini = connection.protocol === 'gemini';
     const qwen = /^qwen(?:\d|[-/]|$)/i.test(model.trim());
+    const gptOrDeepSeekFlash = shouldDefaultVisionAndTools(model);
     const efforts = defaultModelEfforts(connection.protocol, model);
-    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: gemini || qwen, tools: true, nativeSearch: gemini || qwen, videoInput: gemini || qwen, audioInput: gemini, pdfInput: gemini, reasoning: 'effort', efforts, temperature: true };
+    const m: Model = { id: uid(), connectionId: connection.id, name: model || '新模型', model, contextWindow: 1_000_000, maxOutput: 65_536, vision: gemini || qwen || gptOrDeepSeekFlash, tools: true, nativeSearch: gemini || qwen, videoInput: gemini || qwen, audioInput: gemini, pdfInput: gemini, reasoning: 'effort', efforts, temperature: true };
     change({ models: [...draft.models, m], defaultModel: draft.defaultModel || m.id });
   }
   function updateModel(id: string, values: Partial<Model>) { change({ models: draft.models.map(m => {
@@ -56,6 +57,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       else if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim()) && !next.efforts.includes('max')) next.efforts = [...next.efforts, 'max'];
       if (/^qwen(?:\d|[-/]|$)/i.test(values.model.trim())) Object.assign(next, { vision: true, tools: true, nativeSearch: true, videoInput: true });
     }
+    if ((typeof values.model === 'string' || typeof values.name === 'string') && shouldDefaultVisionAndTools(next.model, next.name)) Object.assign(next, { vision: true, tools: true });
     return next;
   }) }); }
   async function save() {

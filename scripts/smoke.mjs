@@ -10,7 +10,7 @@ const directory = mkdtempSync(join(tmpdir(), 'deepchan-smoke-'));
 const calls = []; let lastAuthorization = '';
 const server = createServer(async (req, res) => {
   let body = ''; for await (const chunk of req) body += chunk;
-  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: [{ id: 'fixture-model' }] })); return; }
+  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: ['fixture-model', 'gpt-4o', 'deepseek-flash'].map(id => ({ id })) })); return; }
   const data = JSON.parse(body); calls.push({ path: req.url, data });
   const title = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('生成简短标题');
   const compression = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('压缩为');
@@ -142,6 +142,16 @@ try {
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.getByLabel('模型 ID', { exact: true }).fill('responses-fixture');
+  await page.getByLabel(/^Base URL/).fill(baseUrl);
+  await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
+  for (const id of ['gpt-4o', 'deepseek-flash']) {
+    await page.getByLabel(/^添加服务端模型/).selectOption(id);
+    const added = page.locator('.settings-card').last();
+    assert.equal(await added.getByLabel('图片输入', { exact: true }).isChecked(), true, `${id} should default image input on`);
+    assert.equal(await added.getByLabel('工具调用', { exact: true }).isChecked(), true, `${id} should default tool calls on`);
+  }
+  await page.getByLabel(/^添加服务端模型/).selectOption('fixture-model');
+  assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');
   await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://generativelanguage.googleapis.com/v1beta');
