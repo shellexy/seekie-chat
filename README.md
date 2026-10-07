@@ -30,7 +30,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
 
-“+ DeepSeek”预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，创建后连接名为“DeepSeek”，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型的思考等级包含 `xhigh` 和 `max`。
+DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic（内置搜索）”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型的思考等级包含 `xhigh` 和 `max`。
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `minimal, low, medium, high`。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 

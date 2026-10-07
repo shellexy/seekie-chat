@@ -8,7 +8,11 @@ import type { Connection, Model, ServerModel, Settings as SettingsType } from '.
 import WindowControls from './WindowControls';
 const saved = '••••••••';
 const templates = [
-  { name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
+  // DeepSeek 提供三种协议，但只有 Anthropic 协议带服务端内置搜索。默认给兼容面最广的
+  // OpenAI Chat，搜索改用显式的 DeepSeek Search（按次计费、可见、可控）；仍想要服务端
+  // 搜索的人再选旁边的 Anthropic 预设。
+  { name: 'DeepSeek', protocol: 'chat', baseUrl: 'https://api.deepseek.com/' },
+  { name: 'DeepSeek · Anthropic（内置搜索）', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   { name: 'OpenAI · Responses', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
   { name: 'OpenAI · Chat Completions', protocol: 'chat', baseUrl: 'https://api.openai.com/v1' },
   { name: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1' },
@@ -29,10 +33,13 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   function addConnection(index: number) {
     const t = templates[index];
     const c: Connection = { name: t.name, protocol: t.protocol, baseUrl: t.baseUrl, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '' };
-    const presetModel: Model | undefined = t.name === 'DeepSeek' ? {
+    const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic（内置搜索）';
+    const presetModel: Model | undefined = deepSeekPreset ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
       contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
-      nativeSearch: true, videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'medium', 'high', 'max'], temperature: true
+      // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。
+      nativeSearch: t.name === 'DeepSeek · Anthropic（内置搜索）',
+      videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'medium', 'high', 'max'], temperature: true
     } : t.name === 'Ollama Cloud' ? {
       id: uid(), connectionId: c.id, name: 'gemma4:31b', model: 'gemma4:31b',
       contextWindow: 256_000, maxOutput: 256_000, vision: true, tools: true,

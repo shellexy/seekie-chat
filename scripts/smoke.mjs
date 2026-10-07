@@ -169,7 +169,9 @@ try {
   const settingsViewportWidth = await page.evaluate(() => innerWidth);
   assert.equal(settingsControlBounds.y, 0);
   assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
+  // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
+  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic（内置搜索）', 'OpenAI · Responses', 'OpenAI · Chat Completions', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
   }
@@ -178,14 +180,21 @@ try {
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek');
   assert.equal(await page.getByLabel('连接名称', { exact: true }).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '连接名称与输入框并排');
   assert.equal(await page.getByLabel(/^接口协议/).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '接口协议标签与选项并排');
-  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
-  assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'chat', 'DeepSeek 预设默认走 OpenAI 兼容协议');
+  assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/');
   assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'deepseek-flash');
   assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash');
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '256000');
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
-  for (const name of ['图片输入', '工具调用', '原生搜索']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
+  for (const name of ['图片输入', '工具调用']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
+  assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), false, 'OpenAI 兼容协议不提供服务端原生搜索');
+  // Anthropic 预设保留，仍带原生搜索。
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek · Anthropic（内置搜索）', exact: true }).click();
+  assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
+  assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
+  assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), true, 'Anthropic 协议提供服务端原生搜索');
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek', exact: true }).click();
   await page.locator('.preset-row').getByRole('button', { name: '自定义兼容服务', exact: true }).click();
   await page.getByLabel('连接名称', { exact: true }).fill('重命名的兼容服务');
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
@@ -258,7 +267,9 @@ try {
   assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
   await page.screenshot({ path: join(directory, 'center-toast.png') });
   const presets = await page.evaluate(() => window.deepchan.load());
-  assert.equal(presets.settings.models.find(m => m.model === 'deepseek-flash').nativeSearch, true);
+  // 两个 DeepSeek 预设各留下一个 deepseek-flash：兼容协议的不带原生搜索，Anthropic 的带。
+  const flashModels = presets.settings.models.filter(m => m.model === 'deepseek-flash');
+  assert.deepEqual([...new Set(flashModels.map(m => m.nativeSearch))].sort(), [false, true], 'OpenAI 兼容预设不带原生搜索，Anthropic 预设带');
   // Verify that the connection's defaults survive save/reopen and renaming.
   await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '联网搜索' }).click();
