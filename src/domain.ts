@@ -17,6 +17,17 @@ export function normalizePromptSettings(settings: Settings) {
   if (!Array.isArray(settings.promptPresets)) settings.promptPresets = defaultPromptPresets();
   if (typeof settings.defaultPromptPresetId !== 'string') settings.defaultPromptPresetId = 'general';
 }
+/**
+ * 恢复程序预设的角色。内置角色按固定 id 识别：存在就重置回默认的名称与提示词，被删掉的
+ * 补回并追加到末尾。用户自己添加的角色 id 不在其中，原样保留、位置也不变。
+ */
+export function resetBuiltInPresets(presets: PromptPreset[]): PromptPreset[] {
+  const builtIns = defaultPromptPresets(), byId = new Map(builtIns.map(p => [p.id, p]));
+  const result = presets.map(p => { const b = byId.get(p.id); return b ? { ...b } : p; });
+  const present = new Set(result.map(p => p.id));
+  for (const b of builtIns) if (!present.has(b.id)) result.push({ ...b });
+  return result;
+}
 export function normalizeSettings(settings: Settings) {
   normalizePromptSettings(settings);
   if (typeof settings.firecrawlKey !== 'string') settings.firecrawlKey = '';

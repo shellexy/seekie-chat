@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -513,4 +513,27 @@ test('gpt models can be routed to the Responses protocol on an OpenAI-compatible
   legacy.connections = [{ ...base }];
   normalizeSettings(legacy);
   assert.equal(legacy.connections[0].responsesForGpt, true, '该选项默认开启');
+});
+
+test('resetting the built-in roles restores them and leaves user roles alone', () => {
+  const builtIns = defaultPromptPresets();
+  const userRole = { id: 'mine', name: '我的角色', content: '自定义提示词。' };
+  const library = [
+    userRole,
+    { id: 'general', name: '被我改过的名字', content: '被我改过的提示词。' },
+    { id: 'coding', name: '编程助手', content: '也被我改过。' }
+  ];
+  const reset = resetBuiltInPresets(library);
+  assert.deepEqual(reset.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator'], '用户角色位置不变，缺失的内置角色补在末尾');
+  assert.deepEqual(reset[0], userRole, '用户添加的角色原样保留');
+  assert.equal(reset[1].name, '通用助手', '内置角色的名称恢复默认');
+  assert.equal(reset[1].content, builtIns[0].content, '内置角色的提示词恢复默认');
+  assert.equal(reset[2].content, builtIns[1].content);
+  // 原对象不能被就地改写，设置页的草稿与已保存的数据不能被这次重置串改。
+  assert.equal(library[1].content, '被我改过的提示词。');
+  // 一个内置角色都没了时，四个全部补回。
+  const all = resetBuiltInPresets([userRole]);
+  assert.deepEqual(all.map(p => p.id), ['mine', 'general', 'coding', 'writing', 'translator']);
+  // 库是空的也照常补回。
+  assert.deepEqual(resetBuiltInPresets([]).map(p => p.id), ['general', 'coding', 'writing', 'translator']);
 });

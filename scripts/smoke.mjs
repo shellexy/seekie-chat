@@ -631,6 +631,15 @@ try {
   await page.getByLabel('角色名称', { exact: true }).first().fill('临时角色');
   await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '临时角色' }) }).getByLabel('角色系统提示词', { exact: true }).fill('仅用于测试删除。');
   await page.getByTitle('删除角色：临时角色', { exact: true }).click();
+  // “重置预设角色”把程序自带的角色恢复成默认，并补回被删掉的；用户自己的角色不动。
+  await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).fill('被我改过的内置提示词。');
+  await page.getByTitle('删除角色：通用助手', { exact: true }).click();
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 0, '通用助手应已被删除');
+  await page.getByRole('button', { name: '重置预设角色', exact: true }).click();
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).count(), 1, '重置后通用助手应被补回');
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).count(), 1, '用户添加的角色不应受影响');
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '测试研究助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '角色库更新后的提示词。', '用户角色连改过的提示词都不应被重置');
+  assert.equal(await page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: '通用助手' }) }).getByLabel('角色系统提示词', { exact: true }).inputValue(), '你是一位严谨、友善的助手。使用用户的语言回答。', '内置角色应恢复默认提示词');
   await page.screenshot({ path: join(directory, 'prompt-library.png') });
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });

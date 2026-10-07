@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Check, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, Trash2, Wifi, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
 import { api } from './api';
 import { settingsProblems } from './validation';
-import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
+import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
 import type { Connection, Model, ServerModel, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
@@ -179,6 +179,8 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
         <label className="field">角色名称<input aria-label="角色名称" value={p.name} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, name: e.target.value } : x) })}/></label>
         <label className="field">角色系统提示词<textarea aria-label="角色系统提示词" rows={6} value={p.content} onChange={e => change({ promptPresets: draft.promptPresets.map(x => x.id === p.id ? { ...x, content: e.target.value } : x) })} placeholder="描述这个角色的职责、回答风格和约束…"/></label>
       </div>)}{!draft.promptPresets.length && <div className="empty-card">还没有角色预设，点击“添加角色”创建。</div>}
+      <div className="button-row"><button onClick={() => change({ promptPresets: resetBuiltInPresets(draft.promptPresets) })}><RotateCcw size={15}/>重置预设角色</button></div>
+      <p className="muted">把程序自带的角色恢复成默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。</p>
     </>}
     {tab === 'search' && <><h2>联网搜索</h2><p className="muted">新对话默认自动联网：搜索优先当前模型支持的原生搜索，然后按已配置的 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 选择服务；没有配置搜索 Key 时自动使用 Firecrawl 免 Key 搜索。Firecrawl、AnySearch、Tavily 也支持在会话中手动选择免 Key 搜索。读取网页按已配置的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch 顺序尝试；三家免 Key 服务无 Key 时也会自动尝试，失败后回退到本地读取网页。</p>
       <div className="settings-card"><h3>默认联网搜索</h3><label className="field">新对话的搜索模式<select value={draft.defaultSearch} onChange={e => change({ defaultSearch: e.target.value as SettingsType['defaultSearch'] })}>{SEARCH_MODES.map(mode => <option key={mode} value={mode}>{SEARCH_MODE_LABELS[mode]}</option>)}</select></label><label className="field">新对话的默认读取网页方法<select value={draft.defaultWebFetch} onChange={e => change({ defaultWebFetch: e.target.value as SettingsType['defaultWebFetch'] })}><option value="last">上次使用（当前：{WEB_FETCH_LABELS[resolveDefaultWebFetch(draft)]}）</option>{WEB_FETCH_MODES.map(mode => <option key={mode} value={mode}>{WEB_FETCH_LABELS[mode]}</option>)}</select></label><label className="toggle-row">自动模式下优先使用模型原生搜索<input type="checkbox" checked={draft.preferNativeSearch} onChange={e => change({ preferNativeSearch: e.target.checked })}/></label><label className="field">自动模式下优先使用的外部搜索<select aria-label="自动模式下优先使用的外部搜索" value={draft.preferredExternalSearch} onChange={e => change({ preferredExternalSearch: e.target.value as SettingsType['preferredExternalSearch'] })}><option value="auto">默认顺序（内置）</option>{EXTERNAL_SEARCH_MODES.map(mode => <option key={mode} value={mode} disabled={!externalSearchAvailable(mode, draft)}>{EXTERNAL_SEARCH_LABELS[mode]}{mode === 'deepseek' ? '（按次计费）' : mode === 'exa' || mode === 'ollama' ? '（需 API Key）' : ''}</option>)}</select></label><p className="muted">“{SEARCH_MODE_LABELS.auto}”会让新对话带上该模式，之后仍可在“会话选项”里逐个分支修改；“上次使用”则接着你在会话里最后选择的读取网页方式切换过的那一个。三项偏好只影响自动模式的降级顺序和新建对话的起点：会话里显式选择的搜索模式始终按你的指定执行。勾选“优先使用模型原生搜索”时，自动模式先尝试模型自带的原生搜索，再用外部服务；取消勾选则反过来，原生搜索只作最后兜底。“自动模式下优先使用的外部搜索”决定外部链先试哪一家 —— 它没有可用密钥时会跳过，继续走“默认顺序”；DeepSeek 排在内置链之后，只有这样显式指定才会被自动模式用到。当前模型不支持原生搜索、或不支持工具调用时，请求会自动落到可用的一侧。</p></div>
