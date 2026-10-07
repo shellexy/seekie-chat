@@ -184,8 +184,9 @@ try {
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/');
   assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'deepseek-flash');
   assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'deepseek-flash');
-  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
-  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '256000');
+  // 与服务端 /models 报告的值一致：1048576 / 393216（384K）。
+  assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1048576');
+  assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '393216');
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   for (const name of ['图片输入', '工具调用']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), false, 'OpenAI 兼容协议不提供服务端原生搜索');

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { generateGemini, sanitizeStoredParts } from './gemini';
 import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
-import { deepseekWebSearchKey, EXTERNAL_SEARCH_MODES, normalizeEffort, ollamaWebSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
+import { deepseekWebSearchKey, EXTERNAL_SEARCH_MODES, ollamaWebSearchKey, resolveSearch, UNTRUSTED_CONTENT_NOTE } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
 import type { ChatConfig, Connection, ExternalSearchMode, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
@@ -270,7 +270,6 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {
   config = {
     ...config,
-    effort: normalizeEffort(config.effort),
     webFetch: config.webFetch || (config.search === 'off' ? 'off' : 'auto'),
     temperature: Number.isFinite(config.temperature) ? Math.max(0, Math.min(2, config.temperature!)) : 1,
     topP: Number.isFinite(config.topP) ? Math.max(0, Math.min(1, config.topP!)) : 1
@@ -378,7 +377,10 @@ export async function generate(connection: Connection, model: Model, config: Cha
           const choice = ev.choices?.[0], d = choice?.delta;
           for (const [key, value] of Object.entries(d || {})) {
             if (key === 'content' && typeof value === 'string' && value) { chatText += value; addText(value); }
-            if (key === 'reasoning_content' && typeof value === 'string' && value) { chatReason += value; addReason(value); }
+            // Ollama 的 OpenAI 兼容端点把思考放在 `reasoning` 而不是 `reasoning_content`
+            // （见 docs.ollama.com/api/openai-compatibility），只读后者会让 gemma4 的思考
+            // 整段消失——模型在想，界面看不到。
+            if ((key === 'reasoning_content' || key === 'reasoning') && typeof value === 'string' && value) { chatReason += value; addReason(value); }
             if (key === 'tool_calls' && Array.isArray(value)) for (const c of value) {
               const old = resolveToolCall(chatCalls, c);
               if (c.id) old.id = c.id;
@@ -520,11 +522,6 @@ export function parseServerModel(entry: unknown): ServerModel {
   const count = (...values: unknown[]) => { for (const value of values) { const number = Number(value); if (Number.isFinite(number) && number > 0) return Math.floor(number); } return undefined; };
   const list = (...values: unknown[]) => { for (const value of values) if (Array.isArray(value) && value.length) return value.filter(item => typeof item === 'string' && item.trim()).map(item => String(item).trim()); return undefined; };
   const effort = (model.effort ?? model.reasoning ?? {}) as Record<string, any>;
-  // 有的服务（DeepSeek 的 Anthropic 兼容端点就是）把"不发送思考参数"报成一个叫 none 的档位。
-  // 本应用用 auto 表达同一件事，留着 none 会让它混进等级列表，并因为没有 medium 而被当成
-  // 默认档位选上——那正是新对话落到 none 的原因。
-  const levels = list(effort.supported_levels, effort.supportedLevels)?.filter(level => level !== 'none');
-  const defaultLevel = text(effort.default_level, effort.defaultLevel);
   const parsed: ServerModel = {
     id: text(model.id, model.model, model.name) || '',
     // `displayName`/`display_name` win: Gemini uses `name` for the resource path, not for display.
@@ -533,8 +530,9 @@ export function parseServerModel(entry: unknown): ServerModel {
     maxOutput: count(model.max_output_tokens, model.maxOutputTokens, model.outputTokenLimit, model.output_token_limit, model.max_tokens),
     inputModalities: list(model.input_modalities, model.inputModalities),
     outputModalities: list(model.output_modalities, model.outputModalities),
-    efforts: levels?.length ? levels : undefined,
-    defaultEffort: defaultLevel === 'none' ? undefined : defaultLevel
+    // `none` 保留：它是"关闭思考"的一等档位（DeepSeek、Ollama 都这样定义），不是可以丢的同义词。
+    efforts: list(effort.supported_levels, effort.supportedLevels),
+    defaultEffort: text(effort.default_level, effort.defaultLevel)
   };
   // Absent descriptions stay absent: the settings page falls back per field, and callers that compare
   // whole entries should not have to distinguish "missing" from "explicitly undefined".

@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeEffort, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
   return { c, b, u, a };
 }
 test('new model thinking levels use sensible defaults when the model is unknown', () => {
-  assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['minimal', 'low', 'medium', 'high']);
-  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['low', 'high', 'max'], 'DeepSeek 按官方新版的三档，不再跟随 GPT');
-  assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(defaultModelEfforts('chat', 'local-custom-model'), ['none', 'minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-v4'), ['none', 'low', 'high', 'max'], 'DeepSeek 按官方文档的四档，不再跟随 GPT');
+  assert.deepEqual(defaultModelEfforts('gemini', 'gemini-fixture'), ['none', 'minimal', 'low', 'medium', 'high']);
 });
 test('GPT and DeepSeek Flash names default to vision and tool support', () => {
   for (const name of ['gpt-4o', 'GPT-5', 'openai/gpt-4.1', 'gpt-oss-120b', 'models/deepseek-flash', 'deepseek/deepseek-flash-v2', 'DeepSeek Flash']) assert.equal(shouldDefaultVisionAndTools(name), true, name);
@@ -171,10 +171,10 @@ test('each reasoning segment records its own duration', () => {
 });
 
 test('GPT thinking levels include xhigh and Gemini names default to vision and tools', () => {
-  assert.deepEqual(defaultModelEfforts('chat', 'gpt-6-luna'), ['low', 'medium', 'high', 'xhigh', 'max']);
-  assert.deepEqual(defaultModelEfforts('responses', 'gpt-5.1'), ['low', 'medium', 'high', 'xhigh', 'max']);
-  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-flash'), ['low', 'high', 'max']);
-  assert.deepEqual(defaultModelEfforts('chat', 'gemini-3.1-pro'), ['minimal', 'low', 'medium', 'high']);
+  assert.deepEqual(defaultModelEfforts('chat', 'gpt-6-luna'), ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('responses', 'gpt-5.1'), ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'deepseek-flash'), ['none', 'low', 'high', 'max']);
+  assert.deepEqual(defaultModelEfforts('chat', 'gemini-3.1-pro'), ['none', 'minimal', 'low', 'medium', 'high']);
   assert.equal(shouldDefaultVisionAndTools('gemini-3.1-pro'), true);
   assert.equal(shouldDefaultVisionAndTools('models/gemini-3.8-flash'), true);
   assert.equal(shouldDefaultVisionAndTools('openrouter/gemini-3-flash'), true);
@@ -454,22 +454,14 @@ test('the preferred starting effort wins even when the list has no medium level'
   assert.equal(defaultModelEffort({ ...model, defaultEffort: 'medium' }), 'low', '不在支持列表里的指定一律忽略');
 });
 
-test('DeepSeek lands on high from every add path, and none is treated as auto', () => {
-  const deepseek: Model = { id: 'd', connectionId: 'c', name: 'deepseek-flash', model: 'deepseek-flash', contextWindow: 128000, maxOutput: 8192, vision: true, tools: true, nativeSearch: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], temperature: true };
-  assert.equal(defaultModelEffort(deepseek), 'high', '服务端列表添加：等级表由服务端给出、没给默认档位');
+test('none is a real effort level and is never picked as the implicit default', () => {
+  // DeepSeek 与 Ollama 都用 reasoning_effort: "none" 明确关闭思考；auto 只是不发这个字段，
+  // 而 DeepSeek 的 thinking 默认 enabled、Ollama 更会自动开启，所以 auto 关不掉思考。
+  const deepseek: Model = { id: 'd', connectionId: 'c', name: 'deepseek-flash', model: 'deepseek-flash', contextWindow: 128000, maxOutput: 8192, vision: true, tools: true, nativeSearch: false, reasoning: 'effort', efforts: ['none', 'low', 'high', 'max'], temperature: true };
+  assert.equal(defaultModelEffort(deepseek), 'high', '服务端列表添加：等级表里没有 medium，按 DeepSeek 的起点走');
+  assert.equal(defaultModelEffort({ ...deepseek, defaultEffort: 'none' }), 'high', '服务端把 none 报成默认档位时应当忽略，否则新对话一上来就不思考');
+  assert.equal(defaultModelEffort({ ...deepseek, defaultEffort: 'high' }), 'high');
   assert.equal(defaultModelEffort({ ...deepseek, efforts: ['minimal', 'low', 'medium', 'high'] }), 'medium', '用户自己配的等级表仍然按 medium 起步');
-  assert.equal(normalizeEffort('none'), 'auto', '旧会话里存的 none 归一到 auto');
-  assert.equal(normalizeEffort('high'), 'high');
-  // 旧数据迁移：早期版本把服务端报的 none 存进了模型。
-  const settings = initialState().settings;
-  settings.connections = [{ id: 'c', name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
-  settings.models = [{ ...deepseek, efforts: ['none', 'low', 'high', 'max'], defaultEffort: 'none' }];
-  normalizeSettings(settings);
-  assert.deepEqual(settings.models[0].efforts, ['low', 'high', 'max']);
-  assert.equal(settings.models[0].defaultEffort, undefined);
-  // 整份等级表只有 none 时退回按模型名推导，不留空列表。
-  settings.models = [{ ...deepseek, efforts: ['none'], defaultEffort: 'none' }];
-  normalizeSettings(settings);
-  assert.deepEqual(settings.models[0].efforts, ['low', 'high', 'max']);
-  assert.equal(defaultModelEffort(settings.models[0]), 'high');
+  // 兜底也跳过 none：没有依据时替用户关掉思考是最糟的默认。
+  assert.equal(defaultModelEffort({ ...deepseek, efforts: ['none'] }), 'auto', '只有 none 可选时退回 auto，而不是替用户关掉思考');
 });

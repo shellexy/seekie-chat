@@ -33,17 +33,6 @@ export function normalizeSettings(settings: Settings) {
   if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) settings.preferredExternalSearch = 'auto';
   if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) settings.defaultWebFetch = 'auto';
   if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
-  // 早期版本照单全收服务端的等级表，于是 DeepSeek Anthropic 端点报的 none 档位被存了进去，
-  // 新对话还因此把 none 当成默认等级。none 本来就是 auto 的意思，从旧数据里清掉。
-  for (const m of settings.models) {
-    if (!Array.isArray(m.efforts)) continue;
-    if (m.efforts.includes('none')) {
-      const rest = m.efforts.filter(level => level !== 'none');
-      // 整份等级表只有一个 none 时，退回按模型名推导的等级，而不是留一个空列表。
-      m.efforts = rest.length ? rest : defaultModelEfforts(settings.connections.find(c => c.id === m.connectionId)?.protocol || 'chat', m.model);
-    }
-    if (m.defaultEffort === 'none') delete m.defaultEffort;
-  }
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
@@ -109,13 +98,13 @@ export function newChatModelId(settings: Settings): string {
   return ids.has(settings.defaultModel) ? settings.defaultModel : settings.models[0]?.id || '';
 }
 export function defaultModelEfforts(protocol: Protocol, model: string): string[] {
-  if (protocol === 'gemini') return ['minimal', 'low', 'medium', 'high'];
+  if (protocol === 'gemini') return ['none', 'minimal', 'low', 'medium', 'high'];
   const name = model.trim();
   // DeepSeek 早期只说会对思考档位做自动映射，所以当时按 GPT 的档位给；官方新版给出了自己的
-  // 三档，这里按官方来，不再与 GPT 保持一致。
-  if (/^deepseek(?:[-/]|$)/i.test(name)) return ['low', 'high', 'max'];
-  if (/^gpt(?:[-/]|$)/i.test(name)) return ['low', 'medium', 'high', 'xhigh', 'max'];
-  return ['minimal', 'low', 'medium', 'high'];
+  // 档位，这里按官方来，不再与 GPT 保持一致。
+  if (/^deepseek(?:[-/]|$)/i.test(name)) return ['none', 'low', 'high', 'max'];
+  if (/^gpt(?:[-/]|$)/i.test(name)) return ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+  return ['none', 'minimal', 'low', 'medium', 'high'];
 }
 export function shouldDefaultVisionAndTools(...names: string[]): boolean {
   return names.some(name => {
@@ -125,21 +114,25 @@ export function shouldDefaultVisionAndTools(...names: string[]): boolean {
     return /(?:^|\/)(?:gpt|gemini)(?:[-_.:/]|$)/.test(normalized) || /(?:^|\/)deepseek[- ]flash(?:[-_.:/]|$)/.test(normalized);
   });
 }
-// DeepSeek 的官方三档里没有 medium，落到首项 low 与它的常用起点不符；high 才是。三条添加
-// 路径（预设、手动添加、从服务端列表）都要落到同一个起点，所以规则放在这里而不是只写进预设。
+// 关闭思考是一等档位：DeepSeek 与 Ollama 都用 reasoning_effort: "none" 明确关闭思考，而 auto
+// 只是不发这个字段（DeepSeek 的 thinking 默认 enabled，Ollama 更会自动开启），关不掉。
+export const EFFORT_OFF = 'none';
+// DeepSeek 的档位里没有 medium，落到首项 low（现在是 none）与它的常用起点不符；官方文档明确
+// 说明默认档位就是 high。三条添加路径（预设、手动添加、从服务端列表）都要落到同一个起点，
+// 所以规则放在这里而不是只写进预设。
 export const DEEPSEEK_PREFERRED_EFFORT = 'high';
 // Preference order for a model's initial effort: what the service recommends, then the usual middle
 // level if the model supports it, then whatever comes first.
 export function defaultModelEffort(model?: Model): string {
   if (!model) return 'auto';
-  if (model.defaultEffort && model.efforts.includes(model.defaultEffort)) return model.defaultEffort;
+  // none 是"关闭思考"，不是推荐档位；服务端把它报成 default_level 时应当忽略，否则新对话会
+  // 一上来就不思考。
+  if (model.defaultEffort && model.defaultEffort !== EFFORT_OFF && model.efforts.includes(model.defaultEffort)) return model.defaultEffort;
   if (model.efforts.includes('medium')) return 'medium';
   if (/^deepseek(?:[-/]|$)/i.test(model.model.trim()) && model.efforts.includes(DEEPSEEK_PREFERRED_EFFORT)) return DEEPSEEK_PREFERRED_EFFORT;
-  return model.efforts[0] || 'auto';
+  // 兜底也跳过 none：没有依据时替用户关掉思考是最糟的默认。
+  return model.efforts.find(level => level && level !== EFFORT_OFF) || 'auto';
 }
-/** `none` 是 `auto` 的同义词：都是"不发送思考参数"。模型等级表里不再保留 none，但旧会话里存着的
- *  这个值要归一到 auto，否则会被等级校验判成"不支持"而直接报错。 */
-export function normalizeEffort(value: string): string { return value === 'none' ? 'auto' : value; }
 export const defaultConfig = (settings: Settings): ChatConfig => {
   const modelId = newChatModelId(settings), model = settings.models.find(m => m.id === modelId);
   return { modelId, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT,

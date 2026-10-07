@@ -54,7 +54,7 @@
 4. Gemini GenerateContent API（原生流式、图片、思考摘要、Google Search 和外部搜索工具调用）。
 5. Ollama 本地服务和 Ollama Cloud 的 OpenAI Chat 兼容接口。
 
-支持官方服务预设及自定义兼容服务。所有连接新增模型时，思考参数默认选择思考等级（effort）；未知模型默认支持 `minimal, low, medium, high`，已知模型使用专门等级（GPT 为 `low, medium, high, xhigh, max`；DeepSeek 按官方新版为 `low, high, max`，不再与 GPT 对齐）。服务端把“不发送思考参数”报成 `none` 档位时（DeepSeek 的 Anthropic 兼容端点如此）按 `auto` 处理，不进入等级列表；旧数据中已存的 `none` 在加载时清除，旧会话里的 `none` 也按 `auto` 发送。DeepSeek 的默认起始档位为 `high`：其等级表无 `medium`，不落到首项 `low`，预设、手动添加与从服务端列表添加三条路径一致。。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，默认勾选图片输入与工具调用。上下文窗口默认为 1,000,000 token、最大输出默认为 65,536 token；供应商预设模型保留其专门配置。DeepSeek 提供 Anthropic、OpenAI 兼容与 Responses 三种协议，仅 Anthropic 协议提供服务端内置搜索，且该搜索按官方说明自 2026 年 11 月 1 日起按次收费。因此提供两个预设并把 OpenAI 兼容协议作为默认：“DeepSeek”使用 `chat` 与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），搜索改用显式的 DeepSeek 搜索接口，调用次数与费用可见；“DeepSeek · Anthropic（内置搜索）”使用 `anthropic` 与 `https://api.deepseek.com/anthropic`，保留原生搜索。两者均自动添加 `deepseek-flash`，上下文 1,000,000 token、最大输出 256,000 token，启用图片输入与工具调用，思考参数默认选择思考等级（effort）；仅 Anthropic 预设勾选原生搜索。预设改动不影响已存在的连接——连接各自保存自己的协议。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
+支持官方服务预设及自定义兼容服务。所有连接新增模型时，思考参数默认选择思考等级（effort）；所有等级列表都含 `none`，它是明确关闭思考的一等档位（DeepSeek 与 Ollama 都这样定义），与 `auto` 不同：`auto` 只表示不发送 `reasoning_effort`，而 DeepSeek 的 `thinking` 默认 `enabled`、Ollama 未指定时还会自动开启思考，故只有 `none` 能真正关闭。默认档位为 `none, minimal, low, medium, high`，GPT 为 `none, low, medium, high, xhigh, max`，DeepSeek 按官方文档为 `none, low, high, max`，不再与 GPT 对齐。默认起始档位 `high`（官方文档说明 DeepSeek 的默认档位亦为 `high`），预设、手动添加与从服务端列表添加三条路径一致；服务端若把 `none` 报成默认档位则忽略，隐式兜底也永不选中 `none`。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，默认勾选图片输入与工具调用。上下文窗口默认为 1,000,000 token、最大输出默认为 65,536 token；供应商预设模型保留其专门配置。DeepSeek 提供 Anthropic、OpenAI 兼容与 Responses 三种协议，仅 Anthropic 协议提供服务端内置搜索，且该搜索按官方说明自 2026 年 11 月 1 日起按次收费。因此提供两个预设并把 OpenAI 兼容协议作为默认：“DeepSeek”使用 `chat` 与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），搜索改用显式的 DeepSeek 搜索接口，调用次数与费用可见；“DeepSeek · Anthropic（内置搜索）”使用 `anthropic` 与 `https://api.deepseek.com/anthropic`，保留原生搜索。两者均自动添加 `deepseek-flash`，上下文 1,048,576 token、最大输出 393,216 token（384K），取服务端 `/models` 报告的值，启用图片输入与工具调用，思考参数默认选择思考等级（effort）；仅 Anthropic 预设勾选原生搜索。预设改动不影响已存在的连接——连接各自保存自己的协议。每个连接配置包含：名称、协议、Base URL、API Key、可选自定义请求头、超时和代理策略。自定义请求头中的认证信息按密钥处理。
 
 Gemini 预设使用 `https://generativelanguage.googleapis.com/v1beta`，认证使用 `x-goog-api-key`；模型列表支持分页并只展示可生成内容的模型。Gemini 3 及以上可配置思考等级，Gemini 2.5 可配置思考预算；原生搜索使用 Google Search，保存服务返回的来源和思考签名。
 
@@ -148,7 +148,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 ### 5.1 推理展示
 
 - 仅展示 API 实际返回且允许展示的推理文本或摘要，不承诺获取模型完整内部思考过程。
-- 推理区默认可折叠，区分推理摘要、回答正文和工具执行。
+- 推理区默认可折叠，区分推理摘要、回答正文和工具执行。只展示服务返回的内容，不推测内部思考。OpenAI 兼容协议下同时读取 `reasoning_content` 与 Ollama 的 `reasoning` 两个字段名，否则 Ollama 思考模型（如 gemma4）的思考内容会被整段丢弃。
 - 模型不返回可展示推理时显示能力说明，不生成伪造思考内容。
 - 按供应商约定保留后续轮次所需的推理签名、加密状态或其他不透明数据，不允许用户直接编辑。
 

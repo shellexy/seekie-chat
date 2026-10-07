@@ -762,12 +762,11 @@ test('a described model list keeps names, limits and modalities', () => {
     id: 'deepseek-chat', name: 'DeepSeek Chat', contextWindow: 128_000, maxOutput: 8_192,
     inputModalities: ['text', 'image'], outputModalities: ['text'], efforts: ['low', 'high'], defaultEffort: 'high'
   });
-  // DeepSeek's Anthropic-compatible endpoint reports "send no reasoning parameter" as a level
-  // called `none`; auto already means that here, and keeping it would make it the default pick.
+  // none is a first-class level that actually turns thinking off (DeepSeek and Ollama both define
+  // it that way), so it must survive parsing rather than be folded into auto.
   assert.deepEqual(parseServerModel({ id: 'deepseek-flash', effort: { supported_levels: ['none', 'low', 'high', 'max'] } }),
-    { id: 'deepseek-flash', efforts: ['low', 'high', 'max'] });
-  assert.deepEqual(parseServerModel({ id: 'd', effort: { supported_levels: ['low', 'high'], default_level: 'none' } }), { id: 'd', efforts: ['low', 'high'] });
-  assert.deepEqual(parseServerModel({ id: 'd', effort: { supported_levels: ['none'] } }), { id: 'd' }, '全表只有 none 时退回按模型名推导');
+    { id: 'deepseek-flash', efforts: ['none', 'low', 'high', 'max'] });
+  assert.deepEqual(parseServerModel({ id: 'gemma4:31b', effort: { supported_levels: ['none', 'low'], default_level: 'low' } }), { id: 'gemma4:31b', efforts: ['none', 'low'], defaultEffort: 'low' });
   // A plain OpenAI entry describes nothing beyond its id.
   assert.deepEqual(parseServerModel({ id: 'gpt-4o', object: 'model', created: 1, owned_by: 'openai' }), { id: 'gpt-4o' });
   // Camel case gateways and bare strings are accepted, and display names win over resource names.
@@ -868,5 +867,51 @@ test('deepseek search returns page bodies when the setting asks for them', async
   assert.equal(searchBody.need_content, true, '开关开启后应请求网页正文');
   assert.equal(searchBody.count, 10, '未单独设置时使用默认结果数');
   assert.match(toolResult, /网页正文全文/, '开启后正文优先于 summary');
+  await agent.close();
+});
+
+test('Ollama thinking arrives under delta.reasoning, not reasoning_content', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    // Ollama 的 OpenAI 兼容端点把思考放在 reasoning 字段，DeepSeek 等用 reasoning_content。
+    return [
+      { choices: [{ delta: { reasoning: 'Confirm the capital first.' } }] },
+      // 带一次工具调用，才能走第二轮并验证思考内容的回放。
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'clock-o', type: 'function', function: { name: 'datetime', arguments: '{}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: 'Canberra.' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '澳大利亚首都在哪');
+  const reasoning: string[] = [];
+  const gemma = { ...model, model: 'gemma4:31b', reasoning: 'effort' as const, efforts: ['none', 'low', 'medium', 'high'] };
+  const result = await generate(connection('chat'), gemma, { ...c.branches[0].config, search: 'off', webFetch: 'off', effort: 'low' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning: s => reasoning.push(s), tool() {}, sources() {} });
+  assert.equal(firstBody.reasoning_effort, 'low', 'Ollama 通过 reasoning_effort 控制思考');
+  assert.equal(reasoning.join(''), 'Confirm the capital first.', 'Ollama 的 reasoning 字段必须被当成思考内容读出来');
+  assert.equal(result.reasoning, 'Confirm the capital first.');
+  assert.equal(result.text, 'Canberra.');
+  // 回放时用标准的 reasoning_content，避免把 Ollama 的 reasoning 字段原样塞回去。
+  const replayed = secondBody.messages.findLast((m: any) => m.role === 'assistant');
+  assert.equal(replayed.reasoning_content, 'Confirm the capital first.');
+  assert.equal(replayed.reasoning, undefined, '不要把 Ollama 的字段名带进回放请求');
+  await agent.close();
+});
+
+test('reasoning_effort none is sent when the user turns thinking off', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  let body: any;
+  agent.get('https://fixture.invalid').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    body = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '好。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
+  const gemma = { ...model, model: 'gemma4:31b', reasoning: 'effort' as const, efforts: ['none', 'low', 'medium', 'high'] };
+  await generate(connection('chat'), gemma, { ...c.branches[0].config, search: 'off', webFetch: 'off', effort: 'none' }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(body.reasoning_effort, 'none', 'auto 是"不发字段"（服务会自行开启），none 才是明确关闭');
   await agent.close();
 });

@@ -30,11 +30,11 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。
 
-DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic（内置搜索）”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
+DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic（内置搜索）”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`，上下文窗口为 1,048,576 token、最大输出为 393,216 token（384K），启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `minimal, low, medium, high`。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
-手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，未知模型默认支持 `minimal, low, medium, high`；GPT 使用 `low, medium, high, xhigh, max`，DeepSeek 使用 `low, high, max`。服务端把“不发送思考参数”报成一个叫 `none` 的档位时（DeepSeek 的 Anthropic 兼容端点就是如此），该档位按 `auto` 处理，不进入等级列表；旧数据里已经存进去的 `none` 会在加载时清掉，旧会话里存着的 `none` 也会按 `auto` 发送，不会被判成不支持的等级。 DeepSeek 的默认起始档位为 `high`：它的等级表里没有 `medium`，不会落到首项 `low`；预设、手动添加与从服务端列表添加三条路径结果一致。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，也默认勾选图片输入和工具调用。上下文窗口默认为 1,000,000 token，最大输出为 65,536 token，可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
+手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，所有等级列表都含 `none`，它是**明确关闭思考**的一等档位，与 `auto` 不同——`auto` 只是不发送 `reasoning_effort`，而 DeepSeek 的 `thinking` 默认就是 `enabled`、Ollama 在未指定时还会自动开启思考，所以只有 `none` 能真正关掉。默认档位：`none, minimal, low, medium, high`；GPT 为 `none, low, medium, high, xhigh, max`；DeepSeek 按官方文档为 `none, low, high, max`。DeepSeek 的默认起始档位为 `high`（官方文档说明其默认档位亦为 `high`），预设、手动添加与从服务端列表添加三条路径结果一致。通过 OpenAI 兼容连接添加名称含 `gemini` 的模型时，也默认勾选图片输入和工具调用。上下文窗口默认为 1,000,000 token，最大输出为 65,536 token，可按实际模型能力修改；DeepSeek 预设模型取服务端 `/models` 报告的上下文 1,048,576 token 与最大输出 393,216 token。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 
@@ -104,7 +104,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 读取网页、外部服务搜索和 `datetime` 都要求模型支持工具调用。每个客户端工具各自限制每次回答最多 30 次调用，额度用完后该工具不再提供给模型，其他工具的额度不受影响；模型原生搜索由服务端触发，不计入此上限。`datetime` 无需参数，返回“本机时间 星期 | 时区 UTC 偏移 | UTC 时刻”一行文本，不产生引用来源。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与任何函数工具（`datetime`、`web_fetch` 及外部搜索）同时使用需要 Gemini 3 或更新的模型，请求会一并发送 `toolConfig.includeServerSideToolInvocations`；较早的 Gemini 模型在原生搜索模式下不提供这些函数工具，需选择外部搜索模式才能使用。
 
-思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
+思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。OpenAI 兼容协议下同时读取 `reasoning_content` 与 Ollama 的 `reasoning` 两个字段名，避免 Ollama 思考模型（如 gemma4）的思考内容被整段丢弃。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 
 ## 数据路径与安全
 

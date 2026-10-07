@@ -36,12 +36,14 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic（内置搜索）';
     const presetModel: Model | undefined = deepSeekPreset ? {
       id: uid(), connectionId: c.id, name: 'deepseek-flash', model: 'deepseek-flash',
-      contextWindow: 1_000_000, maxOutput: 256_000, vision: true, tools: true,
+      // 上下文与最大输出取服务端 /models 报告的值：1048576 / 393216（384K）。
+      contextWindow: 1_048_576, maxOutput: 393_216, vision: true, tools: true,
       // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。
       nativeSearch: t.name === 'DeepSeek · Anthropic（内置搜索）',
-      // 思考等级跟随官方新版：不再有 medium，也没有 xhigh。等级里没有 medium 时
-      // defaultModelEffort 会落到首项 low，预设与从服务端列表添加都改用 high 作为起点。
-      videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['low', 'high', 'max'], defaultEffort: DEEPSEEK_PREFERRED_EFFORT, temperature: true
+      // 思考等级跟随官方新版：none / low / high / max，没有 medium 也没有 xhigh。none 是明确
+      // 关闭思考；等级里没有 medium 时 defaultModelEffort 会落到首项，因此预设显式指定
+      // high——官方文档说明默认档位也正是 high。
+      videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: ['none', 'low', 'high', 'max'], defaultEffort: DEEPSEEK_PREFERRED_EFFORT, temperature: true
     } : t.name === 'Ollama Cloud' ? {
       id: uid(), connectionId: c.id, name: 'gemma4:31b', model: 'gemma4:31b',
       contextWindow: 256_000, maxOutput: 256_000, vision: true, tools: true,
@@ -101,7 +103,8 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       const previousDefaults = defaultModelEfforts(connection?.protocol || 'chat', m.model);
       const stillUsingDefaults = m.efforts.length === previousDefaults.length && m.efforts.every((effort, index) => effort === previousDefaults[index]);
       if (stillUsingDefaults) { next.efforts = defaultModelEfforts(connection?.protocol || 'chat', values.model); delete next.defaultEffort; }
-      else if (/^(gpt(?:[-/]|$)|deepseek(?:[-/]|$))/i.test(values.model.trim())) next.efforts = [...new Set([...next.efforts, 'xhigh', 'max'])];
+      // 只有 GPT 保留 xhigh；DeepSeek 的官方档位是 none/low/high/max。
+      else if (/^gpt(?:[-/]|$)/i.test(values.model.trim())) next.efforts = [...new Set([...next.efforts, 'xhigh', 'max'])];
       if (/^qwen(?:\d|[-/]|$)/i.test(values.model.trim())) Object.assign(next, { vision: true, tools: true, nativeSearch: true, videoInput: true });
     }
     if ((typeof values.model === 'string' || typeof values.name === 'string') && shouldDefaultVisionAndTools(next.model, next.name)) Object.assign(next, { vision: true, tools: true });
