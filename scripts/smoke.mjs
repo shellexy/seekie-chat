@@ -10,7 +10,12 @@ const directory = mkdtempSync(join(tmpdir(), 'deepchan-smoke-'));
 const calls = []; let lastAuthorization = '';
 const server = createServer(async (req, res) => {
   let body = ''; for await (const chunk of req) body += chunk;
-  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: ['fixture-model', 'gpt-4o', 'deepseek-flash'].map(id => ({ id })) })); return; }
+  if (req.method === 'GET') { lastAuthorization = req.headers.authorization || '';  res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(req.url.startsWith('/v1beta/models') ? { models: [{ name: 'models/fixture-model', supportedGenerationMethods: ['generateContent'] }] } : { data: [
+      { id: 'fixture-model' },
+      // A service that describes its models, in the shape DeepSeek documents.
+      { id: 'gpt-4o', name: 'GPT-4o', context_window: 128_000, max_output_tokens: 16_384, input_modalities: ['text', 'image'], output_modalities: ['text'], effort: { supported_levels: ['low', 'medium', 'high'], default_level: 'medium' } },
+      { id: 'deepseek-flash' }
+    ] })); return; }
   const data = JSON.parse(body); calls.push({ path: req.url, data });
   const title = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('生成简短标题');
   const compression = (data.instructions || data.system || data.systemInstruction?.parts?.[0]?.text || data.messages?.[0]?.content || '').includes('压缩为');
@@ -186,21 +191,44 @@ try {
   assert.equal(await page.getByLabel('最大输出（token）', { exact: true }).inputValue(), '65536');
   await page.getByLabel('模型 ID', { exact: true }).fill('responses-fixture');
   await page.getByLabel(/^Base URL/).fill(baseUrl);
+  // The fetched list opens in an in-app dialog; models are ticked and added from there.
+  // `fetched` means a model-list request was just started: it opens the dialog itself, so waiting for
+  // it is both correct and race-free (clicking the reopen button could meet the arriving backdrop).
+  const addServerModel = async (id, { fetched = false } = {}) => {
+    const dialog = page.getByRole('dialog', { name: '添加服务端模型' });
+    if (fetched) await dialog.waitFor({ state: 'visible' });
+    else { await page.getByRole('button', { name: '从服务端列表添加模型…' }).click(); await dialog.waitFor({ state: 'visible' }); }
+    await page.getByLabel(`选择模型 ${id}`).check();
+    await page.getByRole('button', { name: /^添加所选/ }).click();
+    await dialog.waitFor({ state: 'hidden' });
+  };
   await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
-  for (const id of ['gpt-4o', 'deepseek-flash']) {
-    await page.getByLabel(/^添加服务端模型/).selectOption(id);
+  await page.getByRole('dialog', { name: '添加服务端模型' }).waitFor();
+  await page.screenshot({ path: join(directory, 'model-picker.png') });
+  // The dialog shows what the service described, and the description becomes the new model's defaults.
+  const describedRow = page.locator('.model-picker-row', { hasText: 'GPT-4o' });
+  const describedFacts = await describedRow.innerText();
+  for (const fact of ['上下文 128,000', '输出上限 16,384', '输入 text / image', '输出 text', '思考 low / medium / high（默认 medium）']) assert.ok(describedFacts.includes(fact), `对话框应显示「${fact}」，实际：${describedFacts}`);
+  assert.match(await page.locator('.model-picker-row', { hasText: 'fixture-model' }).innerText(), /服务端未提供更多信息/);
+  for (const [index, id] of ['gpt-4o', 'deepseek-flash'].entries()) {
+    await addServerModel(id, { fetched: index === 0 });
     const added = page.locator('.settings-card').last();
     assert.equal(await added.getByLabel('图片输入', { exact: true }).isChecked(), true, `${id} should default image input on`);
     assert.equal(await added.getByLabel('工具调用', { exact: true }).isChecked(), true, `${id} should default tool calls on`);
+    if (id !== 'gpt-4o') continue;
+    assert.equal(await added.getByLabel('模型 ID', { exact: true }).inputValue(), 'gpt-4o');
+    assert.equal(await added.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '128000', '服务端给出的上下文窗口应作为默认值');
+    assert.equal(await added.getByLabel('最大输出（token）', { exact: true }).inputValue(), '16384', '服务端给出的输出上限应作为默认值');
+    assert.equal(await added.getByLabel('支持的等级（逗号分隔）', { exact: true }).inputValue(), 'low,medium,high');
   }
-  await page.getByLabel(/^添加服务端模型/).selectOption('fixture-model');
+  await addServerModel('fixture-model');
   assert.equal(await page.locator('.settings-card').last().getByLabel('图片输入', { exact: true }).isChecked(), false, 'unknown models should keep image input unchecked');
   await page.locator('.preset-row').getByRole('button', { name: 'Gemini', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'gemini');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://generativelanguage.googleapis.com/v1beta');
   await page.getByLabel(/^Base URL/).fill(baseUrl.replace('/v1', '/v1beta'));
   await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();
-  await page.getByLabel(/^添加服务端模型/).selectOption('fixture-model');
+  await addServerModel('fixture-model', { fetched: true });
   assert.equal(await page.getByLabel('模型 ID', { exact: true }).inputValue(), 'fixture-model');
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
   assert.equal(await page.getByLabel('上下文窗口（token）', { exact: true }).inputValue(), '1000000');
@@ -247,7 +275,8 @@ try {
   const toolbar = page.locator('.composer-bottom');
   assert.equal(await toolbar.getByRole('combobox', { name: '聊天模型' }).count(), 1);
   const modelSelector = toolbar.getByRole('combobox', { name: '聊天模型' });
-  assert.deepEqual(await modelSelector.locator('option').allTextContents(), ['选择模型', '模拟 chat | 本地模拟 chat', '模拟 responses | 本地模拟 responses', '模拟 anthropic | 本地模拟 anthropic', '模拟 gemini | 本地模拟 gemini']);
+  // The selector lists models by name, so the expectation is in alphabetical order.
+  assert.deepEqual(await modelSelector.locator('option').allTextContents(), ['选择模型', '模拟 anthropic | 本地模拟 anthropic', '模拟 chat | 本地模拟 chat', '模拟 gemini | 本地模拟 gemini', '模拟 responses | 本地模拟 responses']);
   assert.equal(await modelSelector.getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await page.locator('.header-title small').innerText(), '模拟 chat | 本地模拟 chat');
   assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
@@ -256,10 +285,11 @@ try {
   await toolbar.getByRole('button', { name: '会话选项' }).click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
   const searchMode = page.locator('.inline-config-field').first().locator('select');
-  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '关闭', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch']);
+  // 关闭 is offered last, after every concrete way of searching.
+  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '关闭']);
   assert.equal(await searchMode.locator('option[value="tavily"]').isDisabled(), false);
   const webReading = page.getByRole('combobox', { name: '读取网页' });
-  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '本地', '关闭']);
+  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '本地读取', '关闭']);
   assert.equal(await webReading.locator('option[value="tavily"]').isDisabled(), false);
   assert.equal(await webReading.inputValue(), 'auto');
   assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);

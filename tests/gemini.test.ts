@@ -343,6 +343,6 @@ test('Gemini model discovery paginates, filters unsupported models and strips mo
     const pool = agent.get('https://gemini.fixture.invalid');
     pool.intercept({ path: '/v1beta/models?pageSize=1000', method: 'GET' }).reply(200, { models: [{ name: 'models/gemini-a', supportedGenerationMethods: ['generateContent'] }, { name: 'models/embedding', supportedGenerationMethods: ['embedContent'] }], nextPageToken: 'next page' });
     pool.intercept({ path: '/v1beta/models?pageSize=1000&pageToken=next%20page', method: 'GET' }).reply(200, { models: [{ name: 'models/gemini-b', supportedGenerationMethods: ['generateContent'] }] });
-    assert.deepEqual(await listModels(connection), ['gemini-a', 'gemini-b']);
+    assert.deepEqual((await listModels(connection)).map(model => model.id), ['gemini-a', 'gemini-b']);
   } finally { await agent.close(); }
 });

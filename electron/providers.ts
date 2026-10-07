@@ -7,7 +7,7 @@ import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
 import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
-import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
+import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void; record?: (entry: RequestRecord) => void }
@@ -497,8 +497,35 @@ export async function generate(connection: Connection, model: Model, config: Cha
   }
   throw new Error('工具调用未能在限定轮数内完成');
 }
-export async function listModels(connection: Connection): Promise<string[]> {
-  const ids: string[] = [], seenPages = new Set<string>(); let pageToken = '';
+/**
+ * Reads one entry of a model list. Services differ in what they describe and in casing, so the known
+ * spellings are accepted and anything missing is simply left absent; the settings page then falls
+ * back to its own defaults. A bare string is a valid entry too.
+ */
+export function parseServerModel(entry: unknown): ServerModel {
+  if (typeof entry === 'string') return { id: entry };
+  const model = (entry || {}) as Record<string, any>;
+  const text = (...values: unknown[]) => { for (const value of values) if (typeof value === 'string' && value.trim()) return value.trim(); return undefined; };
+  const count = (...values: unknown[]) => { for (const value of values) { const number = Number(value); if (Number.isFinite(number) && number > 0) return Math.floor(number); } return undefined; };
+  const list = (...values: unknown[]) => { for (const value of values) if (Array.isArray(value) && value.length) return value.filter(item => typeof item === 'string' && item.trim()).map(item => String(item).trim()); return undefined; };
+  const effort = (model.effort ?? model.reasoning ?? {}) as Record<string, any>;
+  const parsed: ServerModel = {
+    id: text(model.id, model.model, model.name) || '',
+    // `displayName`/`display_name` win: Gemini uses `name` for the resource path, not for display.
+    name: text(model.display_name, model.displayName, model.name),
+    contextWindow: count(model.context_window, model.contextWindow, model.inputTokenLimit, model.input_token_limit),
+    maxOutput: count(model.max_output_tokens, model.maxOutputTokens, model.outputTokenLimit, model.output_token_limit, model.max_tokens),
+    inputModalities: list(model.input_modalities, model.inputModalities),
+    outputModalities: list(model.output_modalities, model.outputModalities),
+    efforts: list(effort.supported_levels, effort.supportedLevels),
+    defaultEffort: text(effort.default_level, effort.defaultLevel)
+  };
+  // Absent descriptions stay absent: the settings page falls back per field, and callers that compare
+  // whole entries should not have to distinguish "missing" from "explicitly undefined".
+  return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value !== undefined)) as ServerModel;
+}
+export async function listModels(connection: Connection): Promise<ServerModel[]> {
+  const models: ServerModel[] = [], seenPosts = new Set<string>(), seenPages = new Set<string>(); let pageToken = '';
   if (connection.protocol === 'anthropic') {
     const primaryUrl = endpoint(connection, 'models');
     const url = new URL(connection.baseUrl);
@@ -512,7 +539,7 @@ export async function listModels(connection: Connection): Promise<string[]> {
       const { response, close } = await requestUrl(requestConnection, target, undefined, new AbortController().signal);
       let json: any;
       try { json = await response.json(); } finally { await close(); }
-      return (json.data || json.models || []).map((model: any) => model.id || model.name).filter(Boolean);
+      return (json.data || json.models || []).map((entry: any) => parseServerModel(entry)).filter((model: ServerModel) => model.id);
     };
     try {
       const models = await read(primaryUrl);
@@ -535,12 +562,23 @@ export async function listModels(connection: Connection): Promise<string[]> {
     const { response, close } = await request(connection, path, undefined, new AbortController().signal);
     let json: any;
     try { json = await response.json(); } finally { await close(); }
-    if (connection.protocol !== 'gemini') return (json.data || json.models || []).map((m: any) => m.id || m.name).filter(Boolean);
-    ids.push(...(json.models || []).filter((m: any) => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent')).map((m: any) => String(m.name || '').replace(/^models\//, '')).filter(Boolean));
+    if (connection.protocol !== 'gemini') return (json.data || json.models || []).map((entry: any) => parseServerModel(entry)).filter((model: ServerModel) => model.id);
+    // Gemini lists models as `models/<id>` and describes limits as input/outputTokenLimit.
+    for (const entry of (json.models || []) as any[]) {
+      if (entry?.supportedGenerationMethods && !entry.supportedGenerationMethods.includes('generateContent')) continue;
+      const resource = typeof entry?.name === 'string' ? entry.name : '';
+      const model = parseServerModel(entry);
+      model.id = model.id.replace(/^models\//, '');
+      // The resource path (`models/gemini-x`) is an id, not a name to show in the picker.
+      if (resource && model.name === resource) delete model.name;
+      if (model.id) models.push(model);
+    }
     pageToken = json.nextPageToken || '';
     if (pageToken && seenPages.has(pageToken)) throw new Error('Gemini 模型列表分页重复，请稍后重试');
     if (pageToken) seenPages.add(pageToken);
     if (seenPages.size > 100) throw new Error('Gemini 模型列表页数超过限制');
   } while (pageToken);
-  return [...new Set(ids)];
+  // A model may be listed twice (pagination boundaries); the first description wins.
+  const unique = new Map(models.map(model => [model.id, model]));
+  return [...unique.values()];
 }

@@ -76,6 +76,19 @@ export interface AppState { settings: Settings; conversations: Conversation[]; s
 // One outgoing API request as shown by the in-app debug view. Credentials are masked before the
 // renderer ever receives the record, and the body is a pretty-printed (possibly truncated) string.
 export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; error?: string }
+// One entry of a provider's model list. Only the id is guaranteed: services such as DeepSeek also
+// describe the display name, the context window, the output limit and the supported modalities, and
+// those descriptions become the defaults of a newly added model.
+export interface ServerModel {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxOutput?: number;
+  inputModalities?: string[];
+  outputModalities?: string[];
+  efforts?: string[];
+  defaultEffort?: string;
+}
 // One streaming answer, sent on its own instead of shipping the whole state.
 export interface MessagePatch { conversationId: string; message: Message }
 export interface RunRequest { conversationId: string; branchId: string; messageId: string }
@@ -84,7 +97,7 @@ export interface Bridge {
   load(): Promise<AppState>; save(state: AppState): Promise<AppState>;
   run(request: RunRequest): Promise<void>; cancel(conversationId: string): Promise<void>;
   compress(conversationId: string, branchId: string): Promise<void>;
-  test(connection: Connection): Promise<string[]>; title(conversationId: string): Promise<void>;
+  test(connection: Connection): Promise<ServerModel[]>; title(conversationId: string): Promise<void>;
   debug(messageId: string): Promise<RequestRecord[]>;
   // Attachment payloads are fetched one at a time instead of travelling with every broadcast.
   attachment(id: string): Promise<string>;

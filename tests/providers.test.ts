@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Agent, MockAgent, setGlobalDispatcher } from 'undici';
 import { createServer } from 'node:http';
 import { connect, type AddressInfo } from 'node:net';
-import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, request, sse } from '../electron/providers';
+import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, parseServerModel, request, sse } from '../electron/providers';
 import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
 import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
@@ -99,7 +99,7 @@ test('Anthropic model discovery retries the parent /models endpoint when the bas
       return { statusCode: 200, data: { data: [{ id: 'deepseek-flash' }] } };
     });
     const deepseekAnthropic = { ...connection('anthropic'), baseUrl: 'https://api.deepseek.com/anthropic' };
-    assert.deepEqual(await listModels(deepseekAnthropic), ['deepseek-flash']);
+    assert.deepEqual((await listModels(deepseekAnthropic)).map(model => model.id), ['deepseek-flash']);
   } finally { await agent.close(); }
 });
 test('SSE handles fragmented utf8 and CRLF frames', async () => {
@@ -710,7 +710,7 @@ test('a connection proxy is used for its own requests', async () => {
   setGlobalDispatcher(new Agent());
   try {
     const configured = { ...connection('chat'), apiKey: '', baseUrl: `http://127.0.0.1:${targetPort}/v1`, proxy: `http://127.0.0.1:${proxyPort}` };
-    assert.deepEqual(await listModels(configured), ['through-proxy']);
+    assert.deepEqual((await listModels(configured)).map(model => model.id), ['through-proxy']);
     assert.deepEqual(tunnels, [`127.0.0.1:${targetPort}`], '请求必须经由代理的 CONNECT 隧道');
   } finally {
     setGlobalDispatcher(new Agent());
@@ -726,4 +726,28 @@ test('an aborted signal stops a request instead of hanging', async () => {
     const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
     await assert.rejects(generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, controller.signal), /abort/i);
   } finally { await agent.close(); }
+});
+
+test('a described model list keeps names, limits and modalities', () => {
+  // The shape DeepSeek documents for GET /models.
+  assert.deepEqual(parseServerModel({
+    id: 'deepseek-chat', object: 'model', owned_by: 'deepseek', name: 'DeepSeek Chat',
+    context_window: 128_000, max_output_tokens: 8_192, input_modalities: ['text', 'image'], output_modalities: ['text'],
+    effort: { supported_levels: ['low', 'high'], default_level: 'high' },
+    api_capabilities: { anthropic_messages: { system_prompt_update: 'leading-only' } }
+  }), {
+    id: 'deepseek-chat', name: 'DeepSeek Chat', contextWindow: 128_000, maxOutput: 8_192,
+    inputModalities: ['text', 'image'], outputModalities: ['text'], efforts: ['low', 'high'], defaultEffort: 'high'
+  });
+  // A plain OpenAI entry describes nothing beyond its id.
+  assert.deepEqual(parseServerModel({ id: 'gpt-4o', object: 'model', created: 1, owned_by: 'openai' }), { id: 'gpt-4o' });
+  // Camel case gateways and bare strings are accepted, and display names win over resource names.
+  assert.deepEqual(parseServerModel({ id: 'x', displayName: 'X 展示名', contextWindow: 200_000, maxOutputTokens: 4_096, inputModalities: ['text'] }), { id: 'x', name: 'X 展示名', contextWindow: 200_000, maxOutput: 4_096, inputModalities: ['text'] });
+  assert.deepEqual(parseServerModel('plain-model'), { id: 'plain-model' });
+  // Anthropic entries carry an id plus a display name; an entry without any id is useless but safe.
+  assert.deepEqual(parseServerModel({ id: 'claude-x', display_name: 'Claude 展示名', created_at: 1, type: 'model' }), { id: 'claude-x', name: 'Claude 展示名' });
+  assert.deepEqual(parseServerModel({ display_name: '仅展示名' }), { id: '', name: '仅展示名' });
+  // Values that make no sense are dropped instead of being trusted.
+  assert.deepEqual(parseServerModel({ id: 'odd', context_window: -5, max_output_tokens: 'many', input_modalities: 'text', output_modalities: [], effort: { supported_levels: [] } }), { id: 'odd' });
+  assert.deepEqual(parseServerModel(null), { id: '' });
 });

@@ -23,6 +23,8 @@ export default function Composer({ branch, model, models, connections, busy, pen
   onHeightChange: (height: number) => void; onDraftChange: (text: string) => void; onRemoveAttachment: (attachment: Attachment) => void; onAttach: (files: File[]) => void;
   onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onScrollToBottom: () => void; onNewChat: () => void; onNotice: (message: string) => void;
 }) {
+  // The selector is a browsing surface, so the models are listed by name instead of by creation order.
+  const sortedModels = [...models].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
   const composerDrag = useRef<{ y: number; height: number } | null>(null);
   const composing = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null), optionsPopoverRef = useRef<HTMLDivElement>(null);
@@ -70,7 +72,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   <div className="model-selector">
                     <select aria-label="聊天模型" title={model ? modelLabel(model, connections) : '选择模型'} value={branch.config.modelId} disabled={busy} onChange={e => { const m = models.find(x => x.id === e.target.value); onUpdateConfig({ modelId: e.target.value, effort: m?.efforts.includes(branch.config.effort) ? branch.config.effort : m?.efforts[0] || 'auto', budget: Math.min(branch.config.budget, Math.max(1024, (m?.maxOutput || 8192) - 1)), search: branch.config.search === 'off' ? 'off' : 'auto' }); }}>
                       <option value="">选择模型</option>
-                      {models.map(m => <option key={m.id} value={m.id}>
+                      {sortedModels.map(m => <option key={m.id} value={m.id}>
                         {modelLabel(m, connections)}
                       </option>)}
                     </select>
@@ -114,13 +116,13 @@ export default function Composer({ branch, model, models, connections, busy, pen
                       </p>
                       <label className="field inline-config-field">联网搜索<select value={branch.config.search} disabled={busy} onChange={e => onUpdateConfig({ search: e.target.value as Branch['config']['search'] })}>
                           <option value="auto">自动联网（默认）</option>
-                          <option value="off">关闭</option>
                           <option value="native" disabled={!model?.nativeSearch || connections.find(c => c.id === model.connectionId)?.protocol === 'chat'}>模型原生</option>
                           <option value="exa" disabled={!model?.tools || !hasExaKey}>Exa</option>
                           <option value="ollama" disabled={!model?.tools || !ollamaSearchConfigured}>Ollama Cloud</option>
                           <option value="tavily" disabled={!model?.tools}>Tavily</option>
                           <option value="firecrawl" disabled={!model?.tools}>Firecrawl</option>
                           <option value="anysearch" disabled={!model?.tools}>AnySearch</option>
+                          <option value="off">关闭</option>
                         </select>
                       </label>
                       <label className="field inline-config-field">读取网页<select aria-label="读取网页" value={webFetchMode} disabled={busy} onChange={e => onUpdateConfig({ webFetch: e.target.value as Branch['config']['webFetch'] })}>
@@ -130,7 +132,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                           <option value="tavily">Tavily</option>
                           <option value="firecrawl">Firecrawl</option>
                           <option value="anysearch">AnySearch</option>
-                          <option value="local">本地</option>
+                          <option value="local">本地读取</option>
                           <option value="off">关闭</option>
                         </select>
                       </label>

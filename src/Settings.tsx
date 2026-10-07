@@ -3,7 +3,7 @@ import { ArrowLeft, Check, ChevronRight, ExternalLink, Plus, Trash2, Wifi } from
 import { api } from './api';
 import { settingsProblems } from './validation';
 import { defaultModelEfforts, shouldDefaultVisionAndTools, uid } from './domain';
-import type { Connection, Model, Settings as SettingsType } from './types';
+import type { Connection, Model, ServerModel, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
 const templates = [
@@ -19,7 +19,8 @@ const templates = [
 export default function Settings({ settings, onSave, onClose, toast, windowMaximized, onWindowMaximized }: { settings: SettingsType; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void; windowMaximized: boolean; onWindowMaximized: (maximized: boolean) => void }) {
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
-  const [testing, setTesting] = useState(false), [found, setFound] = useState<string[]>([]), [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false), [found, setFound] = useState<ServerModel[]>([]), [saving, setSaving] = useState(false);
+  const [picker, setPicker] = useState(false), [picked, setPicked] = useState<Set<string>>(new Set());
   const [headersText, setHeadersText] = useState(''), [headersEditing, setHeadersEditing] = useState(false);
   const connection = draft.connections.find(c => c.id === selected);
   function change(values: Partial<SettingsType>) { setDraft(d => ({ ...d, ...values })); }
@@ -39,6 +40,40 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     change({ connections: [...draft.connections, c], ...(presetModel ? { models: [...draft.models, presetModel], defaultModel: draft.defaultModel || presetModel.id } : {}) });
     setSelected(c.id); setFound([]); setHeadersEditing(false);
   }
+  // A model the service described arrives with its real limits and modalities; anything it did not
+  // describe keeps the previous defaults, so behaviour for quiet services is unchanged.
+  function modelFromServer(server: ServerModel): Model {
+    const gemini = connection?.protocol === 'gemini';
+    const qwen = /^qwen(?:\d|[-/]|$)/i.test(server.id.trim());
+    const described = !!server.inputModalities?.length;
+    const accepts = (modality: string) => !!server.inputModalities?.includes(modality);
+    const efforts = server.efforts?.length ? server.efforts : defaultModelEfforts(connection?.protocol || 'chat', server.id);
+    return {
+      id: uid(), connectionId: connection?.id || '', name: server.name || server.id, model: server.id,
+      contextWindow: server.contextWindow || 1_000_000, maxOutput: server.maxOutput || 65_536,
+      vision: described ? accepts('image') : gemini || qwen || shouldDefaultVisionAndTools(server.id, server.name || ''),
+      tools: true, nativeSearch: gemini || qwen,
+      videoInput: described ? accepts('video') : gemini || qwen,
+      audioInput: described ? accepts('audio') : gemini,
+      pdfInput: described ? accepts('pdf') : gemini,
+      reasoning: 'effort', efforts, temperature: true
+    };
+  }
+  function addServerModels(servers: ServerModel[]) {
+    const existing = new Set(draft.models.filter(m => m.connectionId === selected).map(m => m.model));
+    const created = servers.filter(server => !existing.has(server.id)).map(modelFromServer);
+    if (!created.length) { toast('所选模型都已在此连接中'); return; }
+    change({ models: [...draft.models, ...created], defaultModel: draft.defaultModel || created[0].id });
+    toast(`已添加 ${created.length} 个模型`);
+  }
+  const sortedFound = [...found].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
+  const modelFacts = (server: ServerModel) => [
+    server.contextWindow ? `上下文 ${server.contextWindow.toLocaleString('zh-CN')}` : '',
+    server.maxOutput ? `输出上限 ${server.maxOutput.toLocaleString('zh-CN')}` : '',
+    server.inputModalities?.length ? `输入 ${server.inputModalities.join(' / ')}` : '',
+    server.outputModalities?.length ? `输出 ${server.outputModalities.join(' / ')}` : '',
+    server.efforts?.length ? `思考 ${server.efforts.join(' / ')}${server.defaultEffort ? `（默认 ${server.defaultEffort}）` : ''}` : ''
+  ].filter(Boolean).join(' · ');
   function addModel(model = '') {
     if (!connection) return;
     const gemini = connection.protocol === 'gemini';
@@ -84,8 +119,29 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       <label className="field">API Key<input type="password" autoComplete="off" value={connection.apiKey === saved ? '' : connection.apiKey} placeholder={connection.apiKey === saved ? '已设置，留空保持；输入新值替换' : '可选：本地服务可以不需要密钥'} onChange={e => updateConnection({ apiKey: e.target.value })}/>{connection.apiKey === saved && <button className="text-button" onClick={() => updateConnection({ apiKey: '' })}>清除已保存的密钥</button>}<small>请求将发送到 {connection.baseUrl || '上述地址'}。</small></label>
       <div className="form-grid"><label className="field">超时（秒）<input type="number" min="10" max="600" value={connection.timeout} onChange={e => updateConnection({ timeout: Number(e.target.value) })}/></label><label className="field">HTTP / HTTPS 代理<input placeholder="http://127.0.0.1:7890" value={connection.proxy} onChange={e => updateConnection({ proxy: e.target.value })}/></label></div>
       <details><summary>自定义请求头</summary><p className="muted">请求头中的值与 API Key 一起保存在数据目录。</p><textarea value={headersEditing ? headersText : JSON.stringify(connection.headers, null, 2)} onChange={e => { setHeadersText(e.target.value); setHeadersEditing(true); }}/></details>
-      <button disabled={testing} onClick={async () => { setTesting(true); try { const ids = await api.test(connection); setFound(ids); toast(`连接成功，获取 ${ids.length} 个模型`); } catch (e) { toast('无法获取模型列表：' + String(e)); } finally { setTesting(false); } }}><Wifi size={15}/>{testing ? '测试中…' : '测试连接 / 获取模型'}</button>
-      {!!found.length && <label className="field">添加服务端模型<select value="" onChange={e => addModel(e.target.value)}><option value="">选择模型添加…</option>{found.map(id => <option key={id}>{id}</option>)}</select></label>}</div>
+      <button disabled={testing} onClick={async () => { setTesting(true); try { const models = await api.test(connection); setFound(models); setPicked(new Set()); setPicker(true); toast(`连接成功，获取 ${models.length} 个模型`); } catch (e) { toast('无法获取模型列表：' + String(e)); } finally { setTesting(false); } }}><Wifi size={15}/>{testing ? '测试中…' : '测试连接 / 获取模型'}</button>
+      {!!found.length && <button className="text-button" onClick={() => setPicker(true)}>从服务端列表添加模型…</button>}</div>
+      {picker && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setPicker(false); }}>
+        <div className="modal model-picker" role="dialog" aria-modal="true" aria-label="添加服务端模型">
+          <h3>添加服务端模型</h3>
+          <p className="muted">共 {found.length} 个模型，按名称排序。服务端给出的上下文、输出上限与模态会作为默认值填入，添加后仍可修改。</p>
+          <div className="model-picker-list">{sortedFound.map(server => {
+            const already = draft.models.some(m => m.connectionId === selected && m.model === server.id);
+            const facts = modelFacts(server);
+            return <label key={server.id} className={`model-picker-row ${already ? 'used' : ''}`} title={already ? '该模型已在此连接中' : server.id}>
+              <input type="checkbox" aria-label={`选择模型 ${server.id}`} disabled={already} checked={picked.has(server.id)} onChange={e => setPicked(current => { const next = new Set(current); if (e.target.checked) next.add(server.id); else next.delete(server.id); return next; })}/>
+              <span className="model-picker-name">{server.name || server.id}{server.name && server.name !== server.id && <code>{server.id}</code>}</span>
+              <span className="model-picker-facts">{already ? '已添加' : facts || '服务端未提供更多信息'}</span>
+            </label>;
+          })}</div>
+          <div className="button-row">
+            <button onClick={() => setPicked(new Set(sortedFound.filter(server => !draft.models.some(m => m.connectionId === selected && m.model === server.id)).map(server => server.id)))}>全选</button>
+            <button onClick={() => setPicked(new Set())}>清空</button>
+            <button onClick={() => setPicker(false)}>取消</button>
+            <button className="primary" disabled={!picked.size} onClick={() => { addServerModels(sortedFound.filter(server => picked.has(server.id))); setPicker(false); }}>添加所选{picked.size ? `（${picked.size}）` : ''}</button>
+          </div>
+        </div>
+      </div>}
       <div className="section-heading"><h3>此连接的模型</h3><button onClick={() => addModel()}><Plus size={15}/>手动添加</button></div>
       {draft.models.filter(m => m.connectionId === selected).map(m => <div className="settings-card" key={m.id}><div className="card-heading"><h3>{m.name || '新模型'}</h3><button className="icon-button danger" title="删除模型" onClick={() => change({ models: draft.models.filter(x => x.id !== m.id) })}><Trash2 size={16}/></button></div><div className="form-grid"><label className="field">展示名称<input value={m.name} onChange={e => updateModel(m.id, { name: e.target.value })}/></label><label className="field">模型 ID<input placeholder="供应商提供的准确模型 ID" value={m.model} onChange={e => updateModel(m.id, { model: e.target.value, name: m.name === '新模型' ? e.target.value : m.name })}/></label><label className="field">上下文窗口（token）<input type="number" value={m.contextWindow} onChange={e => updateModel(m.id, { contextWindow: Number(e.target.value) })}/></label><label className="field">最大输出（token）<input type="number" value={m.maxOutput} onChange={e => updateModel(m.id, { maxOutput: Number(e.target.value) })}/></label></div>
       <div className="check-row">{([['vision', '图片输入'], ['tools', '工具调用'], ['nativeSearch', '原生搜索'], ['videoInput', '视频输入'], ['audioInput', '音频输入'], ['pdfInput', 'PDF 输入']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={m[key] || false} onChange={e => updateModel(m.id, { [key]: e.target.checked })}/>{label}</label>)}</div><label className="field">思考参数<select value={m.reasoning} onChange={e => updateModel(m.id, { reasoning: e.target.value as Model['reasoning'] })}><option value="none">不发送思考参数</option><option value="effort">思考等级（effort）</option><option value="budget">思考预算（Anthropic / Gemini）</option></select></label>{m.reasoning === 'effort' && <label className="field">支持的等级（逗号分隔）<input value={m.efforts.join(',')} onChange={e => updateModel(m.id, { efforts: e.target.value.split(',').map(x => x.trim()) })}/></label>}{connection.protocol === 'chat' && <><label className="field">最大输出参数<select value={m.outputTokenField || 'max_completion_tokens'} onChange={e => updateModel(m.id, { outputTokenField: e.target.value as Model['outputTokenField'] })}><option value="max_completion_tokens">max_completion_tokens（OpenAI）</option><option value="max_tokens">max_tokens（部分兼容服务）</option></select></label><label className="toggle-row">请求流式 token 用量<input type="checkbox" checked={m.streamUsage !== false} onChange={e => updateModel(m.id, { streamUsage: e.target.checked })}/></label></>}<small className="muted">{connection.protocol === 'gemini' ? 'Gemini 3 及以上可使用思考等级，Gemini 2.5 使用思考预算；支持的等级因模型而异，请按模型文档配置。' : '根据供应商文档配置能力。Chat Completions 不提供统一的原生搜索接口。'}</small></div>)}</> : <div className="empty-card">先从上方添加一个连接，然后配置模型。</div>}</>}
