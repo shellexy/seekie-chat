@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, applyBodies, assistantBody, createConversation, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
+import { addMessage, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -589,7 +589,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       atBottom={atBottom} messageCount={messages.length} height={composerHeight} textareaRef={textareaRef}
       networkingEnabled={networkingEnabled} networkUnavailable={networkUnavailable} effectiveSearch={effectiveSearch} webFetchMode={webFetchMode}
       samplingSupported={samplingSupported} samplingHelp={samplingHelp} ollamaSearchConfigured={ollamaSearchConfigured}
-      hasExaKey={!!state.settings.exaKey} promptPresets={state.settings.promptPresets} backgroundUsage={conversation?.backgroundUsage}
+      hasExaKey={!!state.settings.exaKey} deepseekSearchConfigured={!!deepseekWebSearchKey(state.settings)} promptPresets={state.settings.promptPresets} backgroundUsage={conversation?.backgroundUsage}
       userTurnCount={messages.filter(m => m.role === 'user').length}
       favoriteModels={state.settings.favoriteModels} recentModels={state.settings.recentModels} defaultSearch={state.settings.defaultSearch} onToggleFavorite={toggleFavorite}
       onHeightChange={setInputHeight} onDraftChange={text => draft(text)} onRemoveAttachment={attachment => { if (branch) draft(branch.draft, branch.draftAttachments.filter(item => item.id !== attachment.id)); }}

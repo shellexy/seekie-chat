@@ -1,10 +1,9 @@
-import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, Settings, Source, ToolEvent } from '../src/types';
+import type { ChatConfig, Connection, ExternalSearchMode, Message, Model, RequestRecord, SearchMode, Settings, Source, ToolEvent } from '../src/types';
 import type { Hooks, Result, WebFetch } from './providers';
 import type { request, buildInput } from './providers';
 import { UsageCounter } from './usage';
 import { currentDateTime, geminiDatetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
-import { resolveSearch } from '../src/domain';
-type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch'>;
+import { EXTERNAL_SEARCH_MODES, resolveSearch } from '../src/domain';
 type Dependencies = {
   request: typeof request; buildInput: typeof buildInput;
   search: (mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) => Promise<Source[]>;
@@ -12,11 +11,11 @@ type Dependencies = {
   sse: (body: AsyncIterable<Uint8Array>) => AsyncGenerator<any>;
   record?: (entry: RequestRecord) => void;
 };
-function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily' || mode === 'firecrawl' || mode === 'anysearch'; }
-const SEARCH_LABELS: Record<ExternalSearchMode, string> = { exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch' };
+function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return EXTERNAL_SEARCH_MODES.includes(mode as ExternalSearchMode); }
+const SEARCH_LABELS: Record<ExternalSearchMode, string> = { exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch', deepseek: 'DeepSeek' };
 function searchTool(mode: ExternalSearchMode) {
   return {
-  name: mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search', description: '搜索互联网获取当前信息，返回真实来源和正文片段。',
+  name: mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : mode === 'deepseek' ? 'deepseek_search' : 'anysearch_search', description: '搜索互联网获取当前信息，返回真实来源和正文片段。',
   parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: '搜索查询' } }, required: ['query'] }
   };
 }

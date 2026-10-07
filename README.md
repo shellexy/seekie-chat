@@ -94,10 +94,11 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`，Gemini 使用 `googleSearch`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。
 - **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
+- **DeepSeek 搜索**：调用 DeepSeek 自研的 Search 接口 `POST https://api.deepseek.com/v1/tools/search`，使用 Bearer 密钥（设置里单独填写，留空时复用主机名为 `api.deepseek.com` 的模型连接密钥）。**按成功请求次数计费**（每 1000 次 5 元，只有返回 200 且有结果才计费，账号级限速 5 QPS），因此**不参与自动降级**，需要时在“会话选项”里显式选择，或设为“自动模式下优先使用的外部搜索”。
 - **Tavily**：可在设置中填写 Tavily API Key；未填写时发送 `X-Tavily-Access-Mode: keyless`，使用 basic 搜索深度。
 - **Firecrawl**：API Key 可选；无 Key 时使用官方限额内的搜索，有 Key 时可提高限额。搜索可返回 Markdown 正文。
 - **AnySearch**：API Key 可选；无 Key 时使用匿名额度，有 Key 时可提高限额。
-- **读取网页**：与联网搜索独立设置。自动模式先尝试已配置密钥的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch，再尝试支持免 Key 的 Firecrawl、AnySearch、Tavily；都失败时回退到本地读取网页。也可以指定服务、本地读取网页或关闭。Tavily、Firecrawl、AnySearch 均可免 Key 读取网页；Ollama Cloud 可复用连接 API Key。
+- **读取网页**：与联网搜索独立设置。自动模式先尝试已配置密钥的 Exa、Ollama Cloud、Tavily、Firecrawl、AnySearch，再尝试支持免 Key 的 Firecrawl、AnySearch、Tavily；都失败时回退到本地读取网页。也可以指定服务、本地读取网页或关闭。Tavily、Firecrawl、AnySearch 均可免 Key 读取网页；Ollama Cloud 可复用连接 API Key。**DeepSeek Fetch** 调用 `POST https://api.deepseek.com/v1/tools/fetch` 返回 Markdown，同样按次计费、不参与自动降级。
 - **本地读取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
 - **联网按钮**：同时启用或关闭联网搜索和读取网页；两项仍可在会话选项中分别调整。
 

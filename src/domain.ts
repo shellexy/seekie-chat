@@ -17,6 +17,7 @@ export function normalizeSettings(settings: Settings) {
   normalizePromptSettings(settings);
   if (typeof settings.firecrawlKey !== 'string') settings.firecrawlKey = '';
   if (typeof settings.anysearchKey !== 'string') settings.anysearchKey = '';
+  if (typeof settings.deepseekKey !== 'string') settings.deepseekKey = '';
   // 旧数据没有收藏、最近使用和搜索偏好；缺省值取这次改动之前的行为，只有"新对话使用最近
   // 使用的模型"默认开启，因为它就是新对话该有的行为，没有任何最近使用记录时结果不变。
   if (!Array.isArray(settings.favoriteModels)) settings.favoriteModels = [];
@@ -29,27 +30,40 @@ export function normalizeSettings(settings: Settings) {
   if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
 }
 export const uid = () => crypto.randomUUID();
-export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'off'];
-export const EXTERNAL_SEARCH_MODES: ExternalSearchMode[] = ['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch'];
-export const WEB_FETCH_MODES: WebFetchMode[] = ['auto', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'local', 'off'];
+export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'off'];
+// DeepSeek 排在最后：它是唯一按次计费的服务，不参与下面的内置自动降级链。
+export const EXTERNAL_SEARCH_MODES: ExternalSearchMode[] = ['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek'];
+export const WEB_FETCH_MODES: WebFetchMode[] = ['auto', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'deepseek', 'local', 'off'];
 // 最近使用只用于挑模型，不值得无限增长；收藏没有上限，删除模型后的残留由保存时清理。
 export const MAX_RECENT_MODELS = 8;
 /** 搜索偏好只影响自动模式的降级顺序；会话里显式选定的模式一律按用户的指定执行。 */
 export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   auto: '自动联网（默认）', off: '关闭', native: '模型原生', exa: 'Exa',
-  ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch'
+  ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch', deepseek: 'DeepSeek 搜索'
 };
 export const EXTERNAL_SEARCH_LABELS: Record<ExternalSearchMode, string> = {
-  exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch'
+  exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch', deepseek: 'DeepSeek 搜索'
 };
 export const WEB_FETCH_LABELS: Record<WebFetchMode, string> = {
   auto: '自动（默认）', exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily',
-  firecrawl: 'Firecrawl', anysearch: 'AnySearch', local: '本地读取', off: '关闭'
+  firecrawl: 'Firecrawl', anysearch: 'AnySearch', deepseek: 'DeepSeek Fetch', local: '本地读取', off: '关闭'
 };
-/** Tavily、Firecrawl、AnySearch 免 Key 也能用；Exa 与 Ollama Cloud 必须有密钥。 */
+/**
+ * DeepSeek Search/Fetch 共用的密钥：优先用设置里单独填的那一份，留空时复用主机名为
+ * api.deepseek.com 的连接密钥——用 DeepSeek 模型必然已经有一份密钥，不该让人再填一遍。
+ */
+export function deepseekWebSearchKey(settings: Settings): string {
+  if (settings.deepseekKey) return settings.deepseekKey;
+  return settings.connections.find(connection => {
+    try { return new URL(connection.baseUrl).hostname === 'api.deepseek.com' && !!connection.apiKey; }
+    catch { return false; }
+  })?.apiKey || '';
+}
+/** Tavily、Firecrawl、AnySearch 免 Key 也能用；Exa、Ollama Cloud 与 DeepSeek 必须有密钥。 */
 export function externalSearchAvailable(mode: ExternalSearchMode, settings: Settings) {
   if (mode === 'exa') return !!settings.exaKey;
   if (mode === 'ollama') return !!ollamaWebSearchKey(settings);
+  if (mode === 'deepseek') return !!deepseekWebSearchKey(settings);
   return true;
 }
 /**
@@ -129,13 +143,15 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
     if (settings.firecrawlKey) return 'firecrawl';
     if (settings.anysearchKey) return 'anysearch';
     if (settings.tavilyKey) return 'tavily';
+    // 刻意不把 DeepSeek 放进这条链：它是唯一按次计费的搜索服务，配了密钥就自动启用
+    // 会让"自动联网"悄悄开始花钱。只有显式选择（会话里选它，或把它设为优先项）才会用到。
     return 'firecrawl';
   };
   // 设置里关掉"优先使用内置搜索"时，自动模式改为外部服务优先，原生只作最后兜底。
   return settings.preferNativeSearch === false ? external() ?? native() ?? 'off' : native() ?? external() ?? 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, preferredExternalSearch: 'auto', defaultWebFetch: 'auto', lastWebFetch: 'auto', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, preferredExternalSearch: 'auto', defaultWebFetch: 'auto', lastWebFetch: 'auto', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', deepseekKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

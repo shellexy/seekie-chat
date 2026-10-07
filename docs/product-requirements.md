@@ -154,7 +154,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 ### 5.2 搜索模式
 
-联网搜索和读取网页分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Firecrawl 的免 Key 搜索。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
+联网搜索和读取网页分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl、AnySearch 和 DeepSeek 搜索。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Firecrawl 的免 Key 搜索。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
 
 - 新对话的默认搜索模式在“设置 → 联网搜索 → 默认联网搜索”中指定，默认“自动联网”；之后每个分支仍可单独调整，切换模型时保留显式的“关闭”并回到该默认值。
 - 新对话的默认读取网页方法同样可配置，默认“自动”，另提供“上次使用”：新对话接着最近一次在会话里选择的读取方式记录该值，尚无记录时回落到自动。
@@ -163,6 +163,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 - 模型原生搜索：传递供应商要求的工具或参数，消费返回的搜索事件和引用。
 - Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch：在联网搜索设置中配置可选 API Key 与结果数量；Ollama 搜索可复用 Ollama Cloud 连接密钥。Tavily 无 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 和 AnySearch 无 Key 时使用官方匿名请求。所有外部搜索均由模型工具调用触发，因此要求所选模型支持工具调用，并在设置中说明。
+- DeepSeek 搜索与抓取：分别调用 `POST /v1/tools/search` 与 `POST /v1/tools/fetch`（Base URL `https://api.deepseek.com`），共用一份密钥——设置中单独填写，留空时复用主机名为 `api.deepseek.com` 的连接密钥。两者按成功请求次数计费（每 1000 次 5 元，账号级 5 QPS），因此必须显式选择，不参与自动降级；界面需在选项与说明中标注按次计费。402 视为余额不足并给出充值提示。
 - 后续可增加强制搜索模式，在推理前主动检索；不要混淆其与模型自主搜索的行为。
 - 默认一次请求只选一种搜索模式，避免重复调用；工具执行次数、耗时和返回长度有上限。
 - 搜索失败可有限重试；继续回答时标明没有成功获得搜索结果，不伪造引用。

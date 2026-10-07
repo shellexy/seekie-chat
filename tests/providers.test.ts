@@ -751,3 +751,65 @@ test('a described model list keeps names, limits and modalities', () => {
   assert.deepEqual(parseServerModel({ id: 'odd', context_window: -5, max_output_tokens: 'many', input_modalities: 'text', output_modalities: [], effort: { supported_levels: [] } }), { id: 'odd' });
   assert.deepEqual(parseServerModel(null), { id: '' });
 });
+
+test('deepseek search uses its own endpoint and prefers summary over snippet', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  let firstBody: any, searchBody: any, searchHeaders: any, toolResult = '';
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    return [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'deepseek_search', arguments: '{"query":"deepseek search API"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  agent.get('https://api.deepseek.com').intercept({ path: '/v1/tools/search', method: 'POST' }).reply(200, options => {
+    searchBody = JSON.parse(String(options.body)); searchHeaders = options.headers;
+    // need_content 未开启时 content 恒为空串；summary 是文档标注"适用于给模型阅读"的字段。
+    return { results: [{ title: 'DeepSeek result', url: 'https://example.com/result', snippet: '短摘要', summary: 'DeepSeek 长摘要', content: '' }] };
+  });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    toolResult = String(JSON.parse(String(options.body)).messages.at(-1).content);
+    return [{ choices: [{ delta: { content: '根据搜索结果回答。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaResults = 3;
+  state.settings.deepseekKey = 'deepseek-fixture';
+  const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'deepseek' }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(firstBody.tools[0].function.name, 'deepseek_search', 'DeepSeek 搜索的工具名');
+  assert.equal(searchBody.query, 'deepseek search API');
+  assert.equal(searchBody.count, 3, 'count 只影响条数，不影响单次价格');
+  assert.equal(searchBody.need_content, undefined, '默认不请求网页正文，正文交给 Fetch');
+  assert.match(JSON.stringify(searchHeaders), /Bearer deepseek-fixture/i);
+  assert.match(toolResult, /DeepSeek 长摘要/, '应优先把 summary 送进上下文而不是 snippet');
+  assert.doesNotMatch(toolResult, /短摘要/);
+  assert.equal(result.sources[0].url, 'https://example.com/result');
+  await agent.close();
+});
+
+test('deepseek search falls back to the connection key and reports an empty balance', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    const body = JSON.parse(String(options.body));
+    // 工具结果回灌后模型应当收尾；否则会一直重复调用同一个失败的工具。
+    if (body.messages.at(-1)?.role === 'tool') return [{ choices: [{ delta: { content: '没有搜索到结果。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+    return [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'deepseek_search', arguments: '{"query":"余额"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } }).persist();
+  let searchHeaders: any;
+  agent.get('https://api.deepseek.com').intercept({ path: '/v1/tools/search', method: 'POST' }).reply(402, options => { searchHeaders = options.headers; return { error: { message: 'insufficient balance' } }; });
+  const state = initialState();
+  // 没有单独填密钥时复用主机名为 api.deepseek.com 的连接密钥，与 Ollama Cloud 搜索一致。
+  state.settings.connections.push({ id: 'deepseek', name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic', apiKey: 'deepseek-connection-key', headers: {}, timeout: 30, proxy: '' });
+  const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
+  const events: any[] = [];
+  const hooks = { text() {}, reasoning() {}, tool: (t: any) => events.push({ ...t }), sources() {}, notice() {}, record() {} };
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'deepseek' }, c.messages, state.settings, new AbortController().signal, hooks);
+  // 402 会被转成工具错误回灌给模型，而不是中断整个回答。
+  const failed = events.filter(event => event.status === 'error');
+  assert.equal(failed.length, 1, '402 应作为工具错误回灌');
+  assert.match(failed[0].output, /余额不足/);
+  assert.match(JSON.stringify(searchHeaders), /Bearer deepseek-connection-key/i, '应复用 DeepSeek 连接密钥');
+  await agent.close();
+});

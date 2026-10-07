@@ -26,7 +26,7 @@ let streaming: { conversation: Conversation; message: Message } | null = null;
 let pendingPatch: { conversationId: string; messageId: string } | null = null;
 const redact = (error: unknown) => {
   let text = error instanceof Error ? error.message : String(error);
-  for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey, state?.settings.firecrawlKey, state?.settings.anysearchKey]) if (key) text = text.split(key).join('[已隐藏]');
+  for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey, state?.settings.firecrawlKey, state?.settings.anysearchKey, state?.settings.deepseekKey]) if (key) text = text.split(key).join('[已隐藏]');
   return text.slice(0, 1600);
 };
 function taskList() { return [...tasks].map(([conversationId, t]) => ({ conversationId, branchId: t.branchId, kind: t.kind })); }
@@ -239,7 +239,7 @@ function register() {
   handle('window-close', () => win?.close());
   handle('export', async (format: string, id?: string) => {
     const copy = structuredClone(state); copy.conversations = id ? copy.conversations.filter(c => c.id === id) : copy.conversations;
-    for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = ''; copy.settings.firecrawlKey = ''; copy.settings.anysearchKey = '';
+    for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = ''; copy.settings.firecrawlKey = ''; copy.settings.anysearchKey = ''; copy.settings.deepseekKey = '';
     copy.settings.secretPolicy = 'session'; copy.selectedId = copy.conversations[0]?.id || null;
     const content = format === 'json' ? JSON.stringify({ version: 1, state: copy }, null, 2) : copy.conversations.map(c => `# ${c.title}\n\n${c.branches.map(b => `## ${b.name}\n\n${pathTo(c, b.leafId).map(m => `### ${m.role === 'user' ? '用户' : '助手'}${m.edited ? '（手动编辑）' : ''}\n\n${m.text}${m.attachments.map(a => `\n\n![${a.name}](${a.data})`).join('')}`).join('\n\n')}`).join('\n\n')}`).join('\n\n');
     const file = await dialog.showSaveDialog(win!, { defaultPath: `DeepChan-chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
@@ -251,7 +251,7 @@ function register() {
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
-    state = backup.state; requestLog.clear(); store.clearRequests(); for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.firecrawlKey = ''; state.settings.anysearchKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
+    state = backup.state; requestLog.clear(); store.clearRequests(); for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.firecrawlKey = ''; state.settings.anysearchKey = ''; state.settings.deepseekKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; }
     store.save(state); emit(true); return store.public(state);
   });

@@ -2,10 +2,10 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Defuddle } from 'defuddle/node';
 import { parseHTML } from 'linkedom';
-import { ollamaWebSearchKey } from '../src/domain';
+import { deepseekWebSearchKey, ollamaWebSearchKey } from '../src/domain';
 import type { Settings, WebFetchMode } from '../src/types';
 
-export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'local' }
+export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'deepseek' | 'local' }
 export type PageFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 export type HostResolver = (hostname: string) => Promise<string[]>;
 export type WebFetchProvider = Exclude<WebFetchMode, 'auto' | 'off' | 'local'>;
@@ -139,16 +139,18 @@ function apiKeyFor(provider: WebFetchProvider, settings: Settings) {
   if (provider === 'ollama') return ollamaWebSearchKey(settings);
   if (provider === 'tavily') return settings.tavilyKey;
   if (provider === 'firecrawl') return settings.firecrawlKey;
+  if (provider === 'deepseek') return deepseekWebSearchKey(settings);
   return settings.anysearchKey;
 }
 function providerUrl(provider: WebFetchProvider) {
   return provider === 'exa' ? 'https://api.exa.ai/contents'
     : provider === 'ollama' ? 'https://ollama.com/api/web_fetch'
       : provider === 'tavily' ? 'https://api.tavily.com/extract'
-        : provider === 'firecrawl' ? 'https://api.firecrawl.dev/v2/scrape' : 'https://api.anysearch.com/v1/extract';
+        : provider === 'deepseek' ? 'https://api.deepseek.com/v1/tools/fetch'
+          : provider === 'firecrawl' ? 'https://api.firecrawl.dev/v2/scrape' : 'https://api.anysearch.com/v1/extract';
 }
 function providerName(provider: WebFetchProvider) {
-  return provider === 'exa' ? 'Exa' : provider === 'ollama' ? 'Ollama Cloud' : provider === 'tavily' ? 'Tavily' : provider === 'firecrawl' ? 'Firecrawl' : 'AnySearch';
+  return provider === 'exa' ? 'Exa' : provider === 'ollama' ? 'Ollama Cloud' : provider === 'tavily' ? 'Tavily' : provider === 'deepseek' ? 'DeepSeek Fetch' : provider === 'firecrawl' ? 'Firecrawl' : 'AnySearch';
 }
 function providerHeaders(provider: WebFetchProvider, key: string): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -161,7 +163,8 @@ async function fetchFromProvider(provider: WebFetchProvider, url: string, key: s
   const body = provider === 'exa' ? { urls: [url], text: { maxCharacters: MAX_CONTENT_CHARS } }
     : provider === 'ollama' ? { url }
       : provider === 'tavily' ? { urls: [url], format: 'markdown', extract_depth: 'basic' }
-        : provider === 'firecrawl' ? { url, formats: ['markdown'], onlyMainContent: true } : { url };
+        : provider === 'deepseek' ? { url }
+          : provider === 'firecrawl' ? { url, formats: ['markdown'], onlyMainContent: true } : { url };
   const response = await fetcher(providerUrl(provider), {
     method: 'POST', headers: providerHeaders(provider, key), body: JSON.stringify(body), redirect: 'error',
     signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)])
@@ -171,6 +174,9 @@ async function fetchFromProvider(provider: WebFetchProvider, url: string, key: s
   try { data = JSON.parse(await readBody(response)); } catch { throw new Error(`${providerName(provider)} 返回了无效的网页内容`); }
   let title = '', content = '';
   if (provider === 'ollama') {
+    title = String(data?.title || ''); content = String(data?.content || '');
+  } else if (provider === 'deepseek') {
+    // Fetch 直接返回 Markdown 正文，404 表示没能取到可用内容（不可用、被站点策略拦截等）。
     title = String(data?.title || ''); content = String(data?.content || '');
   } else if (provider === 'firecrawl') {
     if (data?.success === false) throw new Error('Firecrawl 未能读取网页');
@@ -214,6 +220,7 @@ export async function fetchWebPageWithProviders(
   if (selected === 'local') return fetchWebPage(url, signal, localFetcher, resolver);
   const configured: WebFetchProvider[] = selected === 'auto'
     ? [
+      // DeepSeek 不在自动链里：它按次计费，自动读网页不该悄悄产生费用，与联网搜索同理。
       ...(['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch'] as const).filter(provider => !!apiKeyFor(provider, settings)),
       ...(['firecrawl', 'anysearch', 'tavily'] as const).filter(provider => !apiKeyFor(provider, settings))
     ]
@@ -222,7 +229,7 @@ export async function fetchWebPageWithProviders(
   for (const provider of configured) {
     if (signal.aborted) throw signal.reason || new Error('读取网页已取消');
     const key = apiKeyFor(provider, settings);
-    if (!key && (provider === 'exa' || provider === 'ollama')) throw new Error(`请在设置中配置${providerName(provider)} API Key`);
+    if (!key && (provider === 'exa' || provider === 'ollama' || provider === 'deepseek')) throw new Error(`请在设置中配置${providerName(provider)} API Key`);
     try { return await fetchFromProvider(provider, url, key, signal, apiFetcher); }
     catch (error) {
       if (signal.aborted) throw error;

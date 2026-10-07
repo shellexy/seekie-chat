@@ -32,7 +32,7 @@ export function recordToolCall(counts: Map<string, number>, name: string) {
 const TOOL_LABELS: Record<string, string> = {
   datetime: '日期时间', web_fetch: '网页读取',
   exa_search: 'Exa 搜索', ollama_web_search: 'Ollama Cloud 搜索', tavily_search: 'Tavily 搜索',
-  firecrawl_search: 'Firecrawl 搜索', anysearch_search: 'AnySearch 搜索'
+  firecrawl_search: 'Firecrawl 搜索', anysearch_search: 'AnySearch 搜索', deepseek_search: 'DeepSeek 搜索'
 };
 export function toolCallLimitError(name: string) {
   return `已达到「${TOOL_LABELS[name] || name}」工具每次回答 ${toolCallLimit(name)} 次的调用上限`;

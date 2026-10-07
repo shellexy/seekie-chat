@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, deepseekWebSearchKey, defaultModelEfforts, editMessage, externalSearchAvailable, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -412,4 +412,25 @@ test('settings written before the search preferences existed get working default
   normalizeSettings(settings);
   assert.equal(settings.preferredExternalSearch, 'auto');
   assert.equal(settings.defaultWebFetch, 'auto');
+});
+
+test('deepseek search stays out of the automatic chain unless it is picked explicitly', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic', apiKey: 'deepseek-connection-key', headers: {}, timeout: 30, proxy: '' }];
+  settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'deepseek-flash', contextWindow: 100000, maxOutput: 4096, vision: false, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false }];
+  // 连接密钥即可用，但没有专用密钥时也应视为可用。
+  assert.equal(deepseekWebSearchKey(settings), 'deepseek-connection-key');
+  assert.equal(externalSearchAvailable('deepseek', settings), true);
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '自动模式不应因为配了 DeepSeek 密钥就改用它');
+  settings.deepseekKey = 'deepseek-dedicated';
+  assert.equal(deepseekWebSearchKey(settings), 'deepseek-dedicated', '专用密钥优先于连接密钥');
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'firecrawl', '配了密钥也仍然不进自动降级链');
+  // 显式设为优先项才会被自动模式用到。
+  settings.preferredExternalSearch = 'deepseek';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'deepseek');
+  settings.deepseekKey = '';
+  assert.equal(deepseekWebSearchKey(settings), 'deepseek-connection-key');
+  assert.equal(externalSearchAvailable('deepseek', settings), true);
+  // 会话里直接选它也照常工作。
+  assert.equal(resolveSearch(settings, 'm', 'deepseek'), 'deepseek');
 });

@@ -54,6 +54,7 @@ export class Store {
     state.settings.tavilyKey = this.secrets.get('tavily') || '';
     state.settings.firecrawlKey = this.secrets.get('firecrawl') || '';
     state.settings.anysearchKey = this.secrets.get('anysearch') || '';
+    state.settings.deepseekKey = this.secrets.get('deepseek') || '';
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
     return state;
@@ -69,6 +70,7 @@ export class Store {
     if (state.settings.tavilyKey === SECRET_MARKER) state.settings.tavilyKey = this.secrets.get('tavily') || '';
     if (state.settings.firecrawlKey === SECRET_MARKER) state.settings.firecrawlKey = this.secrets.get('firecrawl') || '';
     if (state.settings.anysearchKey === SECRET_MARKER) state.settings.anysearchKey = this.secrets.get('anysearch') || '';
+    if (state.settings.deepseekKey === SECRET_MARKER) state.settings.deepseekKey = this.secrets.get('deepseek') || '';
     state.settings.secureStorage = this.secure;
     if (state.settings.secretPolicy === 'encrypted' && !this.secure) throw new Error('系统安全存储不可用，请选择保存到数据目录');
   }
@@ -89,6 +91,7 @@ export class Store {
     if (copy.settings.tavilyKey) copy.settings.tavilyKey = SECRET_MARKER;
     if (copy.settings.firecrawlKey) copy.settings.firecrawlKey = SECRET_MARKER;
     if (copy.settings.anysearchKey) copy.settings.anysearchKey = SECRET_MARKER;
+    if (copy.settings.deepseekKey) copy.settings.deepseekKey = SECRET_MARKER;
     return copy;
   }
   save(state: AppState) {
@@ -106,6 +109,7 @@ export class Store {
     this.saveSecret('tavily', copy.settings.tavilyKey, copy.settings.secretPolicy); copy.settings.tavilyKey = '';
     this.saveSecret('firecrawl', copy.settings.firecrawlKey, copy.settings.secretPolicy); copy.settings.firecrawlKey = '';
     this.saveSecret('anysearch', copy.settings.anysearchKey, copy.settings.secretPolicy); copy.settings.anysearchKey = '';
+    this.saveSecret('deepseek', copy.settings.deepseekKey, copy.settings.secretPolicy); copy.settings.deepseekKey = '';
     const keep = new Set<string>();
     for (const a of attachments(copy)) {
       if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');

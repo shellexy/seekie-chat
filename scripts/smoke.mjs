@@ -264,14 +264,14 @@ try {
   await page.locator('.settings-nav').getByRole('button', { name: '联网搜索' }).click();
   assert.equal(await page.getByRole('heading', { name: 'Firecrawl', exact: true }).count(), 1);
   assert.equal(await page.getByRole('heading', { name: 'AnySearch', exact: true }).count(), 1);
-  assert.equal(await page.getByLabel('API Key（可选）').count(), 3);
+  assert.equal(await page.getByLabel('API Key（可选）').count(), 4, 'Tavily / Firecrawl / AnySearch / DeepSeek 四家的密钥都可留空');
   // Search preferences are global defaults; they only change the fallback order of the auto mode.
-  assert.deepEqual(await page.getByLabel('新对话的搜索模式').locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '关闭']);
+  assert.deepEqual(await page.getByLabel('新对话的搜索模式').locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', 'DeepSeek 搜索', '关闭']);
   assert.equal(await page.getByLabel('新对话的搜索模式').inputValue(), 'auto');
   assert.equal(await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).isChecked(), true, '默认原生搜索优先');
   // The external head and the default webpage reader are separate preferences; both land in settings.
   const preferredExternal = page.getByLabel('自动模式下优先使用的外部搜索');
-  assert.deepEqual(await preferredExternal.locator('option').allTextContents(), ['默认顺序（内置）', 'Exa（需 API Key）', 'Ollama Cloud（需 API Key）', 'Tavily', 'Firecrawl', 'AnySearch']);
+  assert.deepEqual(await preferredExternal.locator('option').allTextContents(), ['默认顺序（内置）', 'Exa（需 API Key）', 'Ollama Cloud（需 API Key）', 'Tavily', 'Firecrawl', 'AnySearch', 'DeepSeek 搜索（按次计费）']);
   assert.equal(await preferredExternal.inputValue(), 'auto');
   await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).uncheck();
   await preferredExternal.selectOption('tavily');
@@ -309,6 +309,7 @@ try {
     state.settings.connections = connections;
     state.settings.firecrawlKey = 'firecrawl-fixture-secret';
     state.settings.anysearchKey = 'anysearch-fixture-secret';
+    state.settings.deepseekKey = 'deepseek-fixture-secret';
     state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 65_536, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
@@ -412,11 +413,15 @@ try {
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
   const searchMode = page.locator('.inline-config-field').first().locator('select');
   // 关闭 is offered last, after every concrete way of searching.
-  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '关闭']);
+  assert.deepEqual(await searchMode.locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', 'DeepSeek 搜索（按次计费）', '关闭']);
   assert.equal(await searchMode.locator('option[value="tavily"]').isDisabled(), false);
   const webReading = page.getByRole('combobox', { name: '读取网页' });
-  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '本地读取', '关闭']);
+  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', 'DeepSeek Fetch（按次计费）', '本地读取', '关闭']);
   assert.equal(await webReading.locator('option[value="tavily"]').isDisabled(), false);
+  // 本次运行配置了 DeepSeek 密钥，按次计费的两项应可选用并在文案里标明计费方式。
+  assert.equal(await searchMode.locator('option[value="deepseek"]').isDisabled(), false, '配了密钥后应能显式选择 DeepSeek 搜索');
+  assert.equal(await webReading.locator('option[value="deepseek"]').isDisabled(), false, '配了密钥后应能显式选择 DeepSeek Fetch');
+  assert.match(await searchMode.locator('option[value="deepseek"]').innerText(), /按次计费/, '按次计费的服务必须在选项里标明');
   assert.equal(await webReading.inputValue(), 'auto');
   assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);
   await webReading.selectOption('local');
@@ -738,7 +743,8 @@ try {
   assert.equal(credentials.secrets[saved.settings.connections[0].id], 'fixture-secret');
   assert.equal(credentials.secrets.firecrawl, 'firecrawl-fixture-secret');
   assert.equal(credentials.secrets.anysearch, 'anysearch-fixture-secret');
-  assert.equal(saved.settings.firecrawlKey, '••••••••'); assert.equal(saved.settings.anysearchKey, '••••••••');
+  assert.equal(credentials.secrets.deepseek, 'deepseek-fixture-secret', 'DeepSeek 搜索密钥应写入凭据文件');
+  assert.equal(saved.settings.firecrawlKey, '••••••••'); assert.equal(saved.settings.anysearchKey, '••••••••'); assert.equal(saved.settings.deepseekKey, '••••••••', 'DeepSeek 密钥离开主进程前必须被掩码');
   assert.equal(statSync(credentialsPath).mode & 0o777, 0o600);
   await page.evaluate(async () => { const s = await window.deepchan.load(); await window.deepchan.test(s.settings.connections[0]); });
   assert.equal(lastAuthorization, 'Bearer fixture-secret');

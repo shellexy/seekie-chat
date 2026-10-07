@@ -1,8 +1,8 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
-export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
+export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'deepseek';
 // The providers that answer a search request themselves, as opposed to the model's own native search.
 export type ExternalSearchMode = Exclude<SearchMode, 'auto' | 'off' | 'native'>;
-export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
+export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch' | 'deepseek';
 export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;
@@ -38,6 +38,8 @@ export interface Settings {
   // 新对话的默认读取网页方法，'last' 表示接着最近一次在会话里选择的；lastWebFetch 记录那个值。
   defaultWebFetch: WebFetchMode | 'last'; lastWebFetch: WebFetchMode;
   exaKey: string; ollamaKey: string; tavilyKey: string; firecrawlKey: string; anysearchKey: string;
+  // DeepSeek Search/Fetch 按次计费，留空时复用主机名为 api.deepseek.com 的连接密钥。
+  deepseekKey: string;
   exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;
 }

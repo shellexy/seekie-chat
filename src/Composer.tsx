@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, Globe2, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { defaultModelEffort, SEARCH_MODE_LABELS } from './domain';
+import { defaultModelEffort, SEARCH_MODE_LABELS, WEB_FETCH_LABELS } from './domain';
 import ModelPicker from './ModelPicker';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
@@ -14,13 +14,13 @@ function DraftImage({ attachment }: { attachment: Attachment }) {
 // session options popover, the networking toggle, the send/stop button and its own height handle.
 export default function Composer({ branch, model, models, connections, busy, pending, atBottom, messageCount, height, textareaRef,
   networkingEnabled, networkUnavailable, effectiveSearch, webFetchMode, samplingSupported, samplingHelp, ollamaSearchConfigured,
-  hasExaKey, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch,
+  hasExaKey, deepseekSearchConfigured, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch,
   onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onToggleFavorite, onScrollToBottom, onNewChat, onNotice
 }: {
   branch: Branch | null; model?: Model; models: Model[]; connections: Connection[]; busy: boolean; pending: boolean;
   atBottom: boolean; messageCount: number; height: number; textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   networkingEnabled: boolean; networkUnavailable: boolean; effectiveSearch: string; webFetchMode: string; samplingSupported: boolean; samplingHelp: string; ollamaSearchConfigured: boolean;
-  hasExaKey: boolean; promptPresets: PromptPreset[]; backgroundUsage?: Conversation['backgroundUsage']; userTurnCount: number;
+  hasExaKey: boolean; deepseekSearchConfigured: boolean; promptPresets: PromptPreset[]; backgroundUsage?: Conversation['backgroundUsage']; userTurnCount: number;
   favoriteModels: string[]; recentModels: string[]; defaultSearch: Branch['config']['search'];
   onHeightChange: (height: number) => void; onDraftChange: (text: string) => void; onRemoveAttachment: (attachment: Attachment) => void; onAttach: (files: File[]) => void;
   onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onToggleFavorite: (modelId: string) => void;
@@ -123,6 +123,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                           <option value="tavily" disabled={!model?.tools}>{SEARCH_MODE_LABELS.tavily}</option>
                           <option value="firecrawl" disabled={!model?.tools}>{SEARCH_MODE_LABELS.firecrawl}</option>
                           <option value="anysearch" disabled={!model?.tools}>{SEARCH_MODE_LABELS.anysearch}</option>
+                          <option value="deepseek" disabled={!model?.tools || !deepseekSearchConfigured}>{SEARCH_MODE_LABELS.deepseek}（按次计费）</option>
                           <option value="off">{SEARCH_MODE_LABELS.off}</option>
                         </select>
                       </label>
@@ -133,6 +134,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                           <option value="tavily">Tavily</option>
                           <option value="firecrawl">Firecrawl</option>
                           <option value="anysearch">AnySearch</option>
+                          <option value="deepseek" disabled={!deepseekSearchConfigured}>{WEB_FETCH_LABELS.deepseek}（按次计费）</option>
                           <option value="local">本地读取</option>
                           <option value="off">关闭</option>
                         </select>
@@ -159,7 +161,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                     </div>}
                   </div>
                 </div>
-                <button className={`search-toggle ${networkingEnabled ? 'enabled' : ''} ${networkUnavailable ? 'unavailable' : ''}`} aria-label="联网" aria-pressed={networkingEnabled} disabled={busy} title={networkUnavailable ? '自动联网搜索未配置，并且当前模型不支持工具调用；请配置搜索服务或启用模型工具调用。' : !networkingEnabled ? '点击同时启用联网搜索和读取网页' : branch.config.search === 'off' ? '读取网页已启用；点击关闭联网搜索和读取网页' : effectiveSearch === 'native' ? '原生搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'exa' ? 'Exa 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'ollama' ? 'Ollama Cloud Web Search 已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'tavily' ? 'Tavily 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'firecrawl' ? 'Firecrawl 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'anysearch' ? 'AnySearch 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : '联网搜索和读取网页已启用；点击全部关闭'} onClick={() => onUpdateConfig(networkingEnabled ? { search: 'off', webFetch: 'off' } : { search: defaultSearch, webFetch: 'auto' })}>
+                <button className={`search-toggle ${networkingEnabled ? 'enabled' : ''} ${networkUnavailable ? 'unavailable' : ''}`} aria-label="联网" aria-pressed={networkingEnabled} disabled={busy} title={networkUnavailable ? '自动联网搜索未配置，并且当前模型不支持工具调用；请配置搜索服务或启用模型工具调用。' : !networkingEnabled ? '点击同时启用联网搜索和读取网页' : branch.config.search === 'off' ? '读取网页已启用；点击关闭联网搜索和读取网页' : effectiveSearch === 'native' ? '原生搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'exa' ? 'Exa 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'ollama' ? 'Ollama Cloud Web Search 已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'tavily' ? 'Tavily 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'firecrawl' ? 'Firecrawl 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'deepseek' ? 'DeepSeek 搜索已启用，按次计费；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : effectiveSearch === 'anysearch' ? 'AnySearch 搜索已启用；联网搜索和读取网页可在会话选项中分别配置，点击全部关闭' : '联网搜索和读取网页已启用；点击全部关闭'} onClick={() => onUpdateConfig(networkingEnabled ? { search: 'off', webFetch: 'off' } : { search: defaultSearch, webFetch: 'auto' })}>
                   <span className={'network-icon ' + (!networkingEnabled ? 'off' : '')}>
                     <Globe2 size={14}/>
                   </span>

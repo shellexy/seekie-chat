@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { generateGemini, sanitizeStoredParts } from './gemini';
 import { UsageCounter } from './usage';
 import { attachmentBase64, canSendNative, convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
-import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
+import { deepseekWebSearchKey, EXTERNAL_SEARCH_MODES, ollamaWebSearchKey, resolveSearch } from '../src/domain';
 import { currentDateTime, datetimeTool, localToolsEnabled, MAX_UNPRODUCTIVE_TOOL_ROUNDS, recordToolCall, remainingToolCalls, toolCallLimitError, toolRoundBudget, unproductiveToolRoundsError } from './local_tools';
-import type { ChatConfig, Connection, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
+import type { ChatConfig, Connection, ExternalSearchMode, Message, Model, RequestRecord, SearchMode, ServerModel, Settings, Source, ToolEvent, Usage, WebFetchMode } from '../src/types';
 import type { FetchedPage } from './web_fetch';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void; notice?: (message: string) => void; record?: (entry: RequestRecord) => void }
@@ -120,9 +120,9 @@ export async function* sse(body: AsyncIterable<Uint8Array>) {
   const tail = buffer.trim();
   if (tail.startsWith('data:') && tail.slice(5).trim() !== '[DONE]') yield JSON.parse(tail.slice(5).trim());
 }
-type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch'>;
-function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily' || mode === 'firecrawl' || mode === 'anysearch'; }
-function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search'; }
+function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return EXTERNAL_SEARCH_MODES.includes(mode as ExternalSearchMode); }
+function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : mode === 'deepseek' ? 'deepseek_search' : 'anysearch_search'; }
+function searchProviderName(mode: ExternalSearchMode) { return mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : mode === 'tavily' ? 'Tavily' : mode === 'firecrawl' ? 'Firecrawl' : mode === 'deepseek' ? 'DeepSeek' : 'AnySearch'; }
 function externalSearchTool(mode: ExternalSearchMode) { return { name: searchToolName(mode), description: '搜索互联网获取当前信息。结果包含标题、URL 和正文片段。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } }; }
 const webFetchTool = { name: 'web_fetch', description: '读取公开网页正文并转换为 Markdown。输入应是搜索结果或用户提供的完整网页 URL。', parameters: { type: 'object', properties: { url: { type: 'string', description: '要抓取的 HTTP 或 HTTPS 网页 URL' } }, required: ['url'], additionalProperties: false } };
 function searchParameters(value: unknown) {
@@ -218,15 +218,15 @@ export function buildInput(protocol: string, messages: Message[], model?: Model)
   });
 }
 function configuredSearchKey(mode: ExternalSearchMode, settings: Settings) {
-  return mode === 'exa' ? settings.exaKey : mode === 'ollama' ? ollamaWebSearchKey(settings) : mode === 'tavily' ? settings.tavilyKey : mode === 'firecrawl' ? settings.firecrawlKey : settings.anysearchKey;
+  return mode === 'exa' ? settings.exaKey : mode === 'ollama' ? ollamaWebSearchKey(settings) : mode === 'tavily' ? settings.tavilyKey : mode === 'firecrawl' ? settings.firecrawlKey : mode === 'deepseek' ? deepseekWebSearchKey(settings) : settings.anysearchKey;
 }
 async function externalSearch(mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) {
   const key = configuredSearchKey(mode, settings);
-  if (!key && (mode === 'exa' || mode === 'ollama')) throw new Error(`请在设置中配置${mode === 'exa' ? ' Exa' : ' Ollama Cloud'} API Key`);
+  if (!key && (mode === 'exa' || mode === 'ollama' || mode === 'deepseek')) throw new Error(`请在设置中配置${mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : 'DeepSeek'} API Key`);
   let parsed: any;
   try { parsed = JSON.parse(args); } catch { throw new Error('搜索参数格式无效'); }
   const query = parsed?.query;
-  if (typeof query !== 'string' || !query.trim() || query.length > (mode === 'firecrawl' ? 500 : 2000)) throw new Error('搜索查询无效');
+  if (typeof query !== 'string' || !query.trim() || query.length > (mode === 'firecrawl' ? 500 : mode === 'deepseek' ? 128 : 2000)) throw new Error('搜索查询无效');
   const count = Math.min(10, Math.max(1, Number(settings.exaResults) || 5));
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let url: string, body: unknown;
@@ -243,19 +243,28 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   } else if (mode === 'firecrawl') {
     url = 'https://api.firecrawl.dev/v2/search'; if (key) headers.Authorization = `Bearer ${key}`;
     body = { query, limit: count, sources: [{ type: 'web' }], scrapeOptions: { formats: ['markdown'], onlyMainContent: true } };
+  } else if (mode === 'deepseek') {
+    // Search 是只读的按次计费接口：只有 200 且 results 非空才计费，count 只影响条数不影响单价。
+    // 不请求 need_content：正文抓取交给 Fetch，summary 已是文档标注"适用于给模型阅读"的字段。
+    url = 'https://api.deepseek.com/v1/tools/search'; headers.Authorization = `Bearer ${key}`;
+    body = { query, count };
   } else {
     url = 'https://api.anysearch.com/v1/search'; if (key) headers.Authorization = `Bearer ${key}`;
     body = { query, max_results: count, format: 'markdown' };
   }
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]) });
-  if (!response.ok) throw new Error(`${mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : mode === 'tavily' ? 'Tavily' : mode === 'firecrawl' ? 'Firecrawl' : 'AnySearch'} 搜索失败 (${response.status})`);
+  // DeepSeek 用 402 表示余额不足，与其它服务的 429 限流不同，值得单独提示。
+  if (!response.ok) throw new Error(mode === 'deepseek' && response.status === 402 ? 'DeepSeek 余额不足，请充值后再试 (402)'
+    : `${searchProviderName(mode)} 搜索失败 (${response.status})`);
   const data: any = await response.json();
   if (mode === 'anysearch' && data?.code !== 0) throw new Error('AnySearch 搜索失败');
   if (mode === 'firecrawl' && data?.success === false) throw new Error('Firecrawl 搜索失败');
   const results = mode === 'firecrawl' ? data?.data?.web : mode === 'anysearch' ? data?.data?.results : data?.results;
   return (Array.isArray(results) ? results : []).map((r: any) => ({
     title: String(r.title || r.url || ''), url: String(r.url || ''),
-    text: String(r.text || r.markdown || r.content || r.description || r.snippet || (Array.isArray(r.highlights) ? r.highlights.join('\n') : '')).slice(0, 2500)
+    // summary 排在 description/snippet 之前：DeepSeek 文档明确它是"适用于给模型阅读"的
+    // 长摘要，比 100~200 字的 snippet 更适合直接送进上下文。
+    text: String(r.text || r.markdown || r.content || r.summary || r.description || r.snippet || (Array.isArray(r.highlights) ? r.highlights.join('\n') : '')).slice(0, 2500)
   })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {

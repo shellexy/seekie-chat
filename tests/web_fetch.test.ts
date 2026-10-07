@@ -155,3 +155,31 @@ test('automatic webpage reading falls back to local fetch when every configured 
   assert.deepEqual(calls, ['https://api.firecrawl.dev/v2/scrape', 'https://api.anysearch.com/v1/extract', 'https://api.tavily.com/extract']);
   assert.equal(page.provider, 'local'); assert.match(page.content, /hosted fetch services were unavailable/);
 });
+
+test('deepseek fetch reads a page as Markdown with the connection key', async () => {
+  const settings = initialState().settings;
+  settings.connections.push({ id: 'deepseek', name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic', apiKey: 'deepseek-connection-key', headers: {}, timeout: 30, proxy: '' });
+  let request: { url: string; init?: RequestInit } | undefined;
+  const page = await fetchWebPageWithProviders('https://article.example/story', signal(), settings, 'deepseek', async () => new Response('unused'), async (url, init) => {
+    request = { url, init };
+    return new Response(JSON.stringify({ title: 'DeepSeek article', content: '# DeepSeek Markdown\n\nFetched page body.' }), { headers: { 'content-type': 'application/json' } });
+  }, publicHost);
+  assert.equal(request?.url, 'https://api.deepseek.com/v1/tools/fetch');
+  assert.equal(new Headers(request?.init?.headers).get('authorization'), 'Bearer deepseek-connection-key');
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { url: 'https://article.example/story' });
+  assert.equal(page.provider, 'deepseek'); assert.equal(page.title, 'DeepSeek article'); assert.match(page.content, /Fetched page body/);
+});
+
+test('deepseek fetch is never chosen by the automatic reader', async () => {
+  const settings = initialState().settings;
+  settings.deepseekKey = 'deepseek-fixture';
+  const seen: string[] = [];
+  // 每一家托管抓取都失败，自动读取应当一路降级到本地，而不会去调按次计费的 DeepSeek Fetch。
+  await fetchWebPageWithProviders('https://article.example/story', signal(), settings, 'auto',
+    async () => new Response('# Local body\n\nFetched locally.'), async (url) => {
+      seen.push(url);
+      return new Response('{}', { status: 500 });
+    }, publicHost);
+  assert.deepEqual(seen.sort(), ['https://api.firecrawl.dev/v2/scrape', 'https://api.tavily.com/extract', 'https://api.anysearch.com/v1/extract'].sort());
+  assert.ok(!seen.includes('https://api.deepseek.com/v1/tools/fetch'), '自动读取不应调用 DeepSeek Fetch');
+});
