@@ -285,6 +285,12 @@ p {
   font-size: 12px;
   outline: 0;
 }
+
+.search-input input:focus,
+.search-input input:not(:placeholder-shown) {
+  background: var(--bg);
+}
+
 .sidebar-label {
   display: flex;
   justify-content: space-between;
