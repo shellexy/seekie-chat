@@ -2,8 +2,8 @@ import { fetch, ProxyAgent } from 'undici';
 import { generateGemini } from './gemini';
 import { UsageCounter } from './usage';
 import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
-import { resolveSearch } from '../src/domain';
-import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent, Usage } from '../src/types';
+import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
+import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Source, ToolEvent, Usage } from '../src/types';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void }
 const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {} };
@@ -51,7 +51,10 @@ export async function* sse(body: AsyncIterable<Uint8Array>) {
   const tail = buffer.trim();
   if (tail.startsWith('data:') && tail.slice(5).trim() !== '[DONE]') yield JSON.parse(tail.slice(5).trim());
 }
-const exaTool = { name: 'exa_search', description: '搜索互联网获取当前信息。结果包含标题、URL 和正文片段。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } };
+type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily'>;
+function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily'; }
+function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : 'tavily_search'; }
+function externalSearchTool(mode: ExternalSearchMode) { return { name: searchToolName(mode), description: '搜索互联网获取当前信息。结果包含标题、URL 和正文片段。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } }; }
 function searchParameters(value: unknown) {
   return value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value, null, 2) : '服务端没有返回显式搜索参数';
 }
@@ -88,15 +91,33 @@ export function buildInput(protocol: string, messages: Message[], model?: Model)
     return [{ role: m.role, content: m.attachments.length ? [{ type: 'text', text }, ...payload] : text }];
   });
 }
-async function exa(args: string, settings: Settings, signal: AbortSignal) {
-  if (!settings.exaKey) throw new Error('请在设置中填写 Exa API Key');
-  const query = JSON.parse(args).query;
+function configuredSearchKey(mode: ExternalSearchMode, settings: Settings) {
+  return mode === 'exa' ? settings.exaKey : mode === 'tavily' ? settings.tavilyKey : ollamaWebSearchKey(settings);
+}
+async function externalSearch(mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) {
+  const key = configuredSearchKey(mode, settings);
+  if (!key) throw new Error(`请在设置中配置${mode === 'exa' ? ' Exa' : mode === 'tavily' ? ' Tavily' : ' Ollama Cloud'} API Key`);
+  let parsed: any;
+  try { parsed = JSON.parse(args); } catch { throw new Error('搜索参数格式无效'); }
+  const query = parsed?.query;
   if (typeof query !== 'string' || !query.trim() || query.length > 2000) throw new Error('搜索查询无效');
-  const response = await fetch('https://api.exa.ai/search', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': settings.exaKey },
-    body: JSON.stringify({ query, numResults: Math.min(10, Math.max(1, settings.exaResults)), contents: { text: { maxCharacters: 2500 } } }), signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]) });
-  if (!response.ok) throw new Error(`Exa 搜索失败 (${response.status})`);
+  const count = Math.min(10, Math.max(1, Number(settings.exaResults) || 5));
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  let url: string, body: unknown;
+  if (mode === 'exa') {
+    url = 'https://api.exa.ai/search'; headers['x-api-key'] = key;
+    body = { query, numResults: count, contents: { text: { maxCharacters: 2500 } } };
+  } else if (mode === 'ollama') {
+    url = 'https://ollama.com/api/web_search'; headers.Authorization = `Bearer ${key}`;
+    body = { query, max_results: count };
+  } else {
+    url = 'https://api.tavily.com/search'; headers.Authorization = `Bearer ${key}`;
+    body = { query, search_depth: 'basic', max_results: count, topic: 'general', include_answer: false, include_raw_content: false };
+  }
+  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(45000)]) });
+  if (!response.ok) throw new Error(`${mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : 'Tavily'} 搜索失败 (${response.status})`);
   const data: any = await response.json();
-  return (data.results || []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url), text: String(r.text || '').slice(0, 2500) }));
+  return (Array.isArray(data.results) ? data.results : []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url || ''), text: String(r.text || r.content || '').slice(0, 2500) })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop): Promise<Result> {
   config = {
@@ -104,13 +125,13 @@ export async function generate(connection: Connection, model: Model, config: Cha
     temperature: Number.isFinite(config.temperature) ? Math.max(0, Math.min(2, config.temperature!)) : 1,
     topP: Number.isFinite(config.topP) ? Math.max(0, Math.min(1, config.topP!)) : 1
   };
-  config = { ...config, search: resolveSearch({ ...settings, models: [model], connections: [connection] }, model.id, config.search) };
+  config = { ...config, search: resolveSearch({ ...settings, models: [model] }, model.id, config.search) };
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
-  if (config.search === 'exa' && !model.tools) throw new Error('Exa 搜索需要支持工具调用的模型');
-  if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请使用 Responses、Anthropic、Gemini 或 Exa');
-  if (config.search === 'exa' && !settings.exaKey) throw new Error('请先配置 Exa API Key');
+  if (isExternalSearch(config.search) && !model.tools) throw new Error('外部联网搜索需要支持工具调用的模型');
+  if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请改用已配置的外部搜索服务');
+  if (isExternalSearch(config.search) && !configuredSearchKey(config.search, settings)) throw new Error(`请先配置${config.search === 'exa' ? ' Exa' : config.search === 'ollama' ? ' Ollama Cloud' : ' Tavily'} API Key`);
   await convertUnsupportedAttachments(messages, connection.protocol, model);
-  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, exa, sse });
+  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
   const input = buildInput(connection.protocol, messages, model);
   const restrictedSampling = connection.protocol === 'responses' || connection.protocol === 'anthropic';
@@ -138,18 +159,18 @@ export async function generate(connection: Connection, model: Model, config: Cha
     let body: any; let path: string;
     if (connection.protocol === 'chat') {
       path = 'chat/completions'; body = { model: model.model, messages: [{ role: 'system', content: system }, ...input], stream: true, ...sampling, ...(model.streamUsage !== false ? { stream_options: { include_usage: true } } : {}), [model.outputTokenField || 'max_completion_tokens']: model.maxOutput };
-      if (config.search === 'exa' && allowTools) body.tools = [{ type: 'function', function: exaTool }];
+      if (isExternalSearch(config.search) && allowTools) body.tools = [{ type: 'function', function: externalSearchTool(config.search) }];
       if (model.reasoning === 'effort' && config.effort && config.effort !== 'auto') body.reasoning_effort = config.effort;
     } else if (connection.protocol === 'responses') {
       path = 'responses'; body = { model: model.model, instructions: system, input, stream: true, ...sampling, max_output_tokens: model.maxOutput, store: false };
       if (config.search === 'native') body.tools = [{ type: 'web_search' }];
-      if (config.search === 'exa' && allowTools) body.tools = [{ type: 'function', ...exaTool }];
+      if (isExternalSearch(config.search) && allowTools) body.tools = [{ type: 'function', ...externalSearchTool(config.search) }];
       if (model.reasoning === 'effort') body.reasoning = { ...(config.effort !== 'auto' ? { effort: config.effort } : {}), summary: 'auto' };
       body.include = ['reasoning.encrypted_content'];
     } else {
       path = 'messages'; body = { model: model.model, system, messages: input, stream: true, ...sampling, max_tokens: model.maxOutput };
       if (config.search === 'native') body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
-      if (config.search === 'exa' && allowTools) body.tools = [{ name: exaTool.name, description: exaTool.description, input_schema: exaTool.parameters }];
+      if (isExternalSearch(config.search) && allowTools) { const tool = externalSearchTool(config.search); body.tools = [{ name: tool.name, description: tool.description, input_schema: tool.parameters }]; }
       if (model.reasoning === 'budget') {
         if (config.budget >= model.maxOutput) throw new Error('思考预算必须小于最大输出 token');
         body.thinking = { type: 'enabled', budget_tokens: Math.max(1024, config.budget) };
@@ -265,8 +286,8 @@ export async function generate(connection: Connection, model: Model, config: Cha
     for (const call of calls) {
       const event: ToolEvent = { id: call.id, name: call.name, input: call.args, output: '', status: 'running', started: Date.now() }; hooks.tool(event);
       try {
-        if (config.search !== 'exa' || call.name !== 'exa_search') throw new Error('不支持的工具调用');
-        const results = await exa(call.args, settings, signal); addSources(results);
+        if (!isExternalSearch(config.search) || call.name !== searchToolName(config.search)) throw new Error('不支持的工具调用');
+        const results = await externalSearch(config.search, call.args, settings, signal); addSources(results);
         event.output = JSON.stringify(results); event.status = 'done';
       } catch (error) { if (signal.aborted) throw error; event.output = JSON.stringify({ error: String(error), instruction: '搜索未成功。明确告诉用户，不要虚构搜索结果或引用。' }); event.status = 'error'; }
       event.elapsed = Date.now() - event.started; hooks.tool({ ...event });

@@ -23,7 +23,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 开始聊天
 
-1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek·anthropic、Gemini 或自定义兼容连接。
+1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek·anthropic、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1` 或 `/v1beta`，不要包含 `/responses`、`/messages` 等端点。
 3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。
 4. 根据模型文档填写上下文窗口、最大输出、图片、视频、音频、PDF、工具、原生搜索及思考能力。
@@ -32,11 +32,13 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 DeepSeek·anthropic 预设使用 `https://api.deepseek.com/anthropic` 和 Anthropic Messages 协议，自动添加 `deepseek-flash`，上下文窗口为 1,000,000 token、最大输出为 256,000 token，启用图片输入、工具调用和原生搜索，思考参数默认选择“思考等级（effort）”。填写你自己的 API Key 后保存即可。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 和 DeepSeek 模型包含 `max` 等级。
 
+Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
+
 手动添加和从服务端列表添加模型时，默认选择“思考等级（effort）”，上下文窗口为 1,000,000 token，最大输出为 65,536 token。可按实际模型能力修改；DeepSeek 预设模型保留专门配置的最大输出 256,000 token。
 
 部分 Chat Completions 兼容服务只接受 `max_tokens`，或不支持 `stream_options`。可在模型配置中调整最大输出参数、关闭流式用量请求。
 
-标题和历史压缩也会发起 API 请求，使用其各自配置的供应商并产生用量。界面显示的回答 token 用量来自服务返回；上下文预算使用估算。
+标题和历史压缩也会发起 API 请求，使用其各自配置的供应商并产生用量。界面显示的回答 token 用量来自服务返回；上下文预算估算系统提示词、历史、附件和工具结果，不从窗口中预留最大输出 token。最大输出仍作为生成上限发送给服务。
 
 AI 回答不显示头像和前置模型标签；操作按钮右侧显示“模型名称·HH:mm”，悬停、键盘聚焦或点击可查看“模型名称 | 连接名称•YYYY-MM-DD·HH:mm”。悬停、键盘聚焦或点击回答下方的 token 信息可查看输入、缓存命中输入、输出、速度和首字耗时；点击可保持展开，再次点击、按 Esc 或点击外部可关闭。输入总量包含缓存读取和缓存写入，其中“输入（缓存）”只统计缓存命中读取量。速度为各轮输出 token 总量除以生成总耗时，包含思考、网络和搜索工具调用，不含请求前的历史压缩；首字耗时从生成请求开始计至第一段回答正文返回。Gemini 输出包含服务报告的思考 token。指标随消息保存，旧消息的计时、未返回的缓存统计显示“未提供”；多轮工具请求中任一轮未提供缓存统计时，也显示“未提供”。
 
@@ -44,7 +46,7 @@ AI 回答不显示头像和前置模型标签；操作按钮右侧显示“模�
 
 在“连接与模型”点击“＋ Gemini”，默认地址为 `https://generativelanguage.googleapis.com/v1beta`，协议为 Gemini GenerateContent。填写 Gemini API Key 后，可以获取模型列表或手动填写模型 ID，支持 `gemini-…` 和 `models/gemini-…` 两种形式。应用通过 `x-goog-api-key` 认证，并使用 `streamGenerateContent?alt=sse` 流式接口。
 
-Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生搜索和 Exa 工具调用。新增 Gemini 模型默认勾选图片、视频、音频、PDF、工具调用和原生搜索，仍可按实际模型修改。Qwen 模型新增时默认勾选图片、视频、工具调用和原生搜索。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
+Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生搜索及 Exa、Ollama Cloud、Tavily 工具搜索。新增 Gemini 模型默认勾选图片、视频、音频、PDF、工具调用和原生搜索，仍可按实际模型修改。Qwen 模型新增时默认勾选图片、视频、工具调用和原生搜索。新增模型默认上下文窗口为 1,000,000 token、最大输出为 65,536 token，思考参数默认选择思考等级：Gemini 3 及以上可按模型支持范围配置思考等级（minimal、low、medium、high），Gemini 2.5 使用思考预算。思考摘要和签名由服务返回；后续对话保留签名，手动编辑回答后只发送编辑后的正文。标题和历史压缩也可选择 Gemini 模型。
 
 ## 系统提示词库 / 角色预设
 
@@ -63,10 +65,10 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - 从已完成回答创建分支，嵌套分支、分支命名、删除及上下文隔离。
 - 分支独立模型、系统提示词、搜索、思考等级、温度和 `top_p` 配置，输入草稿恢复。
 - 首次有效回答后后台生成标题，手动改名优先。
-- Responses/Anthropic/Gemini 原生搜索、Exa 工具检索、工具事件与真实来源展示。
+- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily 工具检索、工具事件与真实来源展示。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
-- API Key、Exa Key 及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
+- 模型连接 API Key、Exa/Ollama/Tavily 搜索密钥及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
 - 结构化备份恢复及 Markdown 导出，默认不包含密钥与自定义请求头。
 - 每个连接支持显式 HTTP/HTTPS 代理。
 
@@ -82,10 +84,12 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 输入框下方的底部工具栏包含模型选择、思考等级、会话选项和联网开关，位于发送按钮左侧。温度（0–2）和 `top_p`（0–1）也在“会话选项”中设置，按当前分支保存，默认值均为 1；当前模型或协议的思考模式不接受采样参数时，控件会禁用。新对话默认启用自动联网，在“会话选项”中可选择搜索模式：
 
-- **自动联网（默认）**：优先使用模型原生搜索，其次使用已配置的 Exa。没有可用方式时显示“联网待配置”，不会发送不支持的搜索参数。
+- **自动联网（默认）**：优先使用模型原生搜索，其次按 Exa、Ollama Cloud、Tavily 的顺序使用已配置的外部服务。没有可用方式时显示“联网待配置”，不会发送不支持的搜索参数。
 - **关闭**：不启用工具搜索。
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`，Gemini 使用 `googleSearch`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
+- **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
+- **Tavily**：在设置中填写 Tavily API Key；使用 basic 搜索深度，由支持工具调用的模型触发检索。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 

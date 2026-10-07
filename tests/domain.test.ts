@@ -53,6 +53,16 @@ test('new chats enable automatic search and select only available providers', as
   state.settings.exaKey = 'fixture';
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'exa');
   state.settings.exaKey = '';
+  state.settings.tavilyKey = 'tavily-fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'tavily');
+  state.settings.tavilyKey = '';
+  state.settings.ollamaKey = 'ollama-fixture';
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'ollama');
+  state.settings.ollamaKey = '';
+  state.settings.connections.push({ id: 'ollama', name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/', apiKey: 'connection-key', headers: {}, timeout: 30, proxy: '' });
+  assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'ollama');
+  assert.equal(resolveSearch(state.settings, 'm', 'tavily'), 'tavily');
+  state.settings.connections.pop();
   assert.equal(resolveSearch(state.settings, 'm', 'auto'), 'off');
   assert.equal(resolveSearch(state.settings, 'm', 'off'), 'off');
 });

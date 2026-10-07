@@ -153,3 +153,37 @@ test('Exa failures return explicit tool errors without fabricated sources', asyn
   assert.match(secondBody.messages.at(-1).content, /搜索未成功/); assert.equal(result.sources.length, 0);
   await agent.close();
 });
+for (const provider of ['ollama', 'tavily'] as const) test(`${provider} web search sends authenticated queries and returns source snippets to the model`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'), toolName = provider === 'ollama' ? 'ollama_web_search' : 'tavily_search';
+  let firstBody: any, secondBody: any, searchBody: any, searchHeaders: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    return [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${provider}`, function: { name: toolName, arguments: '{"query":"Ollama web search API"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const searchHost = provider === 'ollama' ? 'https://ollama.com' : 'https://api.tavily.com';
+  const searchPath = provider === 'ollama' ? '/api/web_search' : '/search';
+  agent.get(searchHost).intercept({ path: searchPath, method: 'POST' }).reply(200, options => {
+    searchBody = JSON.parse(String(options.body)); searchHeaders = options.headers;
+    return { results: [{ title: `${provider} result`, url: 'https://example.com/result', content: 'Verified search snippet' }] };
+  });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '根据搜索结果回答。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaResults = 4;
+  if (provider === 'ollama') state.settings.connections.push({ id: 'ollama-cloud', name: 'Ollama Cloud', protocol: 'chat', baseUrl: 'https://ollama.com/', apiKey: 'ollama-fixture', headers: {}, timeout: 30, proxy: '' });
+  else state.settings.tavilyKey = 'tavily-fixture';
+  const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: provider }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(firstBody.tools[0].function.name, toolName);
+  assert.equal(searchBody.query, 'Ollama web search API'); assert.equal(searchBody.max_results, 4);
+  if (provider === 'tavily') { assert.equal(searchBody.search_depth, 'basic'); assert.match(JSON.stringify(searchHeaders), /Bearer tavily-fixture/i); }
+  else { assert.match(JSON.stringify(searchHeaders), /Bearer ollama-fixture/i); }
+  assert.match(secondBody.messages.at(-1).content, /Verified search snippet/);
+  assert.equal(result.sources[0].url, 'https://example.com/result'); assert.equal(result.sources[0].title, `${provider} result`);
+  await agent.close();
+});

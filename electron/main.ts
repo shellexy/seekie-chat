@@ -13,7 +13,7 @@ let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 const redact = (error: unknown) => {
   let text = error instanceof Error ? error.message : String(error);
-  for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey]) if (key) text = text.split(key).join('[已隐藏]');
+  for (const key of [...(state?.settings.connections.flatMap(c => [c.apiKey, ...Object.values(c.headers)]) || []), state?.settings.exaKey, state?.settings.ollamaKey, state?.settings.tavilyKey]) if (key) text = text.split(key).join('[已隐藏]');
   return text.slice(0, 1600);
 };
 function emit(immediate = false) {
@@ -26,7 +26,7 @@ function resolve(modelId: string): { connection: Connection; model: Model } {
   const model = state.settings.models.find(m => m.id === modelId);
   const connection = state.settings.connections.find(c => c.id === model?.connectionId);
   if (!model || !connection) throw new Error('请在设置中添加连接和模型，并选择聊天模型');
-  if (model.maxOutput < 1 || model.contextWindow <= model.maxOutput) throw new Error('模型上下文窗口必须大于最大输出');
+  if (model.maxOutput < 1 || model.contextWindow < model.maxOutput) throw new Error('模型上下文窗口不能小于最大输出');
   return { connection, model };
 }
 function get(id: string, branchId: string) {
@@ -89,12 +89,12 @@ async function runChat(request: RunRequest) {
     try {
       let context = contextMessages(conversation, branch, message.parentId);
       await convertUnsupportedAttachments(context.messages, connection.protocol, model);
-      const budget = () => estimateTokens(context.messages, config.system + context.summary) + model.maxOutput;
-      if (state.settings.autoCompress && budget() > model.contextWindow * state.settings.compressionThreshold && context.messages.length > 5) {
+      const estimatedInputTokens = () => estimateTokens(context.messages, config.system + context.summary);
+      if (state.settings.autoCompress && estimatedInputTokens() > model.contextWindow * state.settings.compressionThreshold && context.messages.length > 5) {
         await compress(conversation, branch, controller.signal, message.parentId); context = contextMessages(conversation, branch, message.parentId);
         await convertUnsupportedAttachments(context.messages, connection.protocol, model);
       }
-      if (budget() > model.contextWindow) throw new Error('预计上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
+      if (estimatedInputTokens() > model.contextWindow) throw new Error('预计输入上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');
       const started = performance.now(); let firstTokenMs: number | undefined;
       const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
@@ -167,7 +167,7 @@ function register() {
   handle('external', (url: string) => { const parsed = new URL(url); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('链接协议不受支持'); return shell.openExternal(parsed.href); });
   handle('export', async (format: string, id?: string) => {
     const copy = structuredClone(state); copy.conversations = id ? copy.conversations.filter(c => c.id === id) : copy.conversations;
-    for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = '';
+    for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = '';
     copy.settings.secretPolicy = 'session'; copy.selectedId = copy.conversations[0]?.id || null;
     const content = format === 'json' ? JSON.stringify({ version: 1, state: copy }, null, 2) : copy.conversations.map(c => `# ${c.title}\n\n${c.branches.map(b => `## ${b.name}\n\n${pathTo(c, b.leafId).map(m => `### ${m.role === 'user' ? '用户' : '助手'}${m.edited ? '（手动编辑）' : ''}\n\n${m.text}${m.attachments.map(a => `\n\n![${a.name}](${a.data})`).join('')}`).join('\n\n')}`).join('\n\n')}`).join('\n\n');
     const file = await dialog.showSaveDialog(win!, { defaultPath: `DeepChan-chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
@@ -179,7 +179,7 @@ function register() {
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
-    state = backup.state; for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
+    state = backup.state; for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; }
     store.save(state); emit(true); return store.public(state);
   });

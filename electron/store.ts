@@ -35,6 +35,8 @@ export class Store {
     if (!state.settings.credentialStorageVersion) { if (state.settings.secretPolicy !== 'encrypted' || !this.secure) state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; }
     for (const c of state.settings.connections) { c.apiKey = this.secrets.get(c.id) || ''; c.headers = JSON.parse(this.secrets.get('headers:' + c.id) || '{}'); }
     state.settings.exaKey = this.secrets.get('exa') || '';
+    state.settings.ollamaKey = this.secrets.get('ollama') || '';
+    state.settings.tavilyKey = this.secrets.get('tavily') || '';
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
     return state;
@@ -46,6 +48,8 @@ export class Store {
       for (const [name, value] of Object.entries(c.headers)) if (value === SECRET_MARKER) c.headers[name] = previous[name] || '';
     }
     if (state.settings.exaKey === SECRET_MARKER) state.settings.exaKey = this.secrets.get('exa') || '';
+    if (state.settings.ollamaKey === SECRET_MARKER) state.settings.ollamaKey = this.secrets.get('ollama') || '';
+    if (state.settings.tavilyKey === SECRET_MARKER) state.settings.tavilyKey = this.secrets.get('tavily') || '';
     state.settings.secureStorage = this.secure;
     if (state.settings.secretPolicy === 'encrypted' && !this.secure) throw new Error('系统安全存储不可用，请选择保存到数据目录');
   }
@@ -53,6 +57,8 @@ export class Store {
     const copy = structuredClone(state);
     for (const c of copy.settings.connections) { if (c.apiKey) c.apiKey = SECRET_MARKER; for (const name of Object.keys(c.headers)) c.headers[name] = SECRET_MARKER; }
     if (copy.settings.exaKey) copy.settings.exaKey = SECRET_MARKER;
+    if (copy.settings.ollamaKey) copy.settings.ollamaKey = SECRET_MARKER;
+    if (copy.settings.tavilyKey) copy.settings.tavilyKey = SECRET_MARKER;
     return copy;
   }
   save(state: AppState) {
@@ -62,6 +68,8 @@ export class Store {
     this.secrets.clear(); this.db.run('DELETE FROM secrets');
     for (const c of copy.settings.connections) { this.saveSecret(c.id, c.apiKey, copy.settings.secretPolicy); this.saveSecret('headers:' + c.id, JSON.stringify(c.headers), copy.settings.secretPolicy); c.apiKey = ''; c.headers = {}; }
     this.saveSecret('exa', copy.settings.exaKey, copy.settings.secretPolicy); copy.settings.exaKey = '';
+    this.saveSecret('ollama', copy.settings.ollamaKey, copy.settings.secretPolicy); copy.settings.ollamaKey = '';
+    this.saveSecret('tavily', copy.settings.tavilyKey, copy.settings.secretPolicy); copy.settings.tavilyKey = '';
     const keep = new Set<string>();
     for (const a of attachments(copy)) {
       if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');

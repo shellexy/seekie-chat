@@ -15,16 +15,25 @@ export function normalizePromptSettings(settings: Settings) {
 }
 export const uid = () => crypto.randomUUID();
 export const defaultConfig = (settings: Settings): ChatConfig => ({ modelId: settings.defaultModel, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT, search: 'auto', effort: settings.models.find(m => m.id === settings.defaultModel)?.efforts.includes('medium') ? 'medium' : settings.models.find(m => m.id === settings.defaultModel)?.efforts[0] || 'auto', budget: Math.min(4096, Math.max(1024, (settings.models.find(m => m.id === settings.defaultModel)?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 });
-export function resolveSearch(settings: Settings, modelId: string, mode: ChatConfig['search']): 'off' | 'native' | 'exa' {
+export function ollamaWebSearchKey(settings: Settings): string {
+  if (settings.ollamaKey) return settings.ollamaKey;
+  return settings.connections.find(connection => {
+    try { return new URL(connection.baseUrl).hostname === 'ollama.com' && !!connection.apiKey; }
+    catch { return false; }
+  })?.apiKey || '';
+}
+export function resolveSearch(settings: Settings, modelId: string, mode: ChatConfig['search']): Exclude<ChatConfig['search'], 'auto'> {
   if (mode !== 'auto') return mode;
   const model = settings.models.find(m => m.id === modelId);
   const connection = settings.connections.find(c => c.id === model?.connectionId);
   if (model?.nativeSearch && connection && connection.protocol !== 'chat') return 'native';
   if (model?.tools && settings.exaKey) return 'exa';
+  if (model?.tools && ollamaWebSearchKey(settings)) return 'ollama';
+  if (model?.tools && settings.tavilyKey) return 'tavily';
   return 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();
