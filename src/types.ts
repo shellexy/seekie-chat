@@ -16,6 +16,8 @@ export interface Model {
 export interface ChatConfig {
   modelId: string; system: string; search: SearchMode; effort: string; budget: number;
   webFetch?: WebFetchMode;
+  // Background requests (title, compression) disable client tools; absent means enabled.
+  localTools?: boolean;
   temperature?: number; topP?: number;
 }
 export interface PromptPreset { id: string; name: string; content: string }

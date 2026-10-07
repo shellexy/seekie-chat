@@ -34,7 +34,7 @@ test('Gemini sends images and system prompts, separates thoughts and counts cumu
     });
     const { state, conversation, branch } = fixture(); conversation.messages[0].attachments = [{ id: 'a', name: 'tree.png', mime: 'image/png', data: 'data:image/png;base64,aGVsbG8=', size: 5 }];
     const result = await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', effort: 'low', temperature: 0.4, topP: 0.65, system: '你是图像助手。' }, conversation.messages, state.settings, new AbortController().signal);
-    assert.equal(body.systemInstruction.parts[0].text, '你是图像助手。'); assert.deepEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: 'LOW' });
+    assert.ok(body.systemInstruction.parts[0].text.startsWith('你是图像助手。')); assert.match(body.systemInstruction.parts[0].text, /datetime/); assert.deepEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: 'LOW' });
     assert.equal(body.generationConfig.temperature, 0.4); assert.equal(body.generationConfig.topP, 0.65);
     assert.deepEqual(body.contents[0].parts[0], { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } });
     assert.equal(result.text, '图片中有树。'); assert.equal(result.reasoning, '观察图片。'); assert.deepEqual(result.usage, { input: 10, output: 7 });
@@ -54,7 +54,9 @@ test('Gemini native search sends Google Search and displays only server-returned
     });
     const { state, conversation, branch } = fixture(), tools: any[] = [];
     const result = await generate(connection, model, { ...branch.config, effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, sources() {}, tool: t => tools.push(t) });
-    assert.deepEqual(body.tools, [{ googleSearch: {} }]); assert.equal(result.sources[0].title, 'Electron'); assert.equal(tools[0].name, 'google_search'); assert.equal(tools[0].status, 'done');
+    assert.deepEqual(body.tools[0], { googleSearch: {} });
+    assert.equal(body.tools.at(-1).functionDeclarations[0].name, 'datetime');
+    assert.equal(result.sources[0].title, 'Electron'); assert.equal(tools[0].name, 'google_search'); assert.equal(tools[0].status, 'done');
   } finally { await agent.close(); }
 });
 for (const fail of [false, true]) test(`Gemini Exa ${fail ? 'failures are explicit' : 'results retain signed function calls'} in follow-up requests`, async () => {
@@ -133,6 +135,37 @@ test('Gemini thinking budgets remain numeric and incomplete streams preserve par
     const { state, conversation, branch } = fixture();
     await assert.rejects(generate(connection, { ...model, reasoning: 'budget' }, { ...branch.config, search: 'off', budget: 2048 }, conversation.messages, state.settings, new AbortController().signal, { text: t => output.push(t), reasoning() {}, tool() {}, sources() {} }), /提前结束/);
     assert.equal(body.generationConfig.thinkingConfig.thinkingBudget, 2048); assert.equal(output.join(''), '部分回答');
+  } finally { await agent.close(); }
+});
+test('Gemini declares datetime with its uppercase schema and returns the clock as a plain line', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://gemini.fixture.invalid'); let first: any, second: any;
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => {
+      first = JSON.parse(String(options.body));
+      return frames([{ candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: 'clock-g', name: 'datetime', args: {} } }] }, finishReason: 'STOP' }] }]);
+    });
+    pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('已获取本机时间。')]); });
+    const { state, conversation, branch } = fixture();
+    const result = await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    const declaration = first.tools[0].functionDeclarations[0];
+    assert.equal(declaration.name, 'datetime'); assert.equal(declaration.parameters.type, 'OBJECT');
+    assert.match(first.systemInstruction.parts[0].text, /datetime/);
+    const returned = second.contents.at(-1).parts[0].functionResponse;
+    assert.equal(returned.name, 'datetime');
+    assert.match(returned.response.datetime, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期[日一二三四五六] \| .+ UTC[+-]\d{2}:\d{2} \| UTC \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.equal(result.sources.length, 0);
+  } finally { await agent.close(); }
+});
+test('Gemini background requests disable local tools', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    let body: any;
+    agent.get('https://gemini.fixture.invalid').intercept({ path: streamPath, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('标题')]); });
+    const { state, conversation, branch } = fixture();
+    await generate(connection, model, { ...branch.config, search: 'off', webFetch: 'off', localTools: false, effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
+    assert.equal(body.tools, undefined);
+    assert.doesNotMatch(body.systemInstruction.parts[0].text, /datetime/);
   } finally { await agent.close(); }
 });
 test('Gemini model discovery paginates, filters unsupported models and strips models/ prefixes', async () => {

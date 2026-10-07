@@ -320,7 +320,7 @@ test('web_fetch works independently of search and receives the selected reading 
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'local' }, c.messages, state.settings, new AbortController().signal, undefined, async (url, _signal, _settings, mode) => {
     selectedMode = mode; return { url, title: 'Page', content: '# Page\n\nLocal Markdown.', contentType: 'text/markdown', truncated: false, provider: 'local' };
   });
-  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['web_fetch']);
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['web_fetch', 'datetime']);
   assert.equal(selectedMode, 'local'); assert.equal(secondBody.messages.at(-1).tool_call_id, 'fetch-only');
   assert.match(secondBody.messages.at(-1).content, /Local Markdown/); assert.equal(result.sources[0].url, 'https://example.com/article');
   await agent.close();
@@ -345,7 +345,7 @@ test('web_fetch is offered beside search, records its source and returns Markdow
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: e => tools.push(e.status), sources() {} }, async (url) => {
     fetched = url; return { url, title: 'Fetched article', content: '# Article\n\nFull article body.', contentType: 'text/html', truncated: false };
   });
-  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['exa_search', 'web_fetch']);
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['exa_search', 'web_fetch', 'datetime']);
   assert.equal(fetched, 'https://example.com/article');
   const returned = secondBody.messages.at(-1);
   assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'fetch-1'); assert.match(returned.content, /Full article body/);
@@ -387,5 +387,59 @@ for (const protocol of ['responses', 'anthropic'] as const) test(`${protocol} ca
     assert.equal(secondBody.messages.at(-1).content[0].type, 'tool_result'); assert.match(secondBody.messages.at(-1).content[0].content, /Body from Defuddle/);
   }
   assert.equal(result.sources[0].url, 'https://example.com/page');
+  await agent.close();
+});
+
+test('datetime is offered outside search and returns the machine clock without sources', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    return [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'clock-1', type: 'function', function: { name: 'datetime', arguments: '{}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '现在是本机当前时间。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '现在几点');
+  const tools: string[] = [];
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => tools.push(t.status), sources() {} });
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['datetime']);
+  assert.match(firstBody.messages[0].content, /datetime/, 'the system prompt must ask for the tool instead of recalled dates');
+  const returned = secondBody.messages.at(-1);
+  assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'clock-1');
+  assert.match(returned.content, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} 星期[日一二三四五六] \| .+ UTC[+-]\d{2}:\d{2} \| UTC \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.deepEqual(tools, ['pending', 'running', 'done']);
+  assert.equal(result.sources.length, 0, 'a local clock reading is not a source');
+  await agent.close();
+});
+
+test('unknown tools are rejected softly once, then stop a repeating request', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  const round = (index: number) => [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: `junk-${index}`, type: 'function', function: { name: 'not_a_real_tool', arguments: '{}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  for (let index = 0; index < 3; index++) pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, round(index), { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
+  await assert.rejects(generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off' }, c.messages, state.settings, new AbortController().signal), /重复请求不可用/);
+  await agent.close();
+});
+
+test('background requests disable local tools so title and compression stay single round', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  let body: any;
+  agent.get('https://fixture.invalid').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    body = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '标题' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '你好');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'off', localTools: false }, c.messages, state.settings, new AbortController().signal);
+  assert.equal(body.tools, undefined);
+  assert.doesNotMatch(body.messages[0].content, /datetime/);
   await agent.close();
 });

@@ -65,7 +65,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - 从已完成回答创建分支，嵌套分支、分支命名、删除及上下文隔离。
 - 分支独立模型、系统提示词、搜索、思考等级、温度和 `top_p` 配置，输入草稿恢复。
 - 首次有效回答后后台生成标题，手动改名优先。
-- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily/Firecrawl/AnySearch 工具检索，以及 `web_fetch` 网页正文抓取与来源展示。
+- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily/Firecrawl/AnySearch 工具检索，以及 `web_fetch` 网页正文抓取与来源展示；模型还可调用 `datetime` 读取本机日期时间（含星期、时区偏移和 UTC 时刻），标题与压缩等后台请求不提供该工具。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
 - 模型连接 API Key、Exa/Ollama/Tavily/Firecrawl/AnySearch 搜索密钥及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
@@ -87,7 +87,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **自动联网（默认）**：优先使用模型原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序使用已配置 Key 的服务；没有已配置搜索 Key 时使用 Firecrawl 免 Key 搜索。
 - **关闭**：不启用工具搜索。
 - **模型原生搜索**：Responses 使用 `web_search`，Anthropic 使用 `web_search_20250305`，Gemini 使用 `googleSearch`。要求服务端支持这些工具；Chat Completions 不支持统一原生搜索。
-- **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
+- **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。
 - **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
 - **Tavily**：可在设置中填写 Tavily API Key；未填写时发送 `X-Tavily-Access-Mode: keyless`，使用 basic 搜索深度。
 - **Firecrawl**：API Key 可选；无 Key 时使用官方限额内的搜索，有 Key 时可提高限额。搜索可返回 Markdown 正文。
@@ -96,7 +96,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **本地读取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
 - **联网按钮**：同时启用或关闭联网搜索和读取网页；两项仍可在会话选项中分别调整。
 
-读取网页和外部服务搜索都要求模型支持工具调用。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
+读取网页、外部服务搜索和 `datetime` 都要求模型支持工具调用。每个客户端工具各自限制每次回答最多 30 次调用，额度用完后该工具不再提供给模型，其他工具的额度不受影响；模型原生搜索由服务端触发，不计入此上限。`datetime` 无需参数，返回“本机时间 星期 | 时区 UTC 偏移 | UTC 时刻”一行文本，不产生引用来源。Tavily、Firecrawl 和 AnySearch 的读取网页 API 支持免 Key 调用，匿名额度可能受限。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 

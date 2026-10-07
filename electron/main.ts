@@ -72,7 +72,7 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   if (!remaining.length) return;
   const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
   if (material.length / 2 + 2048 > model.contextWindow) throw new Error('压缩模型上下文不足以处理这些历史，请选择更大窗口的模型');
-  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, MAX_COMPRESSION_RETAINED_TOKENS) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: HISTORY_COMPRESSION_PROMPT }, [plainMessage(material)], state.settings, signal);
+  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, MAX_COMPRESSION_RETAINED_TOKENS) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', localTools: false, effort: 'auto', budget: 1024, system: HISTORY_COMPRESSION_PROMPT }, [plainMessage(material)], state.settings, signal);
   if (!result.text.trim()) throw new Error('压缩模型未返回摘要');
   if (!state.conversations.some(c => c.id === conversation.id)) return;
   conversation.backgroundUsage = [...(conversation.backgroundUsage || []), { kind: 'compression', modelId, usage: result.usage, created: Date.now() }];
@@ -87,7 +87,7 @@ async function generateTitle(conversation: Conversation, config: ChatConfig, pat
   try {
     const modelId = state.settings.titleModel || config.modelId; const { connection, model } = resolve(modelId);
     const material = path.filter(m => m.text.trim()).slice(0, 2).map(m => `${m.role}：${m.text.slice(0, 3000)}`).join('\n');
-    const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 2048) }, { ...config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: '为下面的对话生成简短标题。中文约8至20字，其他语言同等长度。语言跟随用户。只输出标题，不加引号、解释或Markdown。' }, [plainMessage(material)], state.settings, controller.signal);
+    const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 2048) }, { ...config, modelId, search: 'off', webFetch: 'off', localTools: false, effort: 'auto', budget: 1024, system: '为下面的对话生成简短标题。中文约8至20字，其他语言同等长度。语言跟随用户。只输出标题，不加引号、解释或Markdown。' }, [plainMessage(material)], state.settings, controller.signal);
     const current = state.conversations.find(c => c.id === conversation.id);
     if (current) current.backgroundUsage = [...(current.backgroundUsage || []), { kind: 'title', modelId, usage: result.usage, created: Date.now() }];
     if (current?.manualTitle) current.titleState = 'done';
