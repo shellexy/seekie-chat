@@ -132,6 +132,11 @@ try {
   await waitFor(page, async () => !(await window.deepchan.isWindowMaximized()));
   assert.equal(await page.locator('.window-titlebar').count(), 0);
   assert.equal(await page.locator('.chat-header').evaluate(el => el.getBoundingClientRect().top), 0);
+  const titleRows = await page.evaluate(() => ({ sidebar: document.querySelector('.sidebar-top')?.getBoundingClientRect().height, chat: document.querySelector('.chat-header')?.getBoundingClientRect().height, controls: document.querySelector('.window-controls')?.getBoundingClientRect().height }));
+  assert.equal(titleRows.sidebar, titleRows.controls, '对话列表顶栏与窗口控件等高');
+  assert.equal(titleRows.chat, titleRows.controls, '聊天顶栏与窗口控件等高');
+  assert.equal(await page.locator('.brand-mark').count(), 0, '隐藏对话列表顶栏 logo 图标');
+  assert.equal(await page.locator('.local-note').count(), 0, '隐藏侧栏底部本地保存提示');
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();
@@ -148,6 +153,8 @@ try {
   await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
   await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek·anthropic', exact: true }).click();
   assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'DeepSeek·anthropic');
+  assert.equal(await page.getByLabel('连接名称', { exact: true }).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '连接名称与输入框并排');
+  assert.equal(await page.getByLabel(/^接口协议/).evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '接口协议标签与选项并排');
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
   assert.equal(await page.getByLabel('展示名称', { exact: true }).inputValue(), 'deepseek-flash');
@@ -192,6 +199,7 @@ try {
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
   await page.getByLabel('角色名称', { exact: true }).last().fill('测试研究助手');
+  assert.equal(await page.getByLabel('角色名称', { exact: true }).last().evaluate(el => getComputedStyle(el.parentElement).display), 'grid', '角色名称与单行文本框并排');
   await page.getByLabel('角色系统提示词', { exact: true }).last().fill('你是测试研究助手，优先使用证据回答。');
   const roleId = await page.getByLabel(/^新对话默认角色/).locator('option').last().getAttribute('value');
   await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
@@ -282,14 +290,16 @@ try {
     const model = el.querySelector('.header-title small').getBoundingClientRect();
     return { height: el.getBoundingClientRect().height, titleCenter: (title.top + title.bottom) / 2, modelCenter: (model.top + model.bottom) / 2 };
   });
-  assert.equal(header.height, 48); assert.ok(Math.abs(header.titleCenter - header.modelCenter) < 2);
+  assert.equal(header.height, 32); assert.ok(Math.abs(header.titleCenter - header.modelCenter) < 2);
   const grip = page.getByRole('separator', { name: '调整输入框高度' });
   const initialHeight = (await input.boundingBox()).height, gripBox = await grip.boundingBox();
   await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2);
   await page.mouse.down();
   await waitFor(page, () => document.querySelector('.composer-resize').hasPointerCapture(1));
   await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2 - 100, { steps: 5 }); await page.mouse.up();
-  await waitFor(page, height => document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect().height >= height + 95, initialHeight);
+  await page.waitForTimeout(100);
+  const resizedHeight = await page.locator('textarea[aria-label="消息输入"]').evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(resizedHeight >= initialHeight + 95, `输入框拖动高度未生效：${initialHeight} -> ${resizedHeight}`);
   await grip.focus(); await page.keyboard.press('End');
   assert.ok((await input.boundingBox()).height <= Math.min(420, page.viewportSize()?.height * 0.45 || 420) + 1);
   await page.keyboard.press('Home'); await waitFor(page, () => document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect().height === 47);
@@ -484,8 +494,33 @@ try {
   assert.ok(geminiCalls.some(c => c.data.contents.some(m => m.role === 'model' && m.parts.some(p => p.thoughtSignature === 'fixture-signature'))), 'Gemini 多轮请求应保留思考签名');
   const branched = saved.conversations.find(c => c.branches.length > 1);
   assert.equal(branched.branches[0].config.system, '当前分支定制提示词。');
+  console.log('stage: attachment viewer');
+  const imageData = `data:image/png;base64,${(await page.screenshot({ type: 'png' })).toString('base64')}`;
+  await page.evaluate(async imageData => {
+    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const message = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '查看附件预览', reasoning: '', attachments: [
+      { id: crypto.randomUUID(), name: 'preview.png', mime: 'image/png', size: 1, data: imageData },
+      { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '## 附件预览内容\n\n已在应用内打开。' }
+    ], tools: [], sources: [], status: 'complete', created: Date.now() };
+    conversation.messages.push(message); branch.leafId = message.id;
+    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+  }, imageData);
+  const imageTrigger = page.getByRole('button', { name: '查看图片：preview.png' }); await imageTrigger.waitFor(); await imageTrigger.click();
+  const imageDialog = page.getByRole('dialog', { name: '查看附件：preview.png' }); await imageDialog.waitFor();
+  assert.equal(await imageDialog.locator('.attachment-viewer-zoom span').innerText(), '100%');
+  const viewport = imageDialog.locator('.image-viewer-content'); await viewport.hover(); await page.mouse.wheel(0, -300);
+  await page.waitForFunction(() => Number(document.querySelector('.attachment-viewer-zoom span')?.textContent?.replace('%', '')) > 100);
+  const viewportBounds = await viewport.boundingBox();
+  await page.mouse.move(viewportBounds.x + viewportBounds.width / 2, viewportBounds.y + viewportBounds.height / 2); await page.mouse.down();
+  await page.mouse.move(viewportBounds.x + viewportBounds.width / 2 + 40, viewportBounds.y + viewportBounds.height / 2 + 30); await page.mouse.up();
+  assert.match(await imageDialog.locator('.attachment-viewer-image').getAttribute('style'), /translate\(40px, 30px\)/, '放大后可拖动图片');
+  await page.keyboard.press('Escape'); await imageDialog.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '查看附件：notes.txt' }).click();
+  const fileDialog = page.getByRole('dialog', { name: '查看附件：notes.txt' }); await fileDialog.waitFor();
+  await fileDialog.getByText('附件预览内容').waitFor();
+  await fileDialog.getByRole('button', { name: '关闭附件预览' }).click(); await fileDialog.waitFor({ state: 'hidden' });
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, connection presets, compact header, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image zoom/pan and in-app attachment preview, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

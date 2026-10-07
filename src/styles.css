@@ -113,6 +113,55 @@
 .sampling-field{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;min-width:0;font-size:11px;line-height:1.5}
 .sampling-field input{width:82px;min-width:0;padding:6px 8px;font-size:12px}
 .config-popover .sampling-note{margin:7px 0 0}
+
+/* Align the conversation list and chat title row with the 32px window controls. */
+.sidebar{padding:0 14px 14px}
+.sidebar-top{height:32px;flex:0 0 32px;margin:0  -14px 14px;padding:0 14px 0 17px;border-bottom:1px solid var(--line)}
+.brand{font-size:17px;letter-spacing:-.4px}
+.chat-header{height:32px;min-height:32px;padding-top:0;padding-bottom:0}
+.chat-header .icon-button{padding:5px}
+
+/* Put simple connection and role fields beside their labels to save vertical space. */
+.settings-content.connections .field:has(> input:not([type='checkbox']):not([type='range'])),
+.settings-content.connections .field:has(> select),
+.settings-content.prompts .field:has(> input:not([type='checkbox']):not([type='range'])),
+.settings-content.prompts .field:has(> select){display:grid;grid-template-columns:minmax(120px,.8fr) minmax(0,1.5fr);align-items:center;column-gap:12px}
+.settings-content.connections .field>input:not([type='checkbox']):not([type='range']),
+.settings-content.connections .field>select,
+.settings-content.prompts .field>input:not([type='checkbox']):not([type='range']),
+.settings-content.prompts .field>select{grid-column:2;grid-row:1}
+.settings-content.connections .field>small,
+.settings-content.connections .field>.text-button,
+.settings-content.prompts .field>small,
+.settings-content.prompts .field>.text-button{grid-column:1/-1}
+
+/* Open message attachments in a large in-app viewer. */
+.message-attachments .image-attachment-trigger{display:block;width:min(100%,320px);max-height:240px;overflow:hidden;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.image-attachment-trigger img{display:block;max-width:100%;max-height:238px;object-fit:contain}
+.message-attachments .file-attachment{display:flex;width:min(100%,420px);align-items:center;justify-content:flex-start;gap:8px;margin:0 0 8px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);font-size:12px;text-align:left}
+.file-attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-attachment small{margin-left:auto;color:var(--muted)}
+.attachment-viewer-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:24px;background:#0008}
+.attachment-viewer-window{display:flex;width:min(1440px,96vw);height:min(92dvh,1000px);flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--bg);box-shadow:0 18px 60px #0005}
+.attachment-viewer-header{display:flex;min-height:50px;align-items:center;gap:12px;padding:0 12px 0 18px;border-bottom:1px solid var(--line)}
+.attachment-viewer-title{display:flex;min-width:0;flex:1;align-items:center;gap:9px;font-size:13px}
+.attachment-viewer-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-viewer-zoom{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px}
+.attachment-viewer-zoom button{width:30px;height:30px;padding:0;border:0;background:transparent}
+.attachment-viewer-zoom span{min-width:42px;text-align:center}
+.attachment-viewer-close{color:var(--text)}
+.attachment-viewer-content{display:flex;min-height:0;flex:1;align-items:center;justify-content:center;overflow:auto;background:var(--panel)}
+.image-viewer-content{position:relative;display:block;overflow:hidden;touch-action:none}
+.attachment-viewer-image{position:absolute;top:50%;left:50%;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;user-select:none;pointer-events:none;will-change:transform}
+.image-viewer-content.zoomed{cursor:grab}
+.image-viewer-content.zoomed:active{cursor:grabbing}
+.attachment-viewer-markdown{width:min(960px,100%);height:100%;overflow:auto;padding:30px;background:var(--bg);color:var(--text)}
+.attachment-viewer-frame{width:100%;height:100%;border:0;background:#fff}
+.attachment-viewer-media{max-width:100%;max-height:100%;object-fit:contain}
+.attachment-viewer-audio{width:min(760px,85%)}
+.attachment-viewer-download{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+.attachment-viewer-download a{color:var(--accent)}
+@media(max-width:850px){.attachment-viewer-backdrop{padding:0}.attachment-viewer-window{width:100vw;height:100dvh;border:0;border-radius:0}.settings-content.connections .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.connections .field:has(> select),.settings-content.prompts .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.prompts .field:has(> select){grid-template-columns:minmax(100px,.8fr) minmax(0,1.4fr)}}
 .config-popover .field.inline-config-field{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;margin:0 0 8px;line-height:1.35}
 .config-popover .inline-config-field select{min-width:0;padding:6px 8px}
 .conversation-popover{z-index:1000}
