@@ -1635,12 +1635,13 @@ summary {
   font-weight: 550;
   margin-bottom: 10px;
 }
-/* 关于页：程序自己的信息，整块居中，不跟设置项的左对齐排版。 */
+/* 关于页：程序自己的信息居中，整块靠上一些——垂直正中在宽屏上离标题太远，看着发空。 */
 .settings-content.about {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  padding-top: clamp(28px, 10vh, 110px);
   text-align: center;
 }
 .about-logo {
@@ -1668,7 +1669,18 @@ summary {
 .about-version {
   color: var(--muted);
   font-size: 12px;
-  margin: 6px 0 24px;
+  margin: 6px 0 2px;
+}
+.about-license {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 0 0 24px;
+}
+.about-disclaimer {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 26px 0 0;
+  max-width: 32em;
 }
 .about-runtime {
   display: grid;

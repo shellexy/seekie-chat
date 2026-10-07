@@ -285,11 +285,13 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       <h2 className="about-name">Seekie Chat</h2>
       <button className="about-home" onClick={() => void api.openExternal('https://github.com/shellexy/seekie-chat')}>https://github.com/shellexy/seekie-chat</button>
       <p className="about-version">版本 {versions?.app || '—'}</p>
+      <p className="about-license">基于 MIT License 开源</p>
       <dl className="about-runtime">
         <div><dt>Chromium</dt><dd>{versions?.chromium || '—'}</dd></div>
         <div><dt>Electron</dt><dd>{versions?.electron || '—'}</dd></div>
         <div><dt>Node.js</dt><dd>{versions?.node || '—'}</dd></div>
       </dl>
+      <p className="about-disclaimer">Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。</p>
     </div>}
     {tab === 'data' && <><h2>数据与隐私</h2><div className="settings-card"><h3>密钥保存</h3><p className="muted">模型连接 API Key、Exa、Ollama、Tavily、Firecrawl、AnySearch 密钥和自定义请求头默认保存在数据目录的 credentials.json 中，重启后自动读取。该文件以明文保存，权限为仅当前用户读写（0600）。</p><label className="field">保存方式<select value={draft.secretPolicy} onChange={e => change({ secretPolicy: e.target.value as SettingsType['secretPolicy'] })}><option value="file">保存到数据目录（默认）</option><option value="session">仅当前运行</option><option value="encrypted" disabled={!draft.secureStorage}>使用系统安全存储加密保存</option></select></label></div><div className="settings-card"><h3>备份与恢复</h3><p className="muted">结构化备份包含会话、分支、图片与配置，不包含密钥和自定义请求头。导入会替换当前数据。</p><div className="button-row"><button onClick={() => api.exportData('json').then(ok => ok && toast('备份已导出')).catch(e => toast(String(e)))}>导出备份</button><button onClick={() => api.exportData('markdown').then(ok => ok && toast('Markdown 已导出')).catch(e => toast(String(e)))}>导出 Markdown</button><button onClick={() => api.importData().then(s => { if (s) { toast('备份已恢复'); /* 导入的备份已经替换了全部设置，别让页面里的旧草稿再写回去。 */ skipSave.current = true; onClose(); window.dispatchEvent(new Event('seekie-reload')); } }).catch(e => toast(String(e)))}>导入备份</button></div></div><div className="settings-card"><h3>本地优先</h3><p className="muted">聊天记录与附件保存在本机。只有模型请求和已启用的搜索请求会访问对应服务。无遥测、无账号、无云同步。外链由系统浏览器打开。</p></div></>}
     </main></div></div>;

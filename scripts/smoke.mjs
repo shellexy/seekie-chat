@@ -297,14 +297,19 @@ try {
   assert.equal(await page.locator('.about-logo').getAttribute('width'), '96', '关于页应显示图标');
   assert.match(await page.locator('.about-home').innerText(), /^https:\/\/github\.com\/shellexy\/seekie-chat$/, '关于页应显示主页地址');
   assert.equal(await page.locator('.about-version').innerText(), `版本 ${runtime.app}`);
+  assert.equal(await page.locator('.about-license').innerText(), '基于 MIT License 开源');
+  assert.equal(await page.locator('.about-disclaimer').innerText(), 'Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。');
   assert.deepEqual(await page.locator('.about-runtime dd').allTextContents(), [runtime.chromium, runtime.electron, runtime.node], '应显示 Chromium / Electron / Node.js 的真实版本');
-  // 整块居中：图标的水平中心与内容区中心重合。
-  const centered = await page.evaluate(() => {
+  // 水平居中，但整块靠上：垂直正中在宽屏上离标题太远，看着发空。
+  const aboutLayout = await page.evaluate(() => {
     const content = document.querySelector('.settings-content.about').getBoundingClientRect();
     const logo = document.querySelector('.about-logo').getBoundingClientRect();
-    return Math.abs((logo.left + logo.right) / 2 - (content.left + content.right) / 2);
+    const block = document.querySelector('.about-page').getBoundingClientRect();
+    return { offsetX: Math.abs((logo.left + logo.right) / 2 - (content.left + content.right) / 2), top: logo.top - content.top, height: content.height, blockCenter: (block.top + block.bottom) / 2 - content.top };
   });
-  assert.ok(centered < 1, `关于页内容应居中，实际偏移 ${centered}px`);
+  assert.ok(aboutLayout.offsetX < 1, `关于页内容应水平居中，实际偏移 ${aboutLayout.offsetX}px`);
+  assert.ok(aboutLayout.top > 0, `内容不应贴着顶边，实际 ${aboutLayout.top}px`);
+  assert.ok(aboutLayout.blockCenter < aboutLayout.height * 0.5, `内容应位于中上方，实际中心在 ${Math.round(aboutLayout.blockCenter)}px / ${Math.round(aboutLayout.height)}px`);
   await page.screenshot({ path: join(directory, 'about.png') });
   await openSettingsTab(page, '模型服务', 'connections');
   // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
