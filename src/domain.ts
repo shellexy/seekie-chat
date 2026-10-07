@@ -36,7 +36,7 @@ export function normalizeSettings(settings: Settings) {
   // 停用开关与"gpt 自动用 Responses"都是后加的：旧数据没有这些字段，一律取默认值。
   for (const c of settings.connections) {
     if (typeof c.disabled !== 'boolean') c.disabled = false;
-    if (typeof c.responsesForGpt !== 'boolean') c.responsesForGpt = false;
+    if (typeof c.responsesForGpt !== 'boolean') c.responsesForGpt = true;
   }
 }
 export const uid = () => crypto.randomUUID();
@@ -100,8 +100,7 @@ export function rememberRecentModel(settings: Settings, modelId: string, promote
 /**
  * 连接勾选了"gpt 自动使用 Responses"时，gpt-数字* 的模型改走 Responses 协议：推理摘要等
  * 新特性只有 Responses 才有。只匹配 gpt 后跟数字的模型，gpt-oss 之类仍走原协议。
- */
-export function usesResponsesProtocol(connection: Connection, model?: Model): boolean {
+ */export function usesResponsesProtocol(connection: Connection, model?: Model): boolean {
   if (!model || connection.protocol !== 'chat' || connection.responsesForGpt !== true) return false;
   return /^gpt[-_]?\d/i.test(model.model.trim());
 }

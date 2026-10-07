@@ -498,18 +498,19 @@ test('a disabled connection drops out of selection but keeps existing conversati
 test('gpt models can be routed to the Responses protocol on an OpenAI-compatible connection', () => {
   const base: Connection = { id: 'c', name: 'compat', protocol: 'chat', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' };
   const gpt = (model: string): Model => ({ id: model, connectionId: 'c', name: model, model, contextWindow: 1000, maxOutput: 100, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true });
-  assert.equal(effectiveProtocol(base, gpt('gpt-4o')), 'chat', '未开启时按连接的协议');
+  assert.equal(effectiveProtocol(base, gpt('gpt-6-luna')), 'chat', '未开启时按连接的协议');
   const opted = { ...base, responsesForGpt: true };
-  assert.equal(effectiveProtocol(opted, gpt('gpt-4o')), 'responses');
-  assert.equal(effectiveProtocol(opted, gpt('gpt-5.1')), 'responses');
+  assert.equal(effectiveProtocol(opted, gpt('gpt-6-luna')), 'responses');
+  assert.equal(effectiveProtocol(opted, gpt('gpt-6-astra')), 'responses');
+  assert.equal(effectiveProtocol(opted, gpt('gpt-6.1-sol')), 'responses');
   assert.equal(effectiveProtocol(opted, gpt('gpt4')), 'responses');
   assert.equal(effectiveProtocol(opted, gpt('gpt-oss')), 'chat', 'gpt-oss 不是 gpt-数字*，不切换');
   assert.equal(effectiveProtocol(opted, gpt('deepseek-flash')), 'chat', '非 gpt 模型不切换');
-  assert.equal(effectiveProtocol({ ...opted, protocol: 'anthropic' }, gpt('gpt-4o')), 'anthropic', '只有 OpenAI 兼容协议适用');
+  assert.equal(effectiveProtocol({ ...opted, protocol: 'anthropic' }, gpt('gpt-6-luna')), 'anthropic', '只有 OpenAI 兼容协议适用');
   assert.equal(effectiveProtocol(opted, undefined), 'chat', '没有模型时按连接的协议');
   // 旧数据没有该字段，加载后视为未开启。
   const legacy = initialState().settings;
   legacy.connections = [{ ...base }];
   normalizeSettings(legacy);
-  assert.equal(legacy.connections[0].responsesForGpt, false);
+  assert.equal(legacy.connections[0].responsesForGpt, true, '该选项默认开启');
 });

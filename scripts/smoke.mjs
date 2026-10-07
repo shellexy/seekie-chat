@@ -252,9 +252,10 @@ try {
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'chat');
   const gptOption = page.getByLabel('GPT 模型自动使用 Responses 协议');
   assert.equal(await gptOption.count(), 1, 'OpenAI 兼容协议下应显示该选项');
-  assert.equal(await gptOption.isChecked(), false, '默认不开启');
+  assert.equal(await gptOption.isChecked(), true, '默认开启');
+  await gptOption.uncheck();
+  assert.equal(await gptOption.isChecked(), false, '可以关掉');
   await gptOption.check();
-  assert.equal(await gptOption.isChecked(), true);
   await page.locator('.preset-row').getByRole('button', { name: 'OpenAI', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.equal(await page.getByLabel(/^思考参数/).inputValue(), 'effort');
