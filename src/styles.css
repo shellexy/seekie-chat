@@ -103,3 +103,11 @@
 .settings-nav>button{color:var(--text)}
 @media(max-width:1150px){.settings-content{padding:20px 22px}}
 @media(max-width:850px){.settings-header{height:78px;padding:12px 16px}.settings-nav{padding:9px 10px}.settings-content{padding:16px}.settings-card{padding:14px}}
+
+/* Keep sampling controls compact and let sidebar menus escape the scrolling list. */
+.sampling-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.sampling-field{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;min-width:0;font-size:11px;line-height:1.5}
+.sampling-field input{width:82px;min-width:0;padding:6px 8px;font-size:12px}
+.config-popover .sampling-note{margin:7px 0 0}
+.conversation-popover{z-index:1000}
+.conversation-popover{max-height:calc(100vh - 16px);overflow-y:auto}
