@@ -504,6 +504,7 @@ try {
     const message = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '查看附件预览', reasoning: '', attachments: [
       { id: crypto.randomUUID(), name: 'preview.png', mime: 'image/png', size: 1, data: imageData },
       { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '# 附件预览内容\n\n' + '这是附件正文。\n\n'.repeat(30) + '### 深层标题\n\n已在应用内打开。' },
+      { id: crypto.randomUUID(), name: 'plain.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '这份文档没有标题。\n\n正文应占满查看区域。' },
       { id: crypto.randomUUID(), name: 'clip.mp4', mime: 'video/mp4', size: 1, data: 'data:video/mp4;base64,' }
     ], tools: [], sources: [], status: 'complete', created: Date.now() };
     conversation.messages.push(message); branch.leafId = message.id;
@@ -542,12 +543,19 @@ try {
   const fileDialog = page.getByRole('dialog', { name: '查看附件：notes.txt' }); await fileDialog.waitFor();
   await fileDialog.getByRole('heading', { name: '附件预览内容' }).waitFor();
   const markdownOutline = fileDialog.locator('.attachment-viewer-outline');
-  const markdownLayout = await fileDialog.evaluate(el => ({ contentRight: el.querySelector('.attachment-viewer-markdown').getBoundingClientRect().right, outlineLeft: el.querySelector('.attachment-viewer-outline').getBoundingClientRect().left }));
-  assert.ok(markdownLayout.outlineLeft >= markdownLayout.contentRight - 1, 'Markdown 大纲应位于内容右侧');
+  const markdownLayout = await fileDialog.evaluate(el => ({ contentLeft: el.querySelector('.attachment-viewer-markdown').getBoundingClientRect().left, outlineRight: el.querySelector('.attachment-viewer-outline').getBoundingClientRect().right }));
+  assert.ok(markdownLayout.outlineRight <= markdownLayout.contentLeft + 1, 'Markdown 大纲应位于内容左侧');
   assert.deepEqual(await markdownOutline.locator('button').allTextContents(), ['附件预览内容', '深层标题']);
   await markdownOutline.getByRole('button', { name: '深层标题' }).click();
   assert.equal(await markdownOutline.getByRole('button', { name: '深层标题' }).getAttribute('class'), 'active');
   await fileDialog.getByRole('button', { name: '关闭附件预览' }).click(); await fileDialog.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '查看附件：plain.txt' }).click();
+  const plainDialog = page.getByRole('dialog', { name: '查看附件：plain.txt' }); await plainDialog.waitFor();
+  const plainLayout = await plainDialog.evaluate(el => ({ layout: el.querySelector('.attachment-viewer-markdown-layout').getBoundingClientRect(), content: el.querySelector('.attachment-viewer-markdown').getBoundingClientRect(), outlineCount: el.querySelectorAll('.attachment-viewer-outline').length }));
+  assert.equal(plainLayout.outlineCount, 0, '无标题的 Markdown 文档应隐藏大纲');
+  assert.equal(plainLayout.content.left, plainLayout.layout.left, '无标题时正文应从查看区域左侧开始');
+  assert.equal(plainLayout.content.width, plainLayout.layout.width, '无标题时正文应占满查看区域');
+  await plainDialog.getByRole('button', { name: '关闭附件预览' }).click(); await plainDialog.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '查看附件：clip.mp4' }).click();
   const videoDialog = page.getByRole('dialog', { name: '查看附件：clip.mp4' }); await videoDialog.waitFor();
   const videoSizing = await videoDialog.locator('video').evaluate(video => ({ objectFit: getComputedStyle(video).objectFit, width: video.getBoundingClientRect().width, height: video.getBoundingClientRect().height, parentWidth: video.parentElement.getBoundingClientRect().width, parentHeight: video.parentElement.getBoundingClientRect().height }));

@@ -177,9 +177,9 @@ export default function AttachmentViewer({ attachment, onClose, onNotice }: { at
           onPointerCancel={() => { drag.current = null; }}
         >
           {isImage ? <img className="attachment-viewer-image" src={attachment.data} alt={attachment.name} draggable={false} style={{ width: imageWidth ? `${imageWidth}px` : '100%', height: imageHeight ? `${imageHeight}px` : '100%', transform: imageTransform }}/>
-            : attachment.markdown ? <div className="attachment-viewer-markdown-layout">
+            : attachment.markdown ? <div className={`attachment-viewer-markdown-layout${markdownHeadings.length ? ' has-outline' : ''}`}>
+              {markdownHeadings.length > 0 && <aside className="attachment-viewer-outline" aria-label="Markdown 大纲"><h3>大纲</h3>{markdownHeadings.map(heading => <button key={heading.id} type="button" className={activeHeading === heading.id ? 'active' : ''} style={{ paddingInlineStart: `${8 + (heading.level - 1) * 10}px` }} title={heading.title} onClick={() => { document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveHeading(heading.id); }}>{heading.title}</button>)}</aside>}
               <div className="attachment-viewer-markdown" ref={markdownContent} onScroll={updateActiveHeading}><Markdown text={attachment.markdown}/></div>
-              <aside className="attachment-viewer-outline" aria-label="Markdown 大纲"><h3>大纲</h3>{markdownHeadings.length ? markdownHeadings.map(heading => <button key={heading.id} type="button" className={activeHeading === heading.id ? 'active' : ''} style={{ paddingInlineStart: `${8 + (heading.level - 1) * 10}px` }} title={heading.title} onClick={() => { document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveHeading(heading.id); }}>{heading.title}</button>) : <small>没有标题</small>}</aside>
             </div>
             : attachment.mime === 'application/pdf' ? <iframe className="attachment-viewer-frame" src={attachment.data} title={attachment.name}/>
             : attachment.mime.startsWith('video/') ? <video className="attachment-viewer-media" src={attachment.data} controls preload="metadata"/>
