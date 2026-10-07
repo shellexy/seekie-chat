@@ -4,8 +4,10 @@ import { UsageCounter } from './usage';
 import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
 import { ollamaWebSearchKey, resolveSearch } from '../src/domain';
 import type { ChatConfig, Connection, Message, Model, SearchMode, Settings, Source, ToolEvent, Usage } from '../src/types';
+import type { FetchedPage } from './web_fetch';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
 export interface Hooks { text: (s: string) => void; reasoning: (s: string) => void; tool: (t: ToolEvent) => void; sources: (s: Source[]) => void }
+export type WebFetch = (url: string, signal: AbortSignal) => Promise<FetchedPage>;
 const noop: Hooks = { text() {}, reasoning() {}, tool() {}, sources() {} };
 export function endpoint(connection: Connection, path: string) {
   const base = connection.baseUrl.replace(/\/+$/, '');
@@ -55,6 +57,7 @@ type ExternalSearchMode = Extract<SearchMode, 'exa' | 'ollama' | 'tavily'>;
 function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return mode === 'exa' || mode === 'ollama' || mode === 'tavily'; }
 function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : 'tavily_search'; }
 function externalSearchTool(mode: ExternalSearchMode) { return { name: searchToolName(mode), description: '搜索互联网获取当前信息。结果包含标题、URL 和正文片段。', parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } }; }
+const webFetchTool = { name: 'web_fetch', description: '抓取公开网页正文并转换为 Markdown。输入应是搜索结果或用户提供的完整网页 URL。', parameters: { type: 'object', properties: { url: { type: 'string', description: '要抓取的 HTTP 或 HTTPS 网页 URL' } }, required: ['url'], additionalProperties: false } };
 function searchParameters(value: unknown) {
   return value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value, null, 2) : '服务端没有返回显式搜索参数';
 }
@@ -119,7 +122,7 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   const data: any = await response.json();
   return (Array.isArray(data.results) ? data.results : []).map((r: any) => ({ title: String(r.title || r.url), url: String(r.url || ''), text: String(r.text || r.content || '').slice(0, 2500) })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
-export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop): Promise<Result> {
+export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {
   config = {
     ...config,
     temperature: Number.isFinite(config.temperature) ? Math.max(0, Math.min(2, config.temperature!)) : 1,
@@ -131,7 +134,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
   if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请改用已配置的外部搜索服务');
   if (isExternalSearch(config.search) && !configuredSearchKey(config.search, settings)) throw new Error(`请先配置${config.search === 'exa' ? ' Exa' : config.search === 'ollama' ? ' Ollama Cloud' : ' Tavily'} API Key`);
   await convertUnsupportedAttachments(messages, connection.protocol, model);
-  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, sse });
+  if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, search: externalSearch, webFetch: model.tools ? webFetch : undefined, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
   const input = buildInput(connection.protocol, messages, model);
   const restrictedSampling = connection.protocol === 'responses' || connection.protocol === 'anthropic';
@@ -141,6 +144,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
   const addReason = (s: string) => { reasoning += s; hooks.reasoning(s); };
   const addSources = (items: Source[]) => { for (const s of items) if (/^https?:\/\//.test(s.url) && !sources.some(x => x.url === s.url)) sources.push(s); hooks.sources([...sources]); };
   const anthropicSearchInputs = new Map<string, string>();
+  const hasWebFetch = model.tools && config.search !== 'off' && !!webFetch;
   const responseSearchEvents = new Map<string, ToolEvent>();
   const updateResponseSearch = (id: string, changes: Partial<ToolEvent>) => {
     if (!id) return;
@@ -159,18 +163,27 @@ export async function generate(connection: Connection, model: Model, config: Cha
     let body: any; let path: string;
     if (connection.protocol === 'chat') {
       path = 'chat/completions'; body = { model: model.model, messages: [{ role: 'system', content: system }, ...input], stream: true, ...sampling, ...(model.streamUsage !== false ? { stream_options: { include_usage: true } } : {}), [model.outputTokenField || 'max_completion_tokens']: model.maxOutput };
-      if (isExternalSearch(config.search) && allowTools) body.tools = [{ type: 'function', function: externalSearchTool(config.search) }];
+      const tools: any[] = [];
+      if (isExternalSearch(config.search) && allowTools) tools.push({ type: 'function', function: externalSearchTool(config.search) });
+      if (hasWebFetch && allowTools) tools.push({ type: 'function', function: webFetchTool });
+      if (tools.length) body.tools = tools;
       if (model.reasoning === 'effort' && config.effort && config.effort !== 'auto') body.reasoning_effort = config.effort;
     } else if (connection.protocol === 'responses') {
       path = 'responses'; body = { model: model.model, instructions: system, input, stream: true, ...sampling, max_output_tokens: model.maxOutput, store: false };
-      if (config.search === 'native') body.tools = [{ type: 'web_search' }];
-      if (isExternalSearch(config.search) && allowTools) body.tools = [{ type: 'function', ...externalSearchTool(config.search) }];
+      const tools: any[] = [];
+      if (config.search === 'native') tools.push({ type: 'web_search' });
+      if (isExternalSearch(config.search) && allowTools) tools.push({ type: 'function', ...externalSearchTool(config.search) });
+      if (hasWebFetch && allowTools) tools.push({ type: 'function', ...webFetchTool });
+      if (tools.length) body.tools = tools;
       if (model.reasoning === 'effort') body.reasoning = { ...(config.effort !== 'auto' ? { effort: config.effort } : {}), summary: 'auto' };
       body.include = ['reasoning.encrypted_content'];
     } else {
       path = 'messages'; body = { model: model.model, system, messages: input, stream: true, ...sampling, max_tokens: model.maxOutput };
-      if (config.search === 'native') body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
-      if (isExternalSearch(config.search) && allowTools) { const tool = externalSearchTool(config.search); body.tools = [{ name: tool.name, description: tool.description, input_schema: tool.parameters }]; }
+      const tools: any[] = [];
+      if (config.search === 'native') tools.push({ type: 'web_search_20250305', name: 'web_search', max_uses: 3 });
+      if (isExternalSearch(config.search) && allowTools) { const tool = externalSearchTool(config.search); tools.push({ name: tool.name, description: tool.description, input_schema: tool.parameters }); }
+      if (hasWebFetch && allowTools) tools.push({ name: webFetchTool.name, description: webFetchTool.description, input_schema: webFetchTool.parameters });
+      if (tools.length) body.tools = tools;
       if (model.reasoning === 'budget') {
         if (config.budget >= model.maxOutput) throw new Error('思考预算必须小于最大输出 token');
         body.thinking = { type: 'enabled', budget_tokens: Math.max(1024, config.budget) };
@@ -286,10 +299,15 @@ export async function generate(connection: Connection, model: Model, config: Cha
     for (const call of calls) {
       const event: ToolEvent = { id: call.id, name: call.name, input: call.args, output: '', status: 'running', started: Date.now() }; hooks.tool(event);
       try {
-        if (!isExternalSearch(config.search) || call.name !== searchToolName(config.search)) throw new Error('不支持的工具调用');
-        const results = await externalSearch(config.search, call.args, settings, signal); addSources(results);
-        event.output = JSON.stringify(results); event.status = 'done';
-      } catch (error) { if (signal.aborted) throw error; event.output = JSON.stringify({ error: String(error), instruction: '搜索未成功。明确告诉用户，不要虚构搜索结果或引用。' }); event.status = 'error'; }
+        if (call.name === 'web_fetch' && hasWebFetch && webFetch) {
+          const args = JSON.parse(call.args), page = await webFetch(String(args.url || ''), signal);
+          addSources([{ title: page.title || page.url, url: page.url }]);
+          event.output = JSON.stringify(page); event.status = 'done';
+        } else if (isExternalSearch(config.search) && call.name === searchToolName(config.search)) {
+          const results = await externalSearch(config.search, call.args, settings, signal); addSources(results);
+          event.output = JSON.stringify(results); event.status = 'done';
+        } else throw new Error('不支持的工具调用');
+      } catch (error) { if (signal.aborted) throw error; event.output = JSON.stringify({ error: String(error), instruction: '网页抓取或搜索未成功。明确告诉用户，不要虚构网页内容、搜索结果或引用。' }); event.status = 'error'; }
       event.elapsed = Date.now() - event.started; hooks.tool({ ...event });
       if (connection.protocol === 'anthropic') anthropicResults.push({ type: 'tool_result', tool_use_id: call.id, content: event.output, is_error: event.status === 'error' });
       else { const item = connection.protocol === 'chat' ? { role: 'tool', tool_call_id: call.id, content: event.output } : { type: 'function_call_output', call_id: call.id, output: event.output }; input.push(item); entries.push(item); }

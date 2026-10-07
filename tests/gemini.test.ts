@@ -99,6 +99,25 @@ for (const provider of ['ollama', 'tavily'] as const) test(`Gemini can call ${pr
     assert.equal(result.sources[0].url, 'https://example.com/gemini');
   } finally { await agent.close(); }
 });
+test('Gemini exposes web_fetch beside native search and returns fetched Markdown', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  try {
+    const pool = agent.get('https://gemini.fixture.invalid'), gemini3 = { ...model, model: 'models/gemini-3.8-flash' }, path = '/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse'; let first: any, second: any;
+    pool.intercept({ path, method: 'POST' }).reply(200, options => {
+      first = JSON.parse(String(options.body));
+      return frames([{ candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: 'fetch-g', name: 'web_fetch', args: { url: 'https://example.com/article' } } }] }, finishReason: 'STOP' }] }]);
+    });
+    pool.intercept({ path, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('已阅读网页正文。')]); });
+    const { state, conversation, branch } = fixture();
+    const result = await generate(connection, gemini3, { ...branch.config, search: 'native', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, undefined, async url => ({ url, title: 'Fetched article', content: '# Article\n\nGemini fetched this Markdown.', contentType: 'text/html', truncated: false }));
+    assert.deepEqual(first.tools[0], { googleSearch: {} });
+    assert.equal(first.tools[1].functionDeclarations[0].name, 'web_fetch');
+    assert.deepEqual(first.toolConfig, { includeServerSideToolInvocations: true });
+    const returned = second.contents.at(-1).parts[0].functionResponse;
+    assert.equal(returned.name, 'web_fetch'); assert.match(returned.response.content, /Gemini fetched this Markdown/);
+    assert.equal(result.sources[0].url, 'https://example.com/article');
+  } finally { await agent.close(); }
+});
 test('Gemini thinking budgets remain numeric and incomplete streams preserve partial output as errors', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   try {

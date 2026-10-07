@@ -1,12 +1,14 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, net } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, validateState, SECRET_MARKER } from './store';
-import { generate, listModels } from './providers';
+import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
+import { fetchWebPage } from './web_fetch';
 import { contextMessages, estimateTokens, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
+const webFetch: WebFetch = (url, signal) => fetchWebPage(url, signal, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
 const titles = new Map<string, AbortController>();
 let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -101,7 +103,7 @@ async function runChat(request: RunRequest) {
         text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; } message.text += s; emit(); }, reasoning: s => { if (s && reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; emit(); },
         tool: t => { if (t.status === 'running') finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index]; message.tools[index] = { ...t, started: old.started, elapsed: t.elapsed ?? (t.status !== 'running' ? Date.now() - old.started : undefined) }; } emit(); },
         sources: sources => { message.sources = sources; emit(); }
-      });
+      }, webFetch);
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
       message.raw = result.raw; message.usage = { ...result.usage, elapsedMs: performance.now() - started, firstTokenMs }; message.sources = result.sources; message.status = 'complete';
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';

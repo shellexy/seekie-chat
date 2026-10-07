@@ -187,3 +187,66 @@ for (const provider of ['ollama', 'tavily'] as const) test(`${provider} web sear
   assert.equal(result.sources[0].url, 'https://example.com/result'); assert.equal(result.sources[0].title, `${provider} result`);
   await agent.close();
 });
+test('web_fetch is offered beside search, records its source and returns Markdown to the model', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any, fetched = '';
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    return [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'fetch-1', function: { name: 'web_fetch', arguments: '{"url":"https://example.com/article"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '根据网页正文回答。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'fixture';
+  const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '读取这篇文章'); const tools: string[] = [];
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: e => tools.push(e.status), sources() {} }, async (url) => {
+    fetched = url; return { url, title: 'Fetched article', content: '# Article\n\nFull article body.', contentType: 'text/html', truncated: false };
+  });
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['exa_search', 'web_fetch']);
+  assert.equal(fetched, 'https://example.com/article');
+  const returned = secondBody.messages.at(-1);
+  assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'fetch-1'); assert.match(returned.content, /Full article body/);
+  assert.deepEqual(tools, ['running', 'done']); assert.equal(result.sources[0].url, 'https://example.com/article');
+  await agent.close();
+});
+for (const protocol of ['responses', 'anthropic'] as const) test(`${protocol} can call web_fetch and receive the converted page`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any;
+  const call = { type: 'function_call', call_id: 'fetch-2', name: 'web_fetch', arguments: '{"url":"https://example.com/page"}' };
+  const firstFrames = protocol === 'responses' ? [
+    { type: 'response.output_item.done', item: call },
+    { type: 'response.completed', response: { output: [call], usage: { input_tokens: 12, output_tokens: 1 } } }
+  ] : [
+    { type: 'message_start', message: { usage: { input_tokens: 12 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'fetch-2', name: 'web_fetch', input: { url: 'https://example.com/page' } } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_stop' }
+  ];
+  const finalFrames = protocol === 'responses' ? [
+    { type: 'response.output_text.delta', delta: '已读取网页。' },
+    { type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '已读取网页。', annotations: [] }] }], usage: { input_tokens: 18, output_tokens: 3 } } }
+  ] : [
+    { type: 'message_start', message: { usage: { input_tokens: 18 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '已读取网页。' } },
+    { type: 'message_stop' }
+  ];
+  const path = protocol === 'responses' ? '/v1/responses' : '/v1/messages';
+  pool.intercept({ path, method: 'POST' }).reply(200, options => { firstBody = JSON.parse(String(options.body)); return firstFrames.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''); }, { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path, method: 'POST' }).reply(200, options => { secondBody = JSON.parse(String(options.body)); return finalFrames.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''); }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.exaKey = 'fixture'; const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '打开文章');
+  const result = await generate(connection(protocol), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, undefined, async url => ({ url, title: 'Page', content: '# Fetched page\n\nBody from Defuddle.', contentType: 'text/html', truncated: false }));
+  if (protocol === 'responses') {
+    assert.ok(firstBody.tools.some((tool: any) => tool.type === 'function' && tool.name === 'web_fetch'));
+    assert.equal(secondBody.input.at(-1).type, 'function_call_output'); assert.match(secondBody.input.at(-1).output, /Body from Defuddle/);
+  } else {
+    assert.ok(firstBody.tools.some((tool: any) => tool.name === 'web_fetch'));
+    assert.equal(secondBody.messages.at(-1).content[0].type, 'tool_result'); assert.match(secondBody.messages.at(-1).content[0].content, /Body from Defuddle/);
+  }
+  assert.equal(result.sources[0].url, 'https://example.com/page');
+  await agent.close();
+});

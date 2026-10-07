@@ -65,7 +65,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - 从已完成回答创建分支，嵌套分支、分支命名、删除及上下文隔离。
 - 分支独立模型、系统提示词、搜索、思考等级、温度和 `top_p` 配置，输入草稿恢复。
 - 首次有效回答后后台生成标题，手动改名优先。
-- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily 工具检索、工具事件与真实来源展示。
+- Responses/Anthropic/Gemini 原生搜索、Exa/Ollama Cloud Web Search/Tavily 工具检索，以及 `web_fetch` 网页正文抓取与来源展示。
 - 自动/手动历史摘要、最近两轮保留、原始记录保留和摘要路径校验。
 - SQLite 本地保存、附件单独存放、异常中断恢复。
 - 模型连接 API Key、Exa/Ollama/Tavily 搜索密钥及自定义请求头默认保存在数据目录，重启自动读取；也可选择仅当前运行或系统加密保存。
@@ -90,6 +90,9 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
 - **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
 - **Tavily**：在设置中填写 Tavily API Key；使用 basic 搜索深度，由支持工具调用的模型触发检索。
+- **web_fetch**：联网开启时同时提供给模型，可抓取公开网页正文；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。它使用 Electron Chromium 网络栈，遵循系统 / 浏览器代理设置。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
+
+Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择已配置的 Exa、Ollama Cloud 或 Tavily 搜索模式，才能同时使用 `web_fetch`。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 
