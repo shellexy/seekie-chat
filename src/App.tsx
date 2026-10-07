@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
@@ -15,7 +15,7 @@ import WindowControls from './WindowControls';
 import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
 import MessageRow from './MessageRow';
-import { brandIcon } from './brand';
+import { welcomeMask } from './brand';
 type Task = { conversationId: string; branchId: string; kind: string };
 function searchableParts(message: Message) {
   if (message.role === 'user') return [{ kind: '提问', text: message.text }];
@@ -550,7 +550,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     <div className="workspace-body"><section className="chat-panel" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void attach([...e.dataTransfer.files]); }}>
       <div className={`message-scroll ${editing ? "is-editing" : ""}`} ref={scrollRef} onScroll={onScroll}>
             {!messages.length ? <div className="welcome">
-                <img className="welcome-icon" src={brandIcon} alt=""/>
+                <div className="welcome-icon" style={{ '--welcome-mask': welcomeMask } as CSSProperties} role="img" aria-label="DeepChan-chat"/>
                     <span className="eyebrow">一个想法，多种可能</span>
                       <h1>今天，想聊些什么？</h1>
                       <p>连接你喜欢的模型，让思路在对话中展开。</p>

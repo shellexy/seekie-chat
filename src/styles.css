@@ -500,7 +500,14 @@ p {
   width: 128px;
   height: 128px;
   border-radius: 16px;
-  object-fit: cover;
+  /* 线稿版：形状由 PNG 的 alpha 决定，颜色用品牌蓝。accent 在浅色与深色主题下同值，
+     实测与底色的对比度分别是 4.39:1 与 3.16:1，两边都高于图形元素的 3:1。 */
+  background-color: var(--accent);
+  -webkit-mask-image: var(--welcome-mask);
+  mask-image: var(--welcome-mask);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
   margin-bottom: 10px;
 }
 .eyebrow {

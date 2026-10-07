@@ -158,12 +158,30 @@ try {
   const titleRows = await page.evaluate(() => ({ sidebar: document.querySelector('.sidebar-top')?.getBoundingClientRect().height, chat: document.querySelector('.chat-header')?.getBoundingClientRect().height, controls: document.querySelector('.window-controls')?.getBoundingClientRect().height }));
   assert.equal(titleRows.sidebar, titleRows.controls, '对话列表顶栏与窗口控件等高');
   assert.equal(titleRows.chat, titleRows.controls, '聊天顶栏与窗口控件等高');
-  // 侧栏顶栏按设计不显示图标（.brand-mark 未渲染），新建对话页才用 build/icon.png。
+  // 侧栏顶栏按设计不显示图标（.brand-mark 未渲染），新建对话页才用线稿图标。
   assert.equal(await page.locator('.brand-mark').count(), 0, '侧栏顶栏不显示图标');
   const welcome = page.locator('.welcome-icon');
   if (await welcome.count()) {
-    assert.match(await welcome.getAttribute('src'), /icon-.*\.png$/, '图标应是 Vite 打包后的哈希资源');
+    assert.match(await welcome.evaluate(el => el.style.getPropertyValue('--welcome-mask')), /welcome-icon-[^)]*\.png/, '线稿应是 Vite 打包后的哈希资源');
     assert.equal(await welcome.evaluate(el => el.getBoundingClientRect().width), 128);
+    // 线稿的颜色必须与所在背景分得开：白底转透明后只剩线条，配色一旦选成和底色接近就会
+    // 整个消失。accent 是主题无关的品牌蓝，两种主题下都要达到图形元素的 3:1。
+    const contrast = (a, b) => {
+      const lum = color => { const [r, g, bl] = color.match(/[\d.]+/g).map(Number); const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bl); };
+      const l1 = lum(a), l2 = lum(b);
+      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    };
+    const previousTheme = await page.evaluate(() => document.documentElement.dataset.theme);
+    for (const theme of ['light', 'dark']) {
+      const colors = await page.evaluate(async t => {
+        document.documentElement.dataset.theme = t;
+        const el = document.querySelector('.welcome-icon');
+        return { ink: getComputedStyle(el).backgroundColor, bg: getComputedStyle(document.body).backgroundColor };
+      }, theme);
+      const ratio = contrast(colors.ink, colors.bg);
+      assert.ok(ratio >= 3, `${theme} 主题下线稿与背景的对比度不应低于 3:1，实际 ${ratio.toFixed(2)}:1（墨色 ${colors.ink} 背景 ${colors.bg}）`);
+    }
+    await page.evaluate(t => { document.documentElement.dataset.theme = t; }, previousTheme);
   }
   assert.equal(await page.locator('.local-note').count(), 0, '隐藏侧栏底部本地保存提示');
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);

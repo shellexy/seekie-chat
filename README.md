@@ -138,7 +138,7 @@ DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
 - 桌面项由 electron-builder 生成，`Name=DeepChan Chat`、`Comment=DeepChan Chat with DeepSeek`、`StartupWMClass=com.github.shellexy.deepchan-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
 - 应用数据仍在 `~/.local/share/DeepChan-chat`（或 `DEEPCHAN_DATA_DIR` 指定的位置），与从源码运行完全一致。
 
-同一张图标还用在窗口任务栏与新建对话页（128×128）；侧栏顶栏按设计不显示图标。
+程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
 
 ## 验证
 
