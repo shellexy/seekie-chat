@@ -121,8 +121,8 @@ export default function App() {
     let alive = true;
     void api.load().then(s => { if (alive) { apply(s); setLoaded(true); } }).catch(e => toast(String(e)));
     const off = api.onEvent(event => { if (event.patch) applyPatch(event.patch); else if (event.state) receive(event.state); if (event.tasks) setTasks(event.tasks); if (event.error) toast(event.error); });
-    const reload = () => { draftCache.current.clear(); void api.load().then(apply); }; window.addEventListener('deepchan-reload', reload);
-    return () => { alive = false; off(); window.removeEventListener('deepchan-reload', reload); };
+    const reload = () => { draftCache.current.clear(); void api.load().then(apply); }; window.addEventListener('seekie-reload', reload);
+    return () => { alive = false; off(); window.removeEventListener('seekie-reload', reload); };
   }, []);
   useEffect(() => {
     let alive = true;
@@ -457,7 +457,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       <button role="menuitem" disabled={target.status !== 'complete'} onClick={() => { setMessageMenu(null); createBranch(target); }}><GitBranch size={14}/>从此回答创建分支</button>
     </>}
   </div>, document.body);
-  if (!loaded) return <div className="loading"><Sparkles size={28}/><p>正在打开 DeepChan-chat…</p></div>;
+  if (!loaded) return <div className="loading"><Sparkles size={28}/><p>正在打开 Seekie Chat…</p></div>;
   return <div className="app-shell">
     {left && <Sidebar width={leftWidth} conversations={grouped} selectedId={state.selectedId} query={query} showArchived={showArchived}
       archiveCount={archiveCount} showSettings={showSettings} runningIds={tasks.map(task => task.conversationId)} openMenuId={conversationMenu}
@@ -554,7 +554,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     <div className="workspace-body"><section className="chat-panel" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void attach([...e.dataTransfer.files]); }}>
       <div className={`message-scroll ${editing ? "is-editing" : ""}`} ref={scrollRef} onScroll={onScroll}>
             {!messages.length ? <div className="welcome">
-                <div className="welcome-icon" style={{ '--welcome-mask': welcomeMask } as CSSProperties} role="img" aria-label="DeepChan-chat"/>
+                <div className="welcome-icon" style={{ '--welcome-mask': welcomeMask } as CSSProperties} role="img" aria-label="Seekie Chat"/>
                     <span className="eyebrow">一个想法，多种可能</span>
                       <h1>今天，想聊些什么？</h1>
                       <p>连接你喜欢的模型，让思路在对话中展开。</p>

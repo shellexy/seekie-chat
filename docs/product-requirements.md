@@ -1,4 +1,4 @@
-# DeepChan-chat · Linux LLM 聊天客户端需求草案
+# Seekie Chat · Linux LLM 聊天客户端需求草案
 
 版本：0.3 · 日期：2026-10-12 · 状态：需求完善中，可作为开发基线
 
@@ -220,7 +220,8 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 
 ## 8. 本地数据、隐私与安全
 
-- 提供 Linux deb 打包。桌面项的 `Name=DeepChan Chat`、`Comment=DeepChan Chat with DeepSeek`、`StartupWMClass=com.github.shellexy.deepchan-chat`，由 electron-builder 从打包配置生成，不维护独立的手写文件。`StartupWMClass` 依赖 package.json 的 `desktopName` 与窗口 `WM_CLASS` 一致，否则桌面环境无法把运行中的窗口关联到启动器。
+- 提供 Linux deb 打包。桌面项的 `Name=Seekie Chat`、`Comment=Seekie Chat with DeepSeek LLM`、`StartupWMClass=com.github.shellexy.seekie-chat`，由 electron-builder 从打包配置生成，不维护独立的手写文件。`StartupWMClass` 依赖 package.json 的 `desktopName` 与窗口 `WM_CLASS` 一致，否则桌面环境无法把运行中的窗口关联到启动器。
+- 程序名统一为“Seekie Chat”：窗口标题、侧栏顶部、加载页、页面标题、备份文件名与导入对话框都用这个名字。配置目录随之为 `~/.config/Seekie Chat`（Electron `appData` 下），可用 `SEEKIE_DATA_DIR` 指向别处；调试用环境变量是 `SEEKIE_DEV_URL` 与 `SEEKIE_DEBUG_REQUESTS`。改名前的旧目录不再读取，不做数据迁移。
 - 程序与任务栏图标为 `build/icon.png` 的彩色版；新建对话页为 `build/welcome-icon.png` 的线稿版（白底转透明、只留黑线），以 128×128 显示，用 CSS mask 使线条由品牌蓝 `--accent` 着色，与两种主题底色的对比度均不低于 3:1；侧栏顶栏不显示图标。
 
 - 使用 SQLite 保存会话、分支、消息、工具事件、摘要及任务状态；附件单独存放。数据库由主进程直接读写（WAL，退出时 checkpoint），会话、分支、消息按实体各占一行，保存只写内容变化的行，流式生成期间只更新正在生成的消息；渲染进程不得访问数据库。渲染层只接收正在生成的那条消息（增量补丁，带修订号以拒绝过期内容），附件字节在需要显示时按 id 获取，避免每次刷新都复制整份状态。

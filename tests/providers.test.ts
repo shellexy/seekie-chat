@@ -676,8 +676,8 @@ test('debug records collapse attachment bytes instead of storing them', async ()
 
 test('request diagnostics record what was sent and what the upstream answered', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
-  const directory = mkdtempSync(join(tmpdir(), 'deepchan-dump-')), previous = process.env.DEEPCHAN_DEBUG_REQUESTS;
-  process.env.DEEPCHAN_DEBUG_REQUESTS = directory;
+  const directory = mkdtempSync(join(tmpdir(), 'seekie-dump-')), previous = process.env.SEEKIE_DEBUG_REQUESTS;
+  process.env.SEEKIE_DEBUG_REQUESTS = directory;
   try {
     agent.get('https://fixture.invalid').intercept({ path: '/v1/models', method: 'GET' }).reply(200, { data: [] });
     const ok = await request(connection('chat'), 'models', undefined, new AbortController().signal); await ok.response.json(); ok.close();
@@ -696,7 +696,7 @@ test('request diagnostics record what was sent and what the upstream answered', 
     assert.match(failed.error, /^400 /); assert.match(failed.error, /include_server_side_tool_invocations/);
     assert.deepEqual(failed.body, { model: 'm' });
   } finally {
-    if (previous === undefined) delete process.env.DEEPCHAN_DEBUG_REQUESTS; else process.env.DEEPCHAN_DEBUG_REQUESTS = previous;
+    if (previous === undefined) delete process.env.SEEKIE_DEBUG_REQUESTS; else process.env.SEEKIE_DEBUG_REQUESTS = previous;
     rmSync(directory, { recursive: true, force: true }); await agent.close();
   }
 });

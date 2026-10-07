@@ -2,7 +2,7 @@ import { initialState } from './domain';
 import type { Bridge } from './types';
 // Browser mode is a layout preview. API requests and secrets are desktop-only.
 let preview = initialState();
-export const api: Bridge = window.deepchan || {
+export const api: Bridge = window.seekie || {
   async load() { return preview; }, async save(state) { preview = state; return structuredClone(state); },
   async run() { throw new Error('浏览器仅用于界面预览，请通过 npm run dev 打开 Electron 桌面客户端发送消息'); },
   async cancel() {}, async compress() { throw new Error('历史压缩需要 Electron 桌面客户端'); },

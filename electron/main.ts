@@ -249,12 +249,12 @@ function register() {
     for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = ''; copy.settings.firecrawlKey = ''; copy.settings.anysearchKey = ''; copy.settings.deepseekKey = '';
     copy.settings.secretPolicy = 'session'; copy.selectedId = copy.conversations[0]?.id || null;
     const content = format === 'json' ? JSON.stringify({ version: 1, state: copy }, null, 2) : copy.conversations.map(c => `# ${c.title}\n\n${c.branches.map(b => `## ${b.name}\n\n${pathTo(c, b.leafId).map(m => `### ${m.role === 'user' ? '用户' : '助手'}${m.edited ? '（手动编辑）' : ''}\n\n${m.text}${m.attachments.map(a => `\n\n![${a.name}](${a.data})`).join('')}`).join('\n\n')}`).join('\n\n')}`).join('\n\n');
-    const file = await dialog.showSaveDialog(win!, { defaultPath: `DeepChan-chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
+    const file = await dialog.showSaveDialog(win!, { defaultPath: `Seekie-Chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}` }); if (file.canceled || !file.filePath) return false;
     writeFileSync(file.filePath, content, { mode: 0o600 }); return true;
   });
   handle('import', async () => {
     if (tasks.size) throw new Error('请先等待所有生成和压缩任务完成');
-    const file = await dialog.showOpenDialog(win!, { filters: [{ name: 'DeepChan-chat 备份', extensions: ['json'] }], properties: ['openFile'] }); if (file.canceled) return null;
+    const file = await dialog.showOpenDialog(win!, { filters: [{ name: 'Seekie Chat 备份', extensions: ['json'] }], properties: ['openFile'] }); if (file.canceled) return null;
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
@@ -264,7 +264,7 @@ function register() {
   });
 }
 async function openWindow() {
-  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'DeepChan-chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
+  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'Seekie Chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
     // Electron 不会替我们从 package.json 取图标；构建时把 build/icon.png 复制到主进程旁边，
     // 这样无论从哪个工作目录启动都能按 __dirname 找到。
     icon: join(__dirname, 'icon.png'),
@@ -273,7 +273,7 @@ async function openWindow() {
   win.on('maximize', sendWindowState); win.on('unmaximize', sendWindowState);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== win?.webContents.getURL()) event.preventDefault(); });
-  const devUrl = process.env.DEEPCHAN_DEV_URL;
+  const devUrl = process.env.SEEKIE_DEV_URL;
   if (devUrl) await win.loadURL(devUrl); else await win.loadFile(join(__dirname, '../dist/index.html'));
   win.on('close', event => {
     if (!tasks.size && !titles.size) return;
@@ -281,14 +281,14 @@ async function openWindow() {
     if (choice === 0) event.preventDefault(); else { for (const task of tasks.values()) task.controller.abort(); for (const task of titles.values()) task.abort(); for (const c of state.conversations) for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; store.save(state); }
   });
 }
-app.setName('DeepChan-chat');
-app.setPath('userData', process.env.DEEPCHAN_DATA_DIR ? join(process.env.DEEPCHAN_DATA_DIR, 'profile') : join(app.getPath('appData'), 'DeepChan-chat'));
+app.setName('Seekie Chat');
+app.setPath('userData', process.env.SEEKIE_DATA_DIR ? join(process.env.SEEKIE_DATA_DIR, 'profile') : join(app.getPath('appData'), 'Seekie Chat'));
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { win?.show(); win?.focus(); });
   app.whenReady().then(async () => {
-    const directory = process.env.DEEPCHAN_DATA_DIR || join(app.getPath('userData'), 'data');
-    store = new Store(directory); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('DeepChan-chat 启动失败', error.message); app.quit(); });
+    const directory = process.env.SEEKIE_DATA_DIR || join(app.getPath('userData'), 'data');
+    store = new Store(directory); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('Seekie Chat 启动失败', error.message); app.quit(); });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => { clearTimeout(persistTimer); if (state && store) { store.save(state); store.close(); } });
 }

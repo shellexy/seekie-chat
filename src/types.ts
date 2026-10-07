@@ -133,4 +133,4 @@ export interface Bridge {
   onWindowState(callback: (maximized: boolean) => void): () => void;
   onEvent(callback: (event: AppEvent) => void): () => void;
 }
-declare global { interface Window { deepchan?: Bridge } }
+declare global { interface Window { seekie?: Bridge } }

@@ -5,6 +5,6 @@ dist-electron/
 .env*
 !.env.example
 .playwright/
-deepchan-debug/
+seekie-debug/
 *.swp
 release/

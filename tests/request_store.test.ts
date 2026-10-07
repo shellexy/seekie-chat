@@ -13,7 +13,7 @@ const id = (name: string) => {
   const hex = hash.toString(16).padStart(8, '0');
   return `${hex}-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(0, 4)}-${hex.repeat(2).slice(0, 12)}`;
 };
-const directory = () => mkdtempSync(join(tmpdir(), 'deepchan-requests-'));
+const directory = () => mkdtempSync(join(tmpdir(), 'seekie-requests-'));
 
 test('request records survive in their own files', () => {
   const root = directory();

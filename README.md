@@ -1,4 +1,4 @@
-# DeepChan-chat
+# Seekie Chat
 
 Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色主题，聊天数据保存在本机。
 
@@ -112,31 +112,31 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 默认保存在 Electron `userData` 下的 `data/`，常见路径为：
 
 ```text
-~/.config/DeepChan-chat/data/chat.sqlite
-~/.config/DeepChan-chat/data/attachments/
-~/.config/DeepChan-chat/data/requests/
-~/.config/DeepChan-chat/data/credentials.json
+~/.config/Seekie Chat/data/chat.sqlite
+~/.config/Seekie Chat/data/attachments/
+~/.config/Seekie Chat/data/requests/
+~/.config/Seekie Chat/data/credentials.json
 ```
 
 实际路径受 Linux 的 XDG 配置及 Electron 行为影响。可以指定隔离的数据目录：
 
 ```bash
-DEEPCHAN_DATA_DIR=/tmp/deepchan-local npm run dev
+SEEKIE_DATA_DIR=/tmp/seekie-local npm run dev
 ```
 
 数据库由主进程通过 Node 内置的 `node:sqlite` 直接读写（WAL 模式，`synchronous=FULL`），会话、分支、消息各占一行：保存时只写内容真正变化的行，流式生成期间更只更新正在生成的那一条消息，不再整库重写。退出时会 checkpoint 并把日志合并回主文件，因此正常情况下只留下 `chat.sqlite`；`-wal`/`-shm` 与主文件同为 `0600`。不再支持旧版数据库格式：数据目录必须是当前版本写出的结构。使用自定义目录时，Electron 的浏览器配置也保存在该目录的 `profile/` 中。SQLite、附件和凭据文件设置为仅当前用户读写。默认的 `credentials.json` 以明文保存 API Key、搜索服务 Key 和自定义请求头，权限为 `0600`，适合随数据目录在本机恢复。设置中仍可改用仅当前运行，或在系统安全存储可用时加密保存到 SQLite。聊天正文没有加密。日志及错误会尽量脱敏认证信息。
 
 渲染进程启用隔离和沙箱，密钥仅在输入时经过设置页，加载后的密钥显示占位符；网络、文件、数据库操作通过受限 IPC 交给主进程。远程 Markdown 图片不会自动加载，外链通过系统浏览器打开。应用内“请求详情”同样由主进程提供：`Authorization`、`x-api-key`、`x-goog-api-key` 以及在连接里配置的自定义请求头，在离开主进程前就已替换为掩码（只保留头名称，便于核对发出去的头）。请求记录写在数据目录下独立的 `requests/` 文件里（与 `attachments/` 并列），因此既不会进入结构化导出和备份（导入备份时清空），也不会撑大每次保存都要重写的数据库文件；目录 `0700`、文件 `0600`。
 
-排查上游返回的模糊 400/500（例如中转网关改写请求体）时，可用 `DEEPCHAN_DEBUG_REQUESTS=<目录> npm run dev` 把每次发往服务端的请求地址与请求体转储到该目录，用于核对实际负载。转储不含请求头（因此不含 API Key），文件权限 `0600`，默认关闭；其中包含聊天内容，排查完请删除。
+排查上游返回的模糊 400/500（例如中转网关改写请求体）时，可用 `SEEKIE_DEBUG_REQUESTS=<目录> npm run dev` 把每次发往服务端的请求地址与请求体转储到该目录，用于核对实际负载。转储不含请求头（因此不含 API Key），文件权限 `0600`，默认关闭；其中包含聊天内容，排查完请删除。
 
 ## 安装与打包
 
-`npm run dist:deb` 用 electron-builder 产出 `release/deepchan-chat_<版本>_amd64.deb`。安装后：
+`npm run dist:deb` 用 electron-builder 产出 `release/seekie-chat_<版本>_amd64.deb`。安装后：
 
-- 程序图标取自 `build/icon.png`，随包装进 `usr/share/icons/hicolor/512x512/apps/deepchan-chat.png`，任务栏与应用菜单都能命中。
-- 桌面项由 electron-builder 生成，`Name=DeepChan Chat`、`Comment=DeepChan Chat with DeepSeek`、`StartupWMClass=com.github.shellexy.deepchan-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
-- 应用数据仍在 `~/.local/share/DeepChan-chat`（或 `DEEPCHAN_DATA_DIR` 指定的位置），与从源码运行完全一致。
+- 程序图标取自 `build/icon.png`，随包装进 `usr/share/icons/hicolor/512x512/apps/seekie-chat.png`，任务栏与应用菜单都能命中。
+- 桌面项由 electron-builder 生成，`Name=Seekie Chat`、`Comment=Seekie Chat with DeepSeek LLM`、`StartupWMClass=com.github.shellexy.seekie-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
+- 应用数据仍在 `~/.config/Seekie Chat`（或 `SEEKIE_DATA_DIR` 指定的位置），与从源码运行完全一致。
 
 程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
 

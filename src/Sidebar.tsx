@@ -13,7 +13,7 @@ export default function Sidebar({ width, conversations, selectedId, query, showA
 }) {
   return <>
     <aside className="sidebar" style={{ width }}>
-      <div className="sidebar-top"><div className="brand">DeepChan-chat</div><button className="icon-button" title="收起侧栏" onClick={onCollapse}><PanelLeftClose size={18}/></button></div>
+      <div className="sidebar-top"><div className="brand">Seekie Chat</div><button className="icon-button" title="收起侧栏" onClick={onCollapse}><PanelLeftClose size={18}/></button></div>
       <button className="new-chat" onClick={onNewChat}><Plus size={18}/>新建对话<span>Ctrl N</span></button>
       <div className="search-input"><Search size={15}/><input aria-label="搜索对话" placeholder="搜索对话" value={query} onChange={e => onQueryChange(e.target.value)}/></div>
       <div className="sidebar-label">{showArchived ? '已归档' : '你的对话'} <span>{conversations.length}</span></div>

@@ -281,7 +281,7 @@ export function uniqueBranchName(branches: Branch[], base: string): string {
 // A deleted model must not turn every historical answer into "未知模型": the message keeps the
 // names it was answered with, so history still explains itself.
 export function modelLabel(model: Model | undefined, connections: Connection[]): string {
-  return model ? `${model.name} | ${connections.find(connection => connection.id === model.connectionId)?.name || '未知连接'}` : 'DeepChan-chat';
+  return model ? `${model.name} | ${connections.find(connection => connection.id === model.connectionId)?.name || '未知连接'}` : 'Seekie Chat';
 }
 export function messageModelLabel(message: Message, models: Model[]): string {
   const live = models.find(m => m.id === message.modelId);

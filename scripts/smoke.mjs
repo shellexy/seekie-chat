@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
-const directory = mkdtempSync(join(tmpdir(), 'deepchan-smoke-'));
+const directory = mkdtempSync(join(tmpdir(), 'seekie-smoke-'));
 const calls = []; let lastAuthorization = '';
 const server = createServer(async (req, res) => {
   let body = ''; for await (const chunk of req) body += chunk;
@@ -68,8 +68,8 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
-const env = { ...process.env, DEEPCHAN_DATA_DIR: directory }; delete env.ELECTRON_RUN_AS_NODE; delete env.DEEPCHAN_DEV_URL;
-let vite; if (process.argv.includes('--dev')) { vite = await createViteServer(); await vite.listen(); env.DEEPCHAN_DEV_URL = 'http://127.0.0.1:5173'; }
+const env = { ...process.env, SEEKIE_DATA_DIR: directory }; delete env.ELECTRON_RUN_AS_NODE; delete env.SEEKIE_DEV_URL;
+let vite; if (process.argv.includes('--dev')) { vite = await createViteServer(); await vite.listen(); env.SEEKIE_DEV_URL = 'http://127.0.0.1:5173'; }
 // IPC predicates are asynchronous; poll in Node and await each result explicitly.
 // Playwright's waitForFunction treats a returned Promise as truthy before it resolves.
 async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
@@ -91,7 +91,7 @@ async function pickModel(page, name) {
 }
 async function lengthenActiveHistory(page) {
   return await page.evaluate(async () => {
-    const state = await window.deepchan.load();
+    const state = await window.seekie.load();
     const conversation = state.conversations.find(c => c.id === state.selectedId);
     const branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const messages = new Map(conversation.messages.map(message => [message.id, message]));
@@ -109,8 +109,8 @@ async function lengthenActiveHistory(page) {
       const answer = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: longText('assistant'), reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', modelId: branch.config.modelId, usage: { input: 120, output: protocol === 'gemini' ? 72 : 60, cachedInput: 30, elapsedMs: 1000, firstTokenMs: 100 }, created: Date.now() };
       conversation.messages.push(user, answer); branch.leafId = answer.id; userTurns++;
     }
-    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
-    const persisted = await window.deepchan.load(), persistedConversation = persisted.conversations.find(c => c.id === state.selectedId), persistedBranch = persistedConversation.branches.find(b => b.id === branch.id);
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
+    const persisted = await window.seekie.load(), persistedConversation = persisted.conversations.find(c => c.id === state.selectedId), persistedBranch = persistedConversation.branches.find(b => b.id === branch.id);
     const persistedMessages = new Map(persistedConversation.messages.map(message => [message.id, message])); let persistedTurns = 0, persistedId = persistedBranch.leafId;
     while (persistedId) { const message = persistedMessages.get(persistedId); if (message.role === 'user') persistedTurns++; persistedId = message.parentId; }
     return { selectedId: state.selectedId, conversationId: conversation.id, branchId: branch.id, originalLeaf, userTurns, persistedTurns, leafId: branch.leafId, persistedLeaf: persistedBranch.leafId };
@@ -119,7 +119,7 @@ async function lengthenActiveHistory(page) {
 async function assertUsageDetails(page, output = 60) {
   const answer = page.locator('.message.assistant').last();
   const id = await answer.getAttribute('data-id');
-  const message = await page.evaluate(async id => (await window.deepchan.load()).conversations.flatMap(c => c.messages).find(m => m.id === id), id);
+  const message = await page.evaluate(async id => (await window.seekie.load()).conversations.flatMap(c => c.messages).find(m => m.id === id), id);
   assert.equal(message.usage.input, 120); assert.equal(message.usage.output, output); assert.equal(message.usage.cachedInput, 30);
   assert.ok(message.usage.elapsedMs > 0); assert.ok(message.usage.firstTokenMs >= 0 && message.usage.firstTokenMs <= message.usage.elapsedMs);
   // Model, connection, time and usage now share one control and one popover.
@@ -128,7 +128,7 @@ async function assertUsageDetails(page, output = 60) {
   const tooltip = page.getByRole('tooltip');
   // 期望值先算好：悬浮层会被任何一次滚动关掉，读的时候不能夹在中间做耗时的 IPC。
   const expected = await page.evaluate(async id => {
-    const s = await window.deepchan.load(), m = s.conversations.flatMap(c => c.messages).find(x => x.id === id);
+    const s = await window.seekie.load(), m = s.conversations.flatMap(c => c.messages).find(x => x.id === id);
     const model = s.settings.models.find(x => x.id === m?.modelId);
     return {
       effort: model?.reasoning === 'effort' ? (m?.config?.effort || '') : '',
@@ -192,7 +192,7 @@ try {
   let page = await launch();
   // Records the wire while answers stream: the main process must send patches (one message) rather
   // than a full state, and the revisions must increase.
-  await page.evaluate(() => { window.__patches = []; window.deepchan.onEvent(event => { if (event.patch) window.__patches.push({ revision: event.patch.message.streamRevision, length: event.patch.message.text.length }); }); });
+  await page.evaluate(() => { window.__patches = []; window.seekie.onEvent(event => { if (event.patch) window.__patches.push({ revision: event.patch.message.streamRevision, length: event.patch.message.text.length }); }); });
   const windowControls = page.getByRole('toolbar', { name: '窗口控件' });
   assert.equal(await windowControls.getByRole('button').count(), 3);
   const chatControlBounds = await windowControls.boundingBox();
@@ -201,9 +201,9 @@ try {
   assert.ok(Math.abs(chatControlBounds.x + chatControlBounds.width - viewportWidth) < 1);
   const sizeBeforeMaximize = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
   await windowControls.getByRole('button', { name: '最大化窗口' }).click();
-  await waitFor(page, async () => window.deepchan.isWindowMaximized());
+  await waitFor(page, async () => window.seekie.isWindowMaximized());
   await windowControls.getByRole('button', { name: '还原窗口' }).click();
-  await waitFor(page, async () => !(await window.deepchan.isWindowMaximized()));
+  await waitFor(page, async () => !(await window.seekie.isWindowMaximized()));
   // 还原是带动画的：等窗口真的回到原来的尺寸，否则后面读到的可能是显示器的全屏高度。
   // 判定必须在 Node 侧做——page.evaluate 里拿不到 desktop 这个句柄。
   for (let i = 0; i < 60; i++) {
@@ -407,7 +407,7 @@ try {
   const toastLayout = await page.locator('.toast').evaluate(el => { const r = el.getBoundingClientRect(); return { xOffset: (r.left + r.right) / 2 - window.innerWidth / 2, yOffset: (r.top + r.bottom) / 2 - window.innerHeight / 2 }; });
   assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
   await page.screenshot({ path: join(directory, 'center-toast.png') });
-  const presets = await page.evaluate(() => window.deepchan.load());
+  const presets = await page.evaluate(() => window.seekie.load());
   // 两个 DeepSeek 预设各留下一个 deepseek-flash：兼容协议的不带原生搜索，Anthropic 的带。
   const flashModels = presets.settings.models.filter(m => m.model === 'deepseek-flash');
   assert.deepEqual([...new Set(flashModels.map(m => m.nativeSearch))].sort(), [false, true], 'OpenAI 兼容预设不带原生搜索，Anthropic 预设带');
@@ -430,23 +430,23 @@ try {
   await page.getByLabel('新对话的默认读取网页方法').selectOption('last');
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
-  assert.deepEqual(await page.evaluate(async () => { const s = await window.deepchan.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch, s.settings.preferredExternalSearch, s.settings.defaultWebFetch]; }), ['auto', false, 'tavily', 'last']);
+  assert.deepEqual(await page.evaluate(async () => { const s = await window.seekie.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch, s.settings.preferredExternalSearch, s.settings.defaultWebFetch]; }), ['auto', false, 'tavily', 'last']);
   // "上次使用" has nothing recorded yet, so a new chat still starts on the automatic reader.
-  const readerBefore = await page.evaluate(async () => { const s = await window.deepchan.load(); return { count: s.conversations.length, selected: s.selectedId }; });
+  const readerBefore = await page.evaluate(async () => { const s = await window.seekie.load(); return { count: s.conversations.length, selected: s.selectedId }; });
   await page.getByRole('button', { name: /新建对话/ }).first().click();
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, readerBefore.count + 1);
-  const probeChat = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
-  const inheritedFetch = await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.webFetch; });
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, readerBefore.count + 1);
+  const probeChat = await page.evaluate(async () => (await window.seekie.load()).selectedId);
+  const inheritedFetch = await page.evaluate(async () => { const s = await window.seekie.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.webFetch; });
   assert.equal(inheritedFetch, 'auto', '“上次使用”在没有记录时应回落到自动读取网页');
   // Drop the probe chat again and put the preferences back, so later stages see the state they expect.
   await page.evaluate(async before => {
-    const s = await window.deepchan.load();
+    const s = await window.seekie.load();
     s.conversations = s.conversations.filter(c => c.id !== before.probe);
     s.selectedId = before.selected;
     s.settings.defaultSearch = 'auto'; s.settings.preferNativeSearch = true; s.settings.preferredExternalSearch = 'auto'; s.settings.defaultWebFetch = 'auto';
-    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload'));
   }, { probe: probeChat, ...readerBefore });
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, readerBefore.count);
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, readerBefore.count);
   // Saving closes the settings page, so open it again for the steps that follow.
   await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
@@ -456,7 +456,7 @@ try {
   assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);
   await page.getByTitle('返回聊天', { exact: true }).click();
   await page.evaluate(async baseUrl => {
-    const state = await window.deepchan.load();
+    const state = await window.seekie.load();
     const connections = ['chat','responses','anthropic','gemini'].map(protocol => ({ id: crypto.randomUUID(), name: '本地模拟 ' + protocol, protocol, baseUrl: protocol === 'gemini' ? baseUrl.replace('/v1', '/v1beta') : baseUrl, apiKey: 'fixture-secret', headers: { 'x-fixture-secret': 'header-secret' }, timeout: 30, proxy: '' }));
     state.settings.connections = connections;
     state.settings.firecrawlKey = 'firecrawl-fixture-secret';
@@ -465,7 +465,7 @@ try {
     state.settings.models = connections.map(c => ({ id: crypto.randomUUID(), connectionId: c.id, name: '模拟 ' + c.protocol, model: 'fixture', contextWindow: 128000, maxOutput: 65_536, vision: true, tools: true, nativeSearch: c.protocol !== 'chat', reasoning: ['chat', 'gemini'].includes(c.protocol) ? 'effort' : 'none', efforts: ['low','medium','high'], temperature: false }));
     state.settings.defaultModel = state.settings.models[0].id;
     state.settings.titleModel = state.settings.models[0].id;
-    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
   }, baseUrl);
   await page.getByRole('button', { name: /新建对话/ }).first().click();
   const input = page.getByRole('textbox', { name: '消息输入' });
@@ -509,7 +509,7 @@ try {
   assert.equal(pickerStyle.starWidth, '26px', '星标点击区宽度不应被 padding 挤掉');
   await page.locator('.model-select-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
   assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['全部模型']);
-  assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.favoriteModels.length), 0, '取消收藏应写回设置');
+  assert.equal(await page.evaluate(async () => (await window.seekie.load()).settings.favoriteModels.length), 0, '取消收藏应写回设置');
   await page.keyboard.press('Escape');
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
   // Style regressions. Everything above only reads text and roles, so a class name that drifts away
@@ -607,7 +607,7 @@ try {
   // 顶栏在模型名后带上当前分支用的角色预设名。
   const roleLabel = page.locator('.header-title small.role-preset');
   assert.equal(await roleLabel.count(), 1, '顶栏应显示角色预设名');
-  assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
+  assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
   assert.equal((await roleLabel.innerText()).trim(), (await roleLabel.innerText()).trim().replace(/^·\s*/, ''), '角色预设名前不应有间隔点');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
@@ -656,7 +656,7 @@ try {
   assert.deepEqual(await page.locator('.inline-config-field').evaluateAll(fields => fields.map(field => getComputedStyle(field).display)), ['grid', 'grid']);
   await webReading.selectOption('local');
   await waitFor(page, async () => {
-    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const state = await window.seekie.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
     return conversation.branches.find(b => b.id === conversation.activeBranchId).config.webFetch === 'local';
   });
   await page.locator('.message-scroll').click({ position: { x: 12, y: 12 } });
@@ -679,7 +679,7 @@ try {
   assert.equal(toggleStyle.marginLeft, '-5px', '联网开关左边距应为 -5px');
   await networkToggle.click();
   await waitFor(page, async () => {
-    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const state = await window.seekie.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
     const config = conversation.branches.find(b => b.id === conversation.activeBranchId).config;
     return config.search === 'off' && config.webFetch === 'off';
   });
@@ -687,7 +687,7 @@ try {
   assert.equal(await networkToggle.innerText(), '未联网', '关闭时文字应变为"未联网"');
   await networkToggle.click();
   await waitFor(page, async () => {
-    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const state = await window.seekie.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
     const config = conversation.branches.find(b => b.id === conversation.activeBranchId).config;
     return config.search === 'auto' && config.webFetch === 'auto';
   });
@@ -755,13 +755,13 @@ try {
   const streamPatches = await page.evaluate(() => window.__patches || []);
   assert.ok(streamPatches.length >= 1, `流式期间必须收到增量补丁（收到 ${streamPatches.length}）`);
   assert.ok(streamPatches.every((patch, index) => patch.length > 0 && (index === 0 || patch.revision > streamPatches[index - 1].revision)), '补丁必须携带正文且修订号单调递增');
-  await waitFor(page, async () => (await window.deepchan.load()).conversations[0].titleState === 'done');
+  await waitFor(page, async () => (await window.seekie.load()).conversations[0].titleState === 'done');
   await assertUsageDetails(page);
   // 模型先请求工具再给正文：工具调用是模型的第一个输出，计时要算它。
   await input.fill('先问时间'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
   const toolFirst = await page.evaluate(async () => {
-    const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId);
+    const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId);
     const answer = c.messages.filter(m => m.role === 'assistant').at(-1);
     return { hasTool: !!answer.tools.length, firstOutputMs: answer.usage?.firstOutputMs, firstTokenMs: answer.usage?.firstTokenMs, generationMs: answer.usage?.generationMs, output: answer.usage?.output };
   });
@@ -769,12 +769,12 @@ try {
   assert.ok(toolFirst.firstOutputMs < toolFirst.firstTokenMs, `工具调用先于正文时，首个输出应早于首字，实际 ${toolFirst.firstOutputMs} vs ${toolFirst.firstTokenMs}`);
   assert.ok(toolFirst.generationMs - toolFirst.firstOutputMs > 0, '扣掉首个输出后仍应剩下生成时间');
   await page.evaluate(async () => {
-    const original = await window.deepchan.load(); const id = original.selectedId;
-    const promise = window.deepchan.title(id);
+    const original = await window.seekie.load(); const id = original.selectedId;
+    const promise = window.seekie.title(id);
     await new Promise(r => setTimeout(r, 50));
-    const next = await window.deepchan.load(); const c = next.conversations.find(c => c.id === id); c.title = '用户手动标题'; c.manualTitle = true; await window.deepchan.save(next);
-    await promise; window.dispatchEvent(new Event('deepchan-reload'));
-    if ((await window.deepchan.load()).conversations.find(c => c.id === id).title !== '用户手动标题') throw new Error('后台标题覆盖了手动标题');
+    const next = await window.seekie.load(); const c = next.conversations.find(c => c.id === id); c.title = '用户手动标题'; c.manualTitle = true; await window.seekie.save(next);
+    await promise; window.dispatchEvent(new Event('seekie-reload'));
+    if ((await window.seekie.load()).conversations.find(c => c.id === id).title !== '用户手动标题') throw new Error('后台标题覆盖了手动标题');
   });
   await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
@@ -811,7 +811,7 @@ try {
   await page.screenshot({ path: join(directory, 'prompt-library.png') });
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
-  assert.equal(await page.evaluate(async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
+  assert.equal(await page.evaluate(async () => { const s = await window.seekie.load(); return s.conversations.find(c => c.id === s.selectedId).branches[0].config.system; }), '当前分支定制提示词。');
 
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
   await page.locator('.branch-pill').click();
@@ -821,16 +821,16 @@ try {
   await branchRenameDialog.waitFor({ state: 'visible' });
   await branchRenameDialog.getByLabel('分支名称').fill('Electron 方案');
   await branchRenameDialog.getByRole('button', { name: '保存', exact: true }).click();
-  await waitFor(page, async name => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.name === name); }, 'Electron 方案');
+  await waitFor(page, async name => { const s = await window.seekie.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.name === name); }, 'Electron 方案');
   await page.locator('.branch-popover').waitFor({ state: 'hidden' });
   await input.fill('只讨论 Electron 的实现'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
-  let saved = await page.evaluate(() => window.deepchan.load());
+  let saved = await page.evaluate(() => window.seekie.load());
   assert.equal(saved.conversations[0].branches.length, 2);
   assert.equal(saved.settings.connections[0].apiKey, '••••••••');
   assert.equal(saved.settings.connections[0].headers['x-fixture-secret'], '••••••••');
   const c = saved.conversations[0], firstAnswer = c.messages.find(m => m.role === 'assistant');
-  await page.evaluate(async ({ cid, bid }) => { const s = await window.deepchan.load(); s.conversations.find(c => c.id === cid).activeBranchId = bid; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, { cid: c.id, bid: c.branches[0].id });
+  await page.evaluate(async ({ cid, bid }) => { const s = await window.seekie.load(); s.conversations.find(c => c.id === cid).activeBranchId = bid; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, { cid: c.id, bid: c.branches[0].id });
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
   await input.fill('只讨论另一个方向'); await page.getByTitle('发送消息', { exact: true }).click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
@@ -839,7 +839,7 @@ try {
   assert.ok(JSON.stringify(lastChat.data).includes('只讨论另一个方向'));
   await page.getByTitle('重新生成并保留旧回答', { exact: true }).last().click();
   await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
-  saved = await page.evaluate(() => window.deepchan.load());
+  saved = await page.evaluate(() => window.seekie.load());
   assert.equal(saved.conversations[0].branches.length, 4);
   assert.equal(saved.conversations[0].messages.filter(m => m.parentId === firstAnswer.parentId && m.role === 'assistant').length, 1);
   // Edit an assistant without another model request, then keep chatting on its new path.
@@ -855,11 +855,11 @@ try {
   const toastBeforeCompression = await page.evaluate(() => document.querySelector('.toast')?.textContent || '');
   await page.getByRole('button', { name: '压缩较早历史' }).click();
   await waitFor(page, async before => {
-    const state = await window.deepchan.load(), summary = state.conversations[0].branches.some(b => b.summary);
+    const state = await window.seekie.load(), summary = state.conversations[0].branches.some(b => b.summary);
     const toast = document.querySelector('.toast')?.textContent || '';
     return summary ? 'summary' : toast && toast !== before ? `error: ${toast}` : false;
   }, toastBeforeCompression);
-  const chatStateAfterCompression = await page.evaluate(async () => ({ summaries: (await window.deepchan.load()).conversations[0].branches.filter(b => b.summary).length, toast: document.querySelector('.toast')?.textContent }));
+  const chatStateAfterCompression = await page.evaluate(async () => ({ summaries: (await window.seekie.load()).conversations[0].branches.filter(b => b.summary).length, toast: document.querySelector('.toast')?.textContent }));
   assert.ok(chatStateAfterCompression.summaries, chatStateAfterCompression.toast || 'no summary was persisted');
   const chatCompression = calls.filter(c => c.path === '/v1/chat/completions' && c.data.messages?.[0]?.content.includes('如果内容涉及创意写作')).at(-1);
   assert.equal(chatCompression.data.max_completion_tokens, 50_000);
@@ -867,16 +867,16 @@ try {
   await page.screenshot({ path: join(directory, 'desktop.png') });
   for (const protocol of ['responses','anthropic','gemini']) {
     console.log('stage: protocol', protocol);
-    const expectedCount = await page.evaluate(async () => (await window.deepchan.load()).conversations.length + 1);
+    const expectedCount = await page.evaluate(async () => (await window.seekie.load()).conversations.length + 1);
     await page.getByRole('button', { name: /新建对话/ }).first().click();
-    await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, expectedCount);
-    const modelId = await page.evaluate(async protocol => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 ' + protocol).id, protocol);
+    await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, expectedCount);
+    const modelId = await page.evaluate(async protocol => (await window.seekie.load()).settings.models.find(m => m.name === '模拟 ' + protocol).id, protocol);
     await pickModel(page, `模拟 ${protocol}`);
     // Switching a model records it straight away, before any answer exists.
-    assert.equal(await page.evaluate(async id => (await window.deepchan.load()).settings.recentModels.includes(id), modelId), true, `切换到 ${protocol} 就应记入最近使用`);
+    assert.equal(await page.evaluate(async id => (await window.seekie.load()).settings.recentModels.includes(id), modelId), true, `切换到 ${protocol} 就应记入最近使用`);
     if (protocol === 'gemini') {
       await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
-      await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.titleModel = ''; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+      await page.evaluate(async () => { const s = await window.seekie.load(); s.settings.titleModel = ''; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); });
     }
     if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
@@ -893,7 +893,7 @@ try {
       assert.equal(responsesCall.data.store, false, 'Responses 请求应显式关闭 store，否则思考摘要拿不到');
       assert.equal(responsesCall.data.include, undefined, '不必请求用不到的 encrypted_content');
     }
-    await waitFor(page, async protocol => { const s = await window.deepchan.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
+    await waitFor(page, async protocol => { const s = await window.seekie.load(); return s.conversations.some(c => c.messages.some(m => m.role === 'user' && m.text === `测试 ${protocol} 协议`) && c.messages.some(m => m.role === 'assistant' && m.status === 'complete') && c.titleState === 'done'); }, protocol, { timeout: 10000 });
     if (protocol === 'gemini') {
       for (let i = 0; i < 2; i++) { await input.fill(`Gemini 后续问题 ${i}`); await page.getByTitle('发送消息', { exact: true }).click(); await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' }); }
     }
@@ -901,7 +901,7 @@ try {
     if (protocol === 'gemini') await page.screenshot({ path: join(directory, 'gemini-options.png') });
     const compressionFixture = await lengthenActiveHistory(page); assert.ok(compressionFixture.userTurns >= 4); assert.equal(compressionFixture.persistedTurns, compressionFixture.userTurns);
     await page.getByRole('button', { name: '压缩较早历史' }).click();
-    await waitFor(page, async () => { const s = await window.deepchan.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
+    await waitFor(page, async () => { const s = await window.seekie.load(); return s.conversations.find(c => c.id === s.selectedId).branches.some(b => b.summary); });
     const compressionCall = calls.filter(c => {
       const prompt = c.data.instructions || c.data.system || c.data.systemInstruction?.parts?.[0]?.text || '';
       return prompt.includes('如果内容涉及创意写作') && (protocol === 'gemini' ? c.path.startsWith('/v1beta/models/') : c.path === (protocol === 'responses' ? '/v1/responses' : '/v1/messages'));
@@ -910,10 +910,10 @@ try {
     const outputLimit = protocol === 'gemini' ? compressionCall.data.generationConfig.maxOutputTokens : compressionCall.data[protocol === 'responses' ? 'max_output_tokens' : 'max_tokens'];
     assert.equal(outputLimit, 50_000, `${protocol} 压缩输出上限应为50k token`);
     await page.evaluate(async fixture => {
-      const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === fixture.conversationId), branch = conversation.branches.find(b => b.id === fixture.branchId);
-      branch.leafId = fixture.originalLeaf; await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+      const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === fixture.conversationId), branch = conversation.branches.find(b => b.id === fixture.branchId);
+      branch.leafId = fixture.originalLeaf; await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
     }, compressionFixture);
-    await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.leafId === id; }, compressionFixture.originalLeaf);
+    await waitFor(page, async id => { const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.leafId === id; }, compressionFixture.originalLeaf);
     await waitFor(page, async id => [...document.querySelectorAll('.message.assistant')].at(-1)?.getAttribute('data-id') === id, compressionFixture.originalLeaf);
     assert.equal(await page.locator('.header-title small.model-label').innerText(), `模拟 ${protocol} | 本地模拟 ${protocol}`);
     assert.equal(await page.locator('.message.assistant .answer-meta').last().getAttribute('aria-label'), `查看回答详情：模拟 ${protocol}`);
@@ -1026,31 +1026,31 @@ try {
   assert.equal((await draftImage()).mime, 'image/webp', '静态 GIF 应压成 WebP');
   await page.getByTitle('移除附件', { exact: true }).first().click();
   // The finished answer promoted its model to the front, and a new chat now starts from it.
-  const resume = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
-  const geminiModel = await page.evaluate(async () => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 gemini').id);
-  assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.recentModels[0]), geminiModel, '回答跑完后应把它的模型置顶');
-  const chatCount = await page.evaluate(async () => (await window.deepchan.load()).conversations.length);
+  const resume = await page.evaluate(async () => (await window.seekie.load()).selectedId);
+  const geminiModel = await page.evaluate(async () => (await window.seekie.load()).settings.models.find(m => m.name === '模拟 gemini').id);
+  assert.equal(await page.evaluate(async () => (await window.seekie.load()).settings.recentModels[0]), geminiModel, '回答跑完后应把它的模型置顶');
+  const chatCount = await page.evaluate(async () => (await window.seekie.load()).conversations.length);
   await page.getByRole('button', { name: /新建对话/ }).first().click();
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 1);
-  const throwaway = [await page.evaluate(async () => (await window.deepchan.load()).selectedId)];
-  const activeModel = async () => await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.modelId; });
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, chatCount + 1);
+  const throwaway = [await page.evaluate(async () => (await window.seekie.load()).selectedId)];
+  const activeModel = async () => await page.evaluate(async () => { const s = await window.seekie.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.modelId; });
   assert.equal(await activeModel(), geminiModel, '新对话应接着最近使用过的模型');
   // Turning the preference off sends new chats back to the configured default model.
-  await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.useRecentModel = false; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+  await page.evaluate(async () => { const s = await window.seekie.load(); s.settings.useRecentModel = false; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); });
   await page.getByRole('button', { name: /新建对话/ }).first().click();
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 2);
-  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
-  assert.equal(await activeModel(), await page.evaluate(async () => (await window.deepchan.load()).settings.defaultModel), '关闭开关后新对话回到默认聊天模型');
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, chatCount + 2);
+  throwaway.push(await page.evaluate(async () => (await window.seekie.load()).selectedId));
+  assert.equal(await activeModel(), await page.evaluate(async () => (await window.seekie.load()).settings.defaultModel), '关闭开关后新对话回到默认聊天模型');
   // 停用默认模型所属的连接之后，新对话不能静默地开在它上面，而且它要从模型选择器里消失。
   const stopped = await page.evaluate(async () => {
-    const s = await window.deepchan.load();
+    const s = await window.seekie.load();
     const model = s.settings.models.find(m => m.id === s.settings.defaultModel);
     const connection = s.settings.connections.find(c => c.id === model.connectionId);
     s.settings.connections.forEach(c => { if (c.id === connection.id) c.disabled = true; });
-    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload'));
     return { modelId: model.id, connectionId: connection.id, label: `${model.name} | ${connection.name}` };
   });
-  const beforeNewChat = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
+  const beforeNewChat = await page.evaluate(async () => (await window.seekie.load()).selectedId);
   // 先等渲染进程真正重新载入设置：模型选择器是渲染进程状态的投影，看不到被停用的模型就说明
   // 状态已经更新。否则紧接着建的新对话仍会用旧状态里的模型。
   await page.getByRole('button', { name: '聊天模型' }).first().click();
@@ -1059,43 +1059,43 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: /新建对话/ }).first().click();
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 3);
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, chatCount + 3);
   // 会话数够了不代表选中项已经切过去：选中还停在旧会话上时读到的仍是旧模型，会偶发失败。
-  await waitFor(page, async previous => (await window.deepchan.load()).selectedId !== previous, beforeNewChat);
-  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
+  await waitFor(page, async previous => (await window.seekie.load()).selectedId !== previous, beforeNewChat);
+  throwaway.push(await page.evaluate(async () => (await window.seekie.load()).selectedId));
   assert.notEqual(await activeModel(), stopped.modelId, '停用连接后新对话不应继续开在它的模型上');
   await page.getByRole('button', { name: '聊天模型' }).first().click();
   await page.locator('.model-select-popover').waitFor();
   assert.equal(await page.locator('.model-select-popover').getByRole('option', { name: stopped.label }).count(), 0, `停用连接的模型不应出现在选择器中：${stopped.label}`);
   await page.keyboard.press('Escape');
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
-  await page.evaluate(async connectionId => { const s = await window.deepchan.load(); s.settings.connections.forEach(c => { if (c.id === connectionId) c.disabled = false; }); await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, stopped.connectionId);
+  await page.evaluate(async connectionId => { const s = await window.seekie.load(); s.settings.connections.forEach(c => { if (c.id === connectionId) c.disabled = false; }); await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, stopped.connectionId);
   // 连接勾选"gpt 自动使用 Responses"后，gpt-数字* 的模型要改走 Responses 协议。
   const gptSwitch = await page.evaluate(async () => {
-    const s = await window.deepchan.load();
+    const s = await window.seekie.load();
     const chat = s.settings.connections.find(c => c.protocol === 'chat');
     const model = { id: 'gpt-fixture', connectionId: chat.id, name: 'gpt-fixture', model: 'gpt-4o', contextWindow: 128000, maxOutput: 4096, vision: false, tools: false, nativeSearch: false, reasoning: 'none', efforts: [], temperature: false };
     s.settings.models.push(model);
     chat.responsesForGpt = true;
-    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload'));
     return { modelId: model.id, connectionId: chat.id };
   });
   await page.getByRole('button', { name: /新建对话/ }).first().click();
-  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, chatCount + 4);
-  throwaway.push(await page.evaluate(async () => (await window.deepchan.load()).selectedId));
-  await page.evaluate(async modelId => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); b.config.modelId = modelId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, gptSwitch.modelId);
-  await waitFor(page, async id => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.config.modelId === id; }, gptSwitch.modelId);
+  await waitFor(page, async expected => (await window.seekie.load()).conversations.length === expected, chatCount + 4);
+  throwaway.push(await page.evaluate(async () => (await window.seekie.load()).selectedId));
+  await page.evaluate(async modelId => { const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); b.config.modelId = modelId; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, gptSwitch.modelId);
+  await waitFor(page, async id => { const s = await window.seekie.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return b.config.modelId === id; }, gptSwitch.modelId);
   const callsBeforeGpt = calls.length;
   await input.fill('gpt 走哪条协议？'); await page.getByTitle('发送消息', { exact: true }).click();
   // 调用记录留在 Node 侧的模拟服务器里，页面里读不到，所以在这里轮询。
   for (let i = 0; i < 80 && !calls.slice(callsBeforeGpt).some(c => c.path === '/v1/responses'); i++) await new Promise(resolve => setTimeout(resolve, 250));
   assert.ok(calls.slice(callsBeforeGpt).some(c => c.path === '/v1/responses' && c.data.model === 'gpt-4o'), 'gpt 模型应改走 Responses 协议');
   assert.ok(!calls.slice(callsBeforeGpt).some(c => c.path === '/v1/chat/completions'), '该次请求不应再走 Chat Completions');
-  await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.settings.connections.forEach(c => { if (c.id === fixture.connectionId) c.responsesForGpt = false; }); s.settings.models = s.settings.models.filter(m => m.id !== fixture.modelId); await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, gptSwitch);
+  await page.evaluate(async fixture => { const s = await window.seekie.load(); s.settings.connections.forEach(c => { if (c.id === fixture.connectionId) c.responsesForGpt = false; }); s.settings.models = s.settings.models.filter(m => m.id !== fixture.modelId); await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, gptSwitch);
   // Leave the app on the conversation the following stages expect, and drop the two throwaway chats
   // so the final conversation count still means "no extra conversation leaked".
-  await page.evaluate(async payload => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, { keep: resume, drop: throwaway });
-  await waitFor(page, async id => { const s = await window.deepchan.load(); return s.selectedId === id && s.conversations.length === 4; }, resume);
+  await page.evaluate(async payload => { const s = await window.seekie.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, { keep: resume, drop: throwaway });
+  await waitFor(page, async id => { const s = await window.seekie.load(); return s.selectedId === id && s.conversations.length === 4; }, resume);
   // Right click menus, and the timestamp shown on user messages.
   await page.locator('.conversation-item').first().click({ button: 'right' });
   const listMenu = page.locator('.conversation-popover');
@@ -1112,7 +1112,7 @@ try {
   await page.keyboard.press('Escape'); await messageMenu.waitFor({ state: 'hidden' });
   assert.match(await page.locator('.message.user .message-time').last().innerText(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   console.log('stage: context menus');
-  saved = await page.evaluate(() => window.deepchan.load());
+  saved = await page.evaluate(() => window.seekie.load());
   assert.equal(saved.conversations.length, 4);
   assert.equal(logs.length, 0, logs.join('\n'));
   assert.ok(saved.conversations.every(c => c.titleState === 'done'), '关闭前所有标题已完成');
@@ -1126,7 +1126,7 @@ try {
   const messageCount = saved.conversations.reduce((n,c) => n+c.messages.length,0);
   await desktop.close(); desktop = null;
   page = await launch();
-  saved = await page.evaluate(() => window.deepchan.load());
+  saved = await page.evaluate(() => window.seekie.load());
   await assertUsageDetails(page, 72);
   // Attachment bytes no longer travel with the state, so after a restart the picture can only come
   // from the on-demand fetch; a broken lazy path shows up here as an image without its payload.
@@ -1148,12 +1148,12 @@ try {
   await restoredDebug.waitFor({ state: 'hidden' });
   console.log('stage: request log persisted');
   const legacyFixture = await page.evaluate(async () => {
-    const s = await window.deepchan.load(), selectedId = s.selectedId;
+    const s = await window.seekie.load(), selectedId = s.selectedId;
     const c = structuredClone(s.conversations.find(c => c.id === selectedId));
     c.id = crypto.randomUUID(); c.title = '旧消息统计测试';
     for (const m of c.messages) if (m.usage) m.usage = { input: m.usage.input, output: m.usage.output };
     s.conversations.unshift(c); s.selectedId = c.id;
-    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); return { id: c.id, selectedId };
+    await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); return { id: c.id, selectedId };
   });
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: /^查看回答详情：/ });
@@ -1162,7 +1162,7 @@ try {
   assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--','--']);
   assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
-  await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);
+  await page.evaluate(async fixture => { const s = await window.seekie.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, legacyFixture);
   assert.equal(saved.conversations.reduce((n,c) => n+c.messages.length,0), messageCount);
   assert.equal(saved.settings.connections[0].apiKey, '••••••••');
   assert.equal(saved.settings.connections[0].headers['x-fixture-secret'], '••••••••');
@@ -1174,7 +1174,7 @@ try {
   assert.equal(credentials.secrets.deepseek, 'deepseek-fixture-secret', 'DeepSeek 搜索密钥应写入凭据文件');
   assert.equal(saved.settings.firecrawlKey, '••••••••'); assert.equal(saved.settings.anysearchKey, '••••••••'); assert.equal(saved.settings.deepseekKey, '••••••••', 'DeepSeek 密钥离开主进程前必须被掩码');
   assert.equal(statSync(credentialsPath).mode & 0o777, 0o600);
-  await page.evaluate(async () => { const s = await window.deepchan.load(); await window.deepchan.test(s.settings.connections[0]); });
+  await page.evaluate(async () => { const s = await window.seekie.load(); await window.seekie.test(s.settings.connections[0]); });
   assert.equal(lastAuthorization, 'Bearer fixture-secret');
   const nativeRequest = calls.find(c => c.path === '/v1/responses');
   assert.ok(nativeRequest.data.tools.some(t => t.type === 'web_search'), '默认启用原生搜索');
@@ -1197,7 +1197,7 @@ try {
   console.log('stage: attachment viewer');
   const imageData = `data:image/png;base64,${(await page.screenshot({ type: 'png' })).toString('base64')}`;
   await page.evaluate(async imageData => {
-    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const message = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '查看附件预览', reasoning: '', attachments: [
       { id: crypto.randomUUID(), name: 'preview.png', mime: 'image/png', size: 1, data: imageData },
       { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '# 附件预览内容\n\n' + '这是附件正文。\n\n'.repeat(30) + '### 深层标题\n\n已在应用内打开。' },
@@ -1209,7 +1209,7 @@ try {
       { url: 'https://example.com/three', title: '第三条来源' }
     ], status: 'complete', created: Date.now() };
     conversation.messages.push(message); branch.leafId = message.id;
-    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
   }, imageData);
   const imageTrigger = page.getByRole('button', { name: '查看图片：preview.png' }); await imageTrigger.waitFor();
   // 来源默认收成一行，点一下才展开：一次搜索能带回十几条，全部铺开会把回答区撑得很长。
@@ -1277,7 +1277,7 @@ try {
   assert.equal(videoSizing.objectFit, 'contain'); assert.equal(videoSizing.width, videoSizing.parentWidth); assert.equal(videoSizing.height, videoSizing.parentHeight);
   await videoDialog.getByRole('button', { name: '关闭附件预览' }).click(); await videoDialog.waitFor({ state: 'hidden' });
   const versionFixture = await page.evaluate(async () => {
-    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), parentBranch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === state.selectedId), parentBranch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const user = { id: crypto.randomUUID(), parentId: parentBranch.leafId, role: 'user', text: '切换失败回答版本', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
     const failed = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '', reasoning: '', attachments: [], tools: [], sources: [], status: 'error', error: '模拟生成失败', modelId: parentBranch.config.modelId, created: Date.now() };
     const toolId = crypto.randomUUID();
@@ -1286,18 +1286,18 @@ try {
     const makeBranch = (message, name) => ({ ...structuredClone(parentBranch), id: crypto.randomUUID(), name, parentBranchId: parentBranch.id, originId: message.id, leafId: message.id, summary: undefined, draft: '', draftAttachments: [], scrollTop: 0, updated: Date.now() });
     const failedBranch = makeBranch(failed, '失败回答分支'), completeBranch = makeBranch(complete, '成功回答分支');
     conversation.branches.push(failedBranch, completeBranch); conversation.activeBranchId = completeBranch.id;
-    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
     return { conversationId: conversation.id, userId: user.id, failedId: failed.id, completeId: complete.id, failedBranchId: failedBranch.id, completeBranchId: completeBranch.id };
   });
   const completeVersion = page.locator(`.message.assistant[data-id="${versionFixture.completeId}"]`); await completeVersion.waitFor();
   assert.deepEqual(await completeVersion.locator('.message-content, .thinking, .tool-card').evaluateAll(elements => elements.map(element => element.classList.contains('message-content') ? 'text' : element.classList.contains('thinking') ? 'reasoning' : 'tool')), ['text', 'reasoning', 'tool', 'text', 'reasoning']);
   const previousVersion = completeVersion.getByTitle('上一个版本'); assert.equal(await previousVersion.isDisabled(), false);
   await previousVersion.click();
-  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.failedBranchId });
+  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.seekie.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.failedBranchId });
   const failedVersion = page.locator(`.message.assistant[data-id="${versionFixture.failedId}"]`); await failedVersion.waitFor();
   assert.equal(await failedVersion.getByTitle('下一个版本').isDisabled(), false, '失败回答之后仍可切换到下一个版本');
   await failedVersion.getByTitle('下一个版本').click();
-  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
+  await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.seekie.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedAnswer = text; } } }));
   // The answer has two body blocks (a tool call and reasoning sit between them); copying takes both.
   await completeVersion.getByTitle('复制正文').click(); await waitFor(page, () => (window.__copiedAnswer || '').replace(/\s+/g, '') === '第一段正文。最后一段正文。');
@@ -1361,7 +1361,7 @@ try {
   assert.ok(editorHeight <= (await page.evaluate(() => innerHeight)) - 300, '回答编辑框应保持在视口可用高度内');
   await answerEditor.last().fill('改写后的最后正文。'); await page.getByRole('button', { name: '保存新版本' }).click();
   const editedSegments = await page.evaluate(async ({ conversationId, userId }) => {
-    const conversation = (await window.deepchan.load()).conversations.find(c => c.id === conversationId);
+    const conversation = (await window.seekie.load()).conversations.find(c => c.id === conversationId);
     const edited = conversation.messages.find(message => message.edited && message.parentId === userId);
     return { text: edited.text, segments: edited.segments, toolCount: edited.tools.length };
   }, versionFixture);
@@ -1370,18 +1370,18 @@ try {
   assert.equal(editedSegments.toolCount, 1);
 
   const thinkingFixture = await page.evaluate(async () => {
-    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
+    const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const user = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '检查思考摘要自动收起', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: Date.now() };
     const answer = { id: crypto.randomUUID(), parentId: user.id, role: 'assistant', text: '', reasoning: '正在生成的思考摘要。', attachments: [], tools: [], sources: [], status: 'streaming', modelId: branch.config.modelId, created: Date.now() };
     conversation.messages.push(user, answer); branch.leafId = answer.id;
-    await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
     return { conversationId: conversation.id, answerId: answer.id };
   });
   const thinking = page.locator(`.message.assistant[data-id="${thinkingFixture.answerId}"] .thinking`); await thinking.waitFor();
   await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === true, thinkingFixture.answerId);
   await page.evaluate(async ({ conversationId, answerId }) => {
-    const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === conversationId), answer = conversation.messages.find(m => m.id === answerId);
-    answer.status = 'complete'; answer.text = '思考摘要结束后的回答。'; await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
+    const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === conversationId), answer = conversation.messages.find(m => m.id === answerId);
+    answer.status = 'complete'; answer.text = '思考摘要结束后的回答。'; await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
   }, thinkingFixture);
   await waitFor(page, async id => document.querySelector(`.message.assistant[data-id="${id}"] .thinking`)?.open === false, thinkingFixture.answerId);
   await thinking.locator('summary').click(); assert.equal(await thinking.evaluate(el => el.open), true, '回答完成后仍可手动展开思考摘要');

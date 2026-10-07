@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 // needs the development page to be served by Vite.
 const server = await createServer({ server: { port: 0, strictPort: false } }); await server.listen();
 const devUrl = (server.resolvedUrls?.local?.[0] || 'http://127.0.0.1:5173').replace(/\/$/, '');
-const env = { ...process.env, DEEPCHAN_DEV_URL: devUrl, DEEPCHAN_DATA_DIR: mkdtempSync(join(tmpdir(), 'deepchan-dev-check-')) }; delete env.ELECTRON_RUN_AS_NODE;
+const env = { ...process.env, SEEKIE_DEV_URL: devUrl, SEEKIE_DATA_DIR: mkdtempSync(join(tmpdir(), 'seekie-dev-check-')) }; delete env.ELECTRON_RUN_AS_NODE;
 let desktop;
 try {
   desktop = await _electron.launch({ executablePath: electronPath, args: ['.'], env });

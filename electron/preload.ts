@@ -13,4 +13,4 @@ const bridge: Bridge = {
   onWindowState: callback => { const listener = (_: unknown, state: { maximized: boolean }) => callback(!!state.maximized); ipcRenderer.on('window-state', listener); return () => ipcRenderer.removeListener('window-state', listener); },
   onEvent: callback => { const listener = (_: unknown, event: AppEvent) => callback(event); ipcRenderer.on('event', listener); return () => ipcRenderer.removeListener('event', listener); }
 };
-contextBridge.exposeInMainWorld('deepchan', bridge);
+contextBridge.exposeInMainWorld('seekie', bridge);

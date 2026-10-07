@@ -33,12 +33,12 @@ function recordedBody(body: unknown) {
   const text = JSON.stringify(body, null, 2).replace(BASE64_PAYLOAD, (match, mime: string) => `data:${mime};base64,<已省略 ${match.length} 字符的 base64 数据>`);
   return text.length > MAX_RECORDED_BODY ? `${text.slice(0, MAX_RECORDED_BODY)}\n…（请求体过长，仅记录前 ${MAX_RECORDED_BODY} 字符）` : text;
 }
-// Opt-in diagnostics for opaque upstream rejections: with DEEPCHAN_DEBUG_REQUESTS=<dir> every
+// Opt-in diagnostics for opaque upstream rejections: with SEEKIE_DEBUG_REQUESTS=<dir> every
 // outgoing body is dumped there, and rejected requests also record what the upstream answered
 // (credentials live in headers and are never written). Off by default, and a diagnostics failure
 // must never break a request.
 function dumpRequest(url: string, body: unknown, error?: string) {
-  const directory = process.env.DEEPCHAN_DEBUG_REQUESTS;
+  const directory = process.env.SEEKIE_DEBUG_REQUESTS;
   if (!directory) return;
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });

@@ -1,13 +1,13 @@
 {
-  "name": "deepchan-chat",
+  "name": "seekie-chat",
   "version": "0.1.0",
   "private": true,
-  "productName": "DeepChan-chat",
+  "productName": "Seekie Chat",
   "description": "Linux desktop LLM chat with conversation branches",
   "author": "Shellexy <299902+shellexy@users.noreply.github.com>",
   "license": "MIT",
-  "homepage": "https://github.com/shellexy/deepchan-chat",
-  "desktopName": "com.github.shellexy.deepchan-chat",
+  "homepage": "https://github.com/shellexy/seekie-chat",
+  "desktopName": "com.github.shellexy.seekie-chat",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -50,9 +50,9 @@
     "node": ">=24"
   },
   "build": {
-    "appId": "com.github.shellexy.deepchan-chat",
-    "productName": "DeepChan-chat",
-    "executableName": "deepchan-chat",
+    "appId": "com.github.shellexy.seekie-chat",
+    "productName": "Seekie Chat",
+    "executableName": "seekie-chat",
     "directories": {
       "output": "release"
     },
@@ -71,16 +71,16 @@
       ],
       "icon": "build/icon.png",
       "category": "Network;Chat;Development;",
-      "executableName": "deepchan-chat",
+      "executableName": "seekie-chat",
       "desktop": {
         "entry": {
-          "Name": "DeepChan Chat",
-          "StartupWMClass": "com.github.shellexy.deepchan-chat",
+          "Name": "Seekie Chat",
+          "StartupWMClass": "com.github.shellexy.seekie-chat",
           "Keywords": "chat;llm;deepseek;ai;",
           "StartupNotify": "true"
         }
       },
-      "description": "DeepChan Chat with DeepSeek"
+      "description": "Seekie Chat with DeepSeek LLM"
     },
     "deb": {
       "depends": [
