@@ -30,7 +30,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
   const modelId = model.model.replace(/^models\//, '');
   if (!modelId || /[/?#]/.test(modelId)) throw new Error('Gemini 模型 ID 无效，请填写模型名称或 models/模型名称');
   const path = `models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
-  const input = deps.buildInput('gemini', messages), entries: any[] = [];
+  const input = deps.buildInput('gemini', messages, model), entries: any[] = [];
   let text = '', reasoning = '';
   const sources: Source[] = [], counter = new UsageCounter(), usage = counter.total;
   const addSources = (items: Source[]) => {

@@ -64,7 +64,9 @@ export class Store {
     this.saveSecret('exa', copy.settings.exaKey, copy.settings.secretPolicy); copy.settings.exaKey = '';
     const keep = new Set<string>();
     for (const a of attachments(copy)) {
-      if (!validId(a.id) || !/^data:image\/(png|jpeg|webp);base64,/.test(a.data) || a.data.length > 15_000_000) throw new Error('图片附件无效或超过 10 MB');
+      if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');
+      if (!a.data && a.markdown !== undefined) continue;
+      if (!/^data:[^;,]+;base64,[A-Za-z0-9+/]*={0,2}$/.test(a.data) || a.data.length > 15_000_000) throw new Error('附件格式无效或超过 10 MB');
       const name = `${a.id}.txt`; keep.add(name); const file = join(this.directory, 'attachments', name);
       if (!existsSync(file)) writeFileSync(file, a.data, { mode: 0o600 }); a.data = '';
     }

@@ -88,7 +88,7 @@ export function firstLine(text: string) {
   return first.replace(/^[#>*\-\s]+/, '').replace(/[`*_]/g, '').slice(0, 80) || '';
 }
 export function estimateTokens(messages: Message[], system = '') {
-  const text = system + messages.map(m => m.text + m.tools.map(t => t.output).join('')).join('\n');
+  const text = system + messages.map(m => m.text + m.attachments.map(a => a.markdown || '').join('\n') + m.tools.map(t => t.output).join('')).join('\n');
   const nonAscii = [...text].filter(ch => ch.charCodeAt(0) > 127).length;
   return Math.ceil(nonAscii + (text.length - nonAscii) / 3.5) + messages.reduce((n, m) => n + m.attachments.length * 1600 + 12, 0);
 }

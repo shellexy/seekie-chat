@@ -52,3 +52,13 @@
 .message-toolbar button.answer-model-meta:hover,.message-toolbar button.answer-model-meta[aria-expanded=true]{background:var(--hover);color:var(--accent)}
 .message-toolbar button.usage{margin-left:0}
 .answer-model-popover{position:fixed;z-index:90;max-width:calc(100vw - 16px);padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);box-shadow:0 8px 30px #0002;font-size:12px;white-space:nowrap}
+
+/* File attachments can be previewed beside the existing image thumbnails. */
+.upload-attachment{display:inline-flex;align-items:center;gap:5px;padding:5px 7px;border:0;background:transparent;color:var(--muted);font-size:11px;white-space:nowrap}
+.upload-attachment:hover{color:var(--text);background:var(--hover)}
+.draft-attachment .attachment-chip{display:flex;width:112px;height:65px;align-items:center;gap:5px;overflow:hidden;padding:7px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:10px;overflow-wrap:anywhere}
+.draft-attachment .attachment-chip svg{flex:0 0 auto}
+.message-attachments .file-attachment{width:min(100%,420px);margin:0 0 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-size:12px}
+.file-attachment summary{display:flex;align-items:center;gap:8px;padding:10px 12px;list-style:none}
+.file-attachment summary span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-attachment summary small{margin-left:auto;color:var(--muted)}
+.file-attachment>div{max-height:360px;overflow:auto;padding:10px 14px;border-top:1px solid var(--line);font-size:11px}

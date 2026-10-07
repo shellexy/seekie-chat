@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, validateState, SECRET_MARKER } from './store';
 import { generate, listModels } from './providers';
+import { convertUnsupportedAttachments } from './attachments';
 import { contextMessages, estimateTokens, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
@@ -44,7 +45,7 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   const valid = branch.summary && summaryValid(branch.summary, prefix);
   const remaining = valid ? prefix.slice(branch.summary!.nodeIds.length) : prefix;
   if (!remaining.length) return;
-  const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.length ? `[图片附件：${m.attachments.map(a => a.name).join('、')}]` : ''}${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
+  const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
   if (material.length / 2 + 2048 > model.contextWindow) throw new Error('压缩模型上下文不足以处理这些历史，请选择更大窗口的模型');
   const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 4096) }, { ...branch.config, modelId, search: 'off', effort: 'auto', budget: 1024, system: '将聊天历史压缩为可供后续对话使用的摘要。保留目标、事实、约束、偏好、结论、待办、引用。不得添加原文没有的事实。对图片仅保留附件引用，不猜测未提供的内容。只输出摘要。' }, [plainMessage(material)], state.settings, signal);
   if (!result.text.trim()) throw new Error('压缩模型未返回摘要');
@@ -80,9 +81,11 @@ async function runChat(request: RunRequest) {
   void (async () => {
     try {
       let context = contextMessages(conversation, branch, message.parentId);
+      await convertUnsupportedAttachments(context.messages, connection.protocol, model);
       const budget = () => estimateTokens(context.messages, config.system + context.summary) + model.maxOutput;
       if (state.settings.autoCompress && budget() > model.contextWindow * state.settings.compressionThreshold && context.messages.length > 5) {
         await compress(conversation, branch, controller.signal, message.parentId); context = contextMessages(conversation, branch, message.parentId);
+        await convertUnsupportedAttachments(context.messages, connection.protocol, model);
       }
       if (budget() > model.contextWindow) throw new Error('预计上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');

@@ -1,6 +1,7 @@
 import { fetch, ProxyAgent } from 'undici';
 import { generateGemini } from './gemini';
 import { UsageCounter } from './usage';
+import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
 import { resolveSearch } from '../src/domain';
 import type { ChatConfig, Connection, Message, Model, Settings, Source, ToolEvent, Usage } from '../src/types';
 export interface Result { text: string; reasoning: string; raw: { protocol: string; entries: any[] }; usage: Usage; sources: Source[] }
@@ -55,13 +56,33 @@ function compatibleRaw(m: Message, protocol: string): any[] | undefined {
   const raw = m.raw as Result['raw'] | undefined;
   return !m.edited && m.status === 'complete' && raw?.protocol === protocol ? raw.entries : undefined;
 }
-export function buildInput(protocol: string, messages: Message[]): any[] {
+export function buildInput(protocol: string, messages: Message[], model?: Model): any[] {
   return messages.flatMap(m => {
     const raw = compatibleRaw(m, protocol); if (m.role === 'assistant' && raw?.length) return raw;
-    if (protocol === 'gemini') return [{ role: m.role === 'assistant' ? 'model' : 'user', parts: [...m.attachments.map(a => ({ inlineData: { mimeType: a.mime, data: a.data.split(',')[1] } })), { text: m.text || (m.attachments.length ? '请查看图片。' : '（空消息）') }] }];
-    if (protocol === 'anthropic') return [{ role: m.role, content: [...m.attachments.map(a => ({ type: 'image', source: { type: 'base64', media_type: a.mime, data: a.data.split(',')[1] } })), { type: 'text', text: m.text || (m.attachments.length ? '请查看图片。' : '（空消息）') }] }];
-    if (protocol === 'responses') return [{ role: m.role, content: [...m.attachments.map(a => ({ type: 'input_image', image_url: a.data })), { type: m.role === 'user' ? 'input_text' : 'output_text', text: m.text || '请查看图片。' }] }];
-    return [{ role: m.role, content: m.attachments.length ? [{ type: 'text', text: m.text || '请查看图片。' }, ...m.attachments.map(a => ({ type: 'image_url', image_url: { url: a.data } }))] : m.text }];
+    const converted = m.attachments.map(a => ({ attachment: a, markdown: markdownForUnsupported(a, protocol, model) })).filter(item => item.markdown);
+    const text = [m.text || (m.attachments.length ? '请查看附件。' : '（空消息）'), ...converted.map(({ attachment, markdown }) => `附件“${attachment.name}”的 Markdown 内容：\n${markdown}`)].join('\n\n');
+    const native = m.attachments.filter(a => !markdownForUnsupported(a, protocol, model));
+    const payload = native.map(a => {
+      const data = a.data.split(',')[1];
+      const format = a.name.split('.').at(-1)?.toLowerCase();
+      if (protocol === 'gemini') return { inlineData: { mimeType: a.mime, data } };
+      if (protocol === 'anthropic') return a.mime === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: a.mime, data } }
+        : { type: 'image', source: { type: 'base64', media_type: a.mime, data } };
+      if (protocol === 'responses') {
+        if (a.mime === 'application/pdf') return { type: 'input_file', filename: a.name, file_data: a.data };
+        if (a.mime.startsWith('audio/')) return { type: 'input_audio', input_audio: { data, format } };
+        return { type: 'input_image', image_url: a.data };
+      }
+      if (a.mime === 'application/pdf') return { type: 'file', file: { filename: a.name, file_data: a.data } };
+      if (a.mime.startsWith('video/')) return { type: 'video_url', video_url: { url: a.data } };
+      if (a.mime.startsWith('audio/')) return { type: 'input_audio', input_audio: { data, format } };
+      return { type: 'image_url', image_url: { url: a.data } };
+    });
+    if (protocol === 'gemini') return [{ role: m.role === 'assistant' ? 'model' : 'user', parts: [...payload, { text }] }];
+    if (protocol === 'anthropic') return [{ role: m.role, content: [...payload, { type: 'text', text }] }];
+    if (protocol === 'responses') return [{ role: m.role, content: [...payload, { type: m.role === 'user' ? 'input_text' : 'output_text', text }] }];
+    return [{ role: m.role, content: m.attachments.length ? [{ type: 'text', text }, ...payload] : text }];
   });
 }
 async function exa(args: string, settings: Settings, signal: AbortSignal) {
@@ -77,13 +98,13 @@ async function exa(args: string, settings: Settings, signal: AbortSignal) {
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop): Promise<Result> {
   config = { ...config, search: resolveSearch({ ...settings, models: [model], connections: [connection] }, model.id, config.search) };
   if (model.reasoning === 'effort' && config.effort !== 'auto' && !model.efforts.includes(config.effort)) throw new Error('当前模型不支持此思考等级，请在会话选项中重新选择');
-  if (messages.some(m => m.attachments.length) && !model.vision) throw new Error('当前模型未启用图片输入能力，请切换模型');
   if (config.search === 'exa' && !model.tools) throw new Error('Exa 搜索需要支持工具调用的模型');
   if (config.search === 'native' && (!model.nativeSearch || connection.protocol === 'chat')) throw new Error('当前协议或模型不支持原生搜索，请使用 Responses、Anthropic、Gemini 或 Exa');
   if (config.search === 'exa' && !settings.exaKey) throw new Error('请先配置 Exa API Key');
+  await convertUnsupportedAttachments(messages, connection.protocol, model);
   if (connection.protocol === 'gemini') return generateGemini(connection, model, config, messages, settings, signal, hooks, { request, buildInput, exa, sse });
   let text = '', reasoning = ''; const entries: any[] = [], sources: Source[] = []; const counter = new UsageCounter(), usage = counter.total;
-  const input = buildInput(connection.protocol, messages);
+  const input = buildInput(connection.protocol, messages, model);
   const addText = (s: string) => { text += s; hooks.text(s); };
   const addReason = (s: string) => { reasoning += s; hooks.reasoning(s); };
   const addSources = (items: Source[]) => { for (const s of items) if (/^https?:\/\//.test(s.url) && !sources.some(x => x.url === s.url)) sources.push(s); hooks.sources([...sources]); };

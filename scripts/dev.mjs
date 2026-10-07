@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import electron from 'electron';
 const server = await createServer();
 await server.listen();
-await build({ entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['electron', 'sql.js', 'undici'], sourcemap: true });
+await build({ entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['electron', 'sql.js', 'undici', 'markitdown-ts'], sourcemap: true });
 await build({ entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['electron'] });
 const env = { ...process.env, DEEPCHAN_DEV_URL: 'http://127.0.0.1:5173' };
 delete env.ELECTRON_RUN_AS_NODE;

@@ -8,6 +8,7 @@ export interface Connection {
 export interface Model {
   id: string; connectionId: string; name: string; model: string;
   contextWindow: number; maxOutput: number; vision: boolean; tools: boolean;
+  videoInput?: boolean; audioInput?: boolean; pdfInput?: boolean;
   nativeSearch: boolean; reasoning: 'none' | 'effort' | 'budget';
   efforts: string[]; temperature: boolean; outputTokenField?: 'max_completion_tokens' | 'max_tokens'; streamUsage?: boolean;
 }
@@ -22,7 +23,7 @@ export interface Settings {
   exaKey: string; exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;
 }
-export interface Attachment { id: string; name: string; mime: string; size: number; data: string }
+export interface Attachment { id: string; name: string; mime: string; size: number; data: string; markdown?: string }
 export interface ToolEvent {
   id: string; name: string; input: string; output: string; status: 'running' | 'done' | 'error';
   started: number; elapsed?: number;
