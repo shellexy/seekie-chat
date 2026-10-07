@@ -96,11 +96,12 @@ async function assertUsageDetails(page, output = 60) {
   const trigger = answer.getByRole('button', { name: '查看 token 用量与速度' });
   const tooltip = page.getByRole('tooltip');
   await trigger.hover(); await tooltip.waitFor();
-  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','速度：','首字耗时：']);
+  assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
-  assert.equal(values[3], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
-  assert.equal(values[4], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
+  assert.equal(values[3], `${(message.usage.elapsedMs / 1000).toFixed(2)} s`);
+  assert.equal(values[4], `${(output / ((message.usage.generationMs ?? message.usage.elapsedMs) / 1000)).toFixed(1)} tps`);
+  assert.equal(values[5], `${(message.usage.firstTokenMs / 1000).toFixed(2)} s`);
   const box = await tooltip.boundingBox();
   assert.ok(await page.evaluate(box => box.x >= 0 && box.y >= 0 && box.x + box.width <= innerWidth && box.y + box.height <= innerHeight, box), 'tooltip fits inside window');
   await page.mouse.move(5, 5); await tooltip.waitFor({ state: 'hidden' });
@@ -474,8 +475,8 @@ try {
   await page.locator('.header-title > span').getByText('旧消息统计测试', { exact: true }).waitFor();
   const legacyTrigger = page.locator('.message.assistant').last().getByRole('button', { name: '查看 token 用量与速度' });
   await legacyTrigger.click();
-  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 3);
-  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--']);
+  await waitFor(page, () => [...document.querySelectorAll('.usage-details dd')].filter(el => el.textContent === '--').length === 4);
+  assert.deepEqual((await page.getByRole('tooltip').locator('dd').allTextContents()).slice(3), ['--','--','--']);
   assert.equal((await page.getByRole('tooltip').locator('dd').allTextContents())[1], '--');
   await page.keyboard.press('Escape');
   await page.evaluate(async fixture => { const s = await window.deepchan.load(); s.conversations = s.conversations.filter(c => c.id !== fixture.id); s.selectedId = fixture.selectedId; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); }, legacyFixture);

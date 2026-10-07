@@ -41,6 +41,7 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
     };
   }, [open]);
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
+  const totalDuration = usage.elapsedMs === undefined ? '--' : `${(usage.elapsedMs / 1000).toFixed(2)} s`;
   const speedDuration = usage.generationMs ?? usage.elapsedMs;
   const speed = speedDuration !== undefined && speedDuration > 0 ? `${(usage.output / (speedDuration / 1000)).toFixed(1)} tps` : '--';
   return <>
@@ -54,10 +55,11 @@ export default function UsageDetails({ usage }: { usage: Usage }) {
         <dt>输入：</dt><dd>{count(usage.input)}</dd>
         <dt>输入（缓存）：</dt><dd>{count(usage.cachedInput)}</dd>
         <dt>输出：</dt><dd>{count(usage.output)}</dd>
+        <dt>总耗时：</dt><dd>{totalDuration}</dd>
         <dt>速度：</dt><dd>{speed}</dd>
         <dt>首字耗时：</dt><dd>{usage.firstTokenMs === undefined ? '--' : `${(usage.firstTokenMs / 1000).toFixed(2)} s`}</dd>
       </dl>
-      <p>缓存为输入中的命中量；速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
+      <p>总耗时包含整个生成请求及工具等待；缓存为输入中的命中量。速度按输出 ÷ 生成耗时计算，扣除可测量的工具等待时间，并将并发区间合并后再扣除。服务端原生搜索无法单独计时时仍会计入。首字指回答正文。</p>
     </div>, document.body)}
   </>;
 }
