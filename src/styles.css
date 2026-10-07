@@ -920,7 +920,7 @@ summary {
 }
 
 .edit-box {
-  background: var(--panel);
+  background: var(--bg);
   padding: 10px 4px 10px 4px;
   border-radius: 11px;
 }
@@ -1036,7 +1036,7 @@ summary {
   color: var(--on-accent);
   border: 0;
   padding: 8px;
-  border-radius: 11px;
+  border-radius: 22px;
   width: 34px;
   height: 34px;
 }
@@ -2792,14 +2792,41 @@ input[type="range"] {
   gap: 10px;
   padding: 4px;
   overflow-y: auto;
+  /* The editor is one text box, so the border and the focus ring belong to the whole box and the
+     textareas inside it carry nothing but a rule between blocks. Same arrangement as .composer
+     above. The resting border is declared here so gaining the focus ring never resizes the box. */
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.edit-box .edit-bodies:focus-within {
+  border-color: var(--accent);
 }
 .edit-box textarea {
   display: block;
   flex: 0 0 auto;
   field-sizing: content;
   min-height: 84px;
-  resize: vertical;
+  resize: none;
   line-height: 1.7;
+  background: transparent;
+  border: 0;
+  /* The radius rounds off both ends of the rule below, so a block starts with its own paragraph head
+     instead of a line running straight into the box edges. */
+  border-radius: 12px;
+  padding: 4px 8px;
+  /* A rule above each block is what makes the separate textareas read as paragraphs of one text box
+     rather than as stacked inputs. */
+  border-top: 1px solid var(--line);
+}
+.edit-box .edit-bodies > textarea:first-child {
+  /* This rule would land right under the box border, and that edge is already drawn by .edit-bodies,
+     so the first block drops it rather than doubling it up. */
+  border-top-color: transparent;
+}
+/* The container already shows where the focus is; a ring around the single block that was clicked
+   would break the illusion of one continuous text box. */
+.edit-box textarea:focus-visible {
+  outline: 0;
 }
 .message-scroll.is-editing {
   padding-bottom: 60vh;
