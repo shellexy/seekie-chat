@@ -293,6 +293,21 @@ try {
   const describedFacts = await describedRow.innerText();
   for (const fact of ['上下文 128,000', '输出上限 16,384', '输入 text / image', '输出 text', '思考 low / medium / high（默认 high）']) assert.ok(describedFacts.includes(fact), `对话框应显示「${fact}」，实际：${describedFacts}`);
   assert.match(await page.locator('.model-picker-row', { hasText: 'fixture-model' }).innerText(), /服务端未提供更多信息/);
+  // 列表上方的搜索框：按展示名与 ID 都能过滤，并显示匹配数。
+  const modelSearch = page.getByLabel('搜索模型', { exact: true });
+  assert.equal(await modelSearch.count(), 1, '模型列表上方应有搜索框');
+  const allRows = await page.locator('.model-picker-row').count();
+  await modelSearch.fill('gpt');
+  const gptRows = await page.locator('.model-picker-row').count();
+  assert.ok(gptRows > 0 && gptRows < allRows, `搜索应缩小结果范围：${gptRows} / ${allRows}`);
+  assert.equal(await page.locator('.model-picker-row', { hasText: 'GPT-4o' }).count(), 1, '按 ID 或展示名都应命中');
+  assert.equal(await page.locator('.model-picker-row', { hasText: 'fixture-model' }).count(), 0, '不匹配的模型应被过滤掉');
+  assert.match(await page.locator('.model-picker-search').innerText(), new RegExp(`显示 ${gptRows} / ${allRows} 个`), '应显示匹配数');
+  await modelSearch.fill('zzz-不存在');
+  assert.equal(await page.locator('.model-picker-row').count(), 0);
+  assert.match(await page.locator('.model-picker-list').innerText(), /没有匹配的模型/);
+  await modelSearch.fill('');
+  assert.equal(await page.locator('.model-picker-row').count(), allRows, '清空搜索后应恢复全部');
   // Model cards are ordered by name, so they are addressed by title rather than by position.
   const cardFor = title => page.locator('.settings-card').filter({ has: page.locator('h3', { hasText: title }) }).last();
   for (const [index, id] of ['gpt-4o', 'deepseek-flash'].entries()) {

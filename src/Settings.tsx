@@ -28,7 +28,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
   const [testing, setTesting] = useState(false), [found, setFound] = useState<ServerModel[]>([]), [saving, setSaving] = useState(false);
-  const [picker, setPicker] = useState(false), [picked, setPicked] = useState<Set<string>>(new Set());
+  const [picker, setPicker] = useState(false), [picked, setPicked] = useState<Set<string>>(new Set()), [foundQuery, setFoundQuery] = useState('');
   const [headersText, setHeadersText] = useState(''), [headersEditing, setHeadersEditing] = useState(false);
   const connection = draft.connections.find(c => c.id === selected);
   // 角色库里的"通用助手"角色与写死的内置提示词内容相同，下拉里只保留角色本身。
@@ -86,6 +86,9 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     toast(`已添加 ${created.length} 个模型`);
   }
   const sortedFound = [...found].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id));
+  // 搜索同时匹配展示名与模型 ID：服务给的展示名常是 "GPT-4o" 这类带空格的说法，ID 才是唯一可靠的。
+  const query = foundQuery.trim().toLowerCase();
+  const visibleFound = query ? sortedFound.filter(server => `${server.id}\n${server.name || ''}`.toLowerCase().includes(query)) : sortedFound;
   const modelFacts = (server: ServerModel) => [
     server.contextWindow ? `上下文 ${server.contextWindow.toLocaleString('zh-CN')}` : '',
     server.maxOutput ? `输出上限 ${server.maxOutput.toLocaleString('zh-CN')}` : '',
@@ -144,14 +147,15 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       <label className="field">API Key<input type="password" autoComplete="off" value={connection.apiKey === saved ? '' : connection.apiKey} placeholder={connection.apiKey === saved ? '已设置，留空保持；输入新值替换' : '可选：本地服务可以不需要密钥'} onChange={e => updateConnection({ apiKey: e.target.value })}/>{connection.apiKey === saved && <button className="text-button" onClick={() => updateConnection({ apiKey: '' })}>清除已保存的密钥</button>}<small>请求将发送到 {connection.baseUrl || '上述地址'}。</small></label>
       <div className="form-grid"><label className="field">超时（秒）<input type="number" min="10" max="600" value={connection.timeout} onChange={e => updateConnection({ timeout: Number(e.target.value) })}/></label><label className="field">HTTP / HTTPS 代理<input placeholder="http://127.0.0.1:7890" value={connection.proxy} onChange={e => updateConnection({ proxy: e.target.value })}/></label></div>
       <details><summary>自定义请求头</summary><p className="muted">请求头中的值与 API Key 一起保存在数据目录。</p><textarea value={headersEditing ? headersText : JSON.stringify(connection.headers, null, 2)} onChange={e => { setHeadersText(e.target.value); setHeadersEditing(true); }}/></details>
-      <button disabled={testing} onClick={async () => { setTesting(true); try { const models = await api.test(connection); setFound(models); setPicked(new Set()); setPicker(true); toast(`连接成功，获取 ${models.length} 个模型`); } catch (e) { toast('无法获取模型列表：' + String(e)); } finally { setTesting(false); } }}><Wifi size={15}/>{testing ? '测试中…' : '测试连接 / 获取模型'}</button>
-      {!!found.length && <button onClick={() => setPicker(true)}><ListPlus size={15}/>从服务端列表添加模型…</button>}</div>
+      <button disabled={testing} onClick={async () => { setTesting(true); try { const models = await api.test(connection); setFound(models); setPicked(new Set()); setFoundQuery(''); setPicker(true); toast(`连接成功，获取 ${models.length} 个模型`); } catch (e) { toast('无法获取模型列表：' + String(e)); } finally { setTesting(false); } }}><Wifi size={15}/>{testing ? '测试中…' : '测试连接 / 获取模型'}</button>
+      {!!found.length && <button onClick={() => { setFoundQuery(''); setPicker(true); }}><ListPlus size={15}/>从服务端列表添加模型…</button>}</div>
       {picker && createPortal(<div className="model-picker-layer" onMouseDown={e => { if (e.target === e.currentTarget) setPicker(false); }}>
         <section className="attachment-viewer-window model-picker" role="dialog" aria-modal="true" aria-label="添加服务端模型">
           <header className="attachment-viewer-header"><div className="attachment-viewer-title"><ListPlus size={16}/><span>添加服务端模型</span></div><button className="icon-button" aria-label="关闭添加模型" title="关闭" onClick={() => setPicker(false)}><X size={16}/></button></header>
           <div className="model-picker-body">
           <p className="muted">共 {found.length} 个模型，按名称排序。服务端给出的上下文、输出上限与模态会作为默认值填入，添加后仍可修改。</p>
-          <div className="model-picker-list">{sortedFound.map(server => {
+          <div className="model-picker-search"><input aria-label="搜索模型" type="search" placeholder="搜索模型名称或 ID" value={foundQuery} onChange={e => setFoundQuery(e.target.value)}/>{query && <span className="muted">显示 {visibleFound.length} / {sortedFound.length} 个</span>}</div>
+          <div className="model-picker-list">{visibleFound.map(server => {
             const already = draft.models.some(m => m.connectionId === selected && m.model === server.id);
             const facts = modelFacts(server);
             // 已添加的模型同样显示服务端给出的信息，否则同一行只有"已添加"三个字，看不出
@@ -162,9 +166,9 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
               <span className="model-picker-name">{server.name || server.id}{server.name && server.name !== server.id && <code>{server.id}</code>}</span>
               <span className="model-picker-facts">{detail}</span>
             </label>;
-          })}</div>
+          })}{!visibleFound.length && <div className="empty-card">没有匹配的模型，换个关键词试试。</div>}</div>
           <div className="button-row">
-            <button onClick={() => setPicked(new Set(sortedFound.filter(server => !draft.models.some(m => m.connectionId === selected && m.model === server.id)).map(server => server.id)))}>全选</button>
+            <button onClick={() => setPicked(new Set(visibleFound.filter(server => !draft.models.some(m => m.connectionId === selected && m.model === server.id)).map(server => server.id)))}>全选</button>
             <button onClick={() => setPicked(new Set())}>清空</button>
             <button onClick={() => setPicker(false)}>取消</button>
             <button className="primary" disabled={!picked.size} onClick={() => { addServerModels(sortedFound.filter(server => picked.has(server.id))); setPicker(false); }}>添加所选{picked.size ? `（${picked.size}）` : ''}</button>

@@ -25,7 +25,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek（Anthropic Messages）、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1` 或 `/v1beta`，不要包含 `/responses`、`/messages` 等端点。
-3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。
+3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。“添加服务端模型”对话框的列表上方有搜索框，按展示名或模型 ID 过滤，右侧显示匹配数；“全选”只作用于当前筛选出的模型。
 4. 根据模型文档填写上下文窗口、最大输出、图片、视频、音频、PDF、工具、原生搜索及思考能力。
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 保存设置，新建对话。

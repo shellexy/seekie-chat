@@ -2189,6 +2189,28 @@ input[type="range"] {
   justify-content: flex-end;
   gap: 8px;
 }
+.model-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.model-picker-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 12px;
+}
+.model-picker-search input:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+}
+.model-picker-search .muted {
+  font-size: 11px;
+  white-space: nowrap;
+}
 .model-picker-list {
   flex: 1;
   min-height: 0;
