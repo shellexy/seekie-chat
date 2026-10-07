@@ -20,7 +20,9 @@ const app = await playwrightElectron.launch({ executablePath: electron, args: ['
 const page = await app.firstWindow();
 await page.locator('.window-controls').waitFor();
 await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900));
-await page.waitForTimeout(400);
+// 等视口真的变成 1440×900 再拍，否则第一张还是默认的 720 高，和图廊里其它图对不齐。
+await page.waitForFunction(() => innerHeight === 900, null, { timeout: 5000 }).catch(() => {});
+await page.waitForTimeout(300);
 
 const shot = async name => {
   const png = join(directory, `${name}.png`);
@@ -29,6 +31,12 @@ const shot = async name => {
   execFileSync('cwebp', ['-quiet', '-q', '88', png, '-o', join(outDir, `${name}.webp`)]);
   console.log('saved', `${name}.webp`);
 };
+
+// 还没配任何模型时的第一屏，趁注入模拟数据之前先拍：这一屏要说明"没有 API Key
+// 也能一键添加免费体验模型"，是首次打开的人最需要看到的一句话。
+await page.locator('.welcome .text-link').waitFor();
+await page.waitForTimeout(300);
+await shot('first-run');
 
 // ---- 模拟数据：两个连接、三个模型、几个会话，其中一个是完整回答 ----
 await page.evaluate(async () => {
