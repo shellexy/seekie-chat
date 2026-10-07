@@ -1199,7 +1199,12 @@ summary {
   width: 140px;
 }
 .message-context-menu {
-  min-width: 190px;
+  min-width: 230px;
+}
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
 }
 .conversation-popover > button {
   display: flex;

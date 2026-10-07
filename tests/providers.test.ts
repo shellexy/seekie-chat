@@ -654,10 +654,12 @@ test('request diagnostics record what was sent and what the upstream answered', 
     await assert.rejects(request(connection('responses'), 'responses', { model: 'm' }, new AbortController().signal), /include_server_side_tool_invocations/);
     const files = readdirSync(directory).sort();
     // The failing request is recorded twice: what was sent, plus the upstream answer for it.
-    const errors = files.filter(name => name.startsWith('error-')), requests = files.filter(name => name.startsWith('request-'));
+    // File names carry a timestamp and a random suffix, so pick by content, never by sort order.
+    const errors = files.filter(name => name.startsWith('error-'));
+    const requests = files.filter(name => name.startsWith('request-')).map(name => JSON.parse(readFileSync(join(directory, name), 'utf8')) as { url: string; error?: string });
     assert.equal(errors.length, 1); assert.equal(requests.length, 2);
-    const sent = JSON.parse(readFileSync(join(directory, requests[0]), 'utf8'));
-    assert.match(sent.url, /\/v1\/models$/); assert.equal(sent.error, undefined);
+    const sent = requests.find(item => /\/v1\/models$/.test(item.url));
+    assert.ok(sent, `成功的请求也应被记录：${requests.map(item => item.url).join(', ')}`); assert.equal(sent.error, undefined);
     const failed = JSON.parse(readFileSync(join(directory, errors[0]), 'utf8'));
     assert.match(failed.url, /\/v1\/responses$/);
     assert.match(failed.error, /^400 /); assert.match(failed.error, /include_server_side_tool_invocations/);

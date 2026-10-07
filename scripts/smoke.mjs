@@ -480,7 +480,7 @@ try {
   const messageMenu = page.locator('.message-context-menu');
   await messageMenu.waitFor();
   const messageMenuText = await messageMenu.innerText();
-  assert.match(messageMenuText, /复制最后一段正文/); assert.match(messageMenuText, /重新生成并保留旧回答/); assert.match(messageMenuText, /查看请求详情/);
+  assert.match(messageMenuText, /复制最终正文（Markdown）/); assert.match(messageMenuText, /重新生成并保留旧回答/); assert.match(messageMenuText, /查看请求详情/);
   await page.screenshot({ path: join(directory, 'message-context-menu.png') });
   await page.keyboard.press('Escape'); await messageMenu.waitFor({ state: 'hidden' });
   assert.match(await page.locator('.message.user .message-time').last().innerText(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
@@ -643,7 +643,28 @@ try {
   await failedVersion.getByTitle('下一个版本').click();
   await waitFor(page, async ({ conversationId, branchId }) => { const state = await window.deepchan.load(); return state.conversations.find(c => c.id === conversationId).activeBranchId === branchId; }, { conversationId: versionFixture.conversationId, branchId: versionFixture.completeBranchId });
   await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__copiedAnswer = text; } } }));
-  await completeVersion.getByTitle('复制最后一段正文').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  await completeVersion.getByTitle('复制最终正文').click(); await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  // Copy flavours: Markdown stays the toolbar behaviour, plain text drops the markers, rich text
+  // also fills text/html. The stub only exposes writeText, so the plain fallback is observable.
+  await completeVersion.getByTitle('复制最终正文').click({ button: 'right' });
+  const copyMenu = page.locator('.message-context-menu'); await copyMenu.waitFor();
+  const copyItems = await copyMenu.innerText();
+  assert.match(copyItems, /复制最终正文（Markdown）/); assert.match(copyItems, /复制最终正文（纯文本）/); assert.match(copyItems, /复制最终正文（富文本）/);
+  assert.doesNotMatch(copyItems, /复制选中/, '未选中文字时不应出现选区复制');
+  await copyMenu.getByRole('menuitem', { name: '复制最终正文（纯文本）' }).click();
+  await waitFor(page, () => window.__copiedAnswer === '最后一段正文。');
+  // With a selection the menu offers the selection first, in both flavours.
+  await completeVersion.locator('.message-content').first().evaluate(node => {
+    const range = document.createRange(); range.selectNodeContents(node);
+    const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  });
+  await completeVersion.getByTitle('复制最终正文').click({ button: 'right' });
+  const selectionMenu = page.locator('.message-context-menu'); await selectionMenu.waitFor();
+  assert.match(await selectionMenu.innerText(), /复制选中（纯文本）/);
+  await page.screenshot({ path: join(directory, 'copy-menu-selection.png') });
+  await selectionMenu.getByRole('menuitem', { name: '复制选中（纯文本）' }).click();
+  await waitFor(page, () => (window.__copiedAnswer || '').includes('正文'));
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
   await completeVersion.getByTitle('编辑为新版本').click();
   const answerEditor = page.locator('.edit-box textarea'); await answerEditor.waitFor();
   assert.equal(await answerEditor.inputValue(), '最后一段正文。', '编辑只载入最后一段正文');
