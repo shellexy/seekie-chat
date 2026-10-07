@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Star } from 'lucide-react';
 import usePopover from './usePopover';
@@ -49,11 +49,27 @@ export default function ModelPicker({ model, models, connections, favorites, rec
     else if (event.key === 'Escape') popover.trigger.current?.focus();
   }
   const label = model ? modelLabel(model, connections) : '选择模型';
+  // The label fades out at the edge rather than ending in an ellipsis. CSS alone cannot tell an
+  // overflowing element from a short one, and a mask on a short label would fade its last characters
+  // for no reason, so the component measures the text and only then asks for the mask.
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const element = labelRef.current;
+    if (!element) return;
+    const update = () => setClipped(element.scrollWidth > element.clientWidth + 1);
+    update();
+    // The label changes with the chosen model, with connection names and with the composer width, so
+    // the box is watched instead of measuring once on mount.
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [label]);
   return <>
-    <button ref={popover.trigger} className="model-picker-trigger" aria-label="聊天模型" aria-haspopup="listbox" aria-expanded={popover.open}
+    <button ref={popover.trigger} className={'model-select-trigger' + (clipped ? ' clipped' : '')} aria-label="聊天模型" aria-haspopup="listbox" aria-expanded={popover.open}
       title={model ? label : '选择模型'} disabled={disabled} onClick={popover.toggle}
       onKeyDown={e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); popover.show(); } }}>
-      <span>{label}</span>
+      <span ref={labelRef}>{label}</span>
       <ChevronDown size={12}/>
     </button>
     {popover.open && createPortal(<div ref={popover.panel} className="popover model-select-popover" role="listbox" aria-label="聊天模型" style={popover.position} onKeyDown={onKeyDown}>

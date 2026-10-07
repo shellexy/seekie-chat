@@ -315,12 +315,49 @@ try {
   assert.equal(await page.locator('.model-select-star.on').count(), 2);
   assert.deepEqual(await page.locator('.model-select-section').first().locator('[role="option"]').allTextContents(), ['模拟 chat | 本地模拟 chat']);
   assert.equal(await page.locator('.model-select-popover [role="option"]').count(), 5, '收藏区 1 条加上完整列表 4 条');
+  // The star owns the right edge of its row, so its alignment has to survive the generic
+  // `.popover button` rule as well as a class name that drifts away from its stylesheet rule.
+  const pickerStyle = await page.locator('.model-select-popover').evaluate(el => {
+    const panel = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    const stars = [...el.querySelectorAll('.model-select-star')], icons = stars.map(s => s.querySelector('svg').getBoundingClientRect());
+    const contentRight = panel.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+    return { gaps: [...new Set(icons.map(r => Math.round((contentRight - r.right) * 10) / 10))], justify: getComputedStyle(stars[0]).justifyContent, starWidth: getComputedStyle(stars[0]).width };
+  });
+  assert.deepEqual(pickerStyle.gaps, [0], '星标图标应贴住行内容右边缘，且所有行对齐成同一列');
+  assert.equal(pickerStyle.justify, 'flex-end', '.popover button 的 justify-content 会压过裸类名，星标规则必须挂在面板作用域下');
+  assert.equal(pickerStyle.starWidth, '26px', '星标点击区宽度不应被 padding 挤掉');
   await page.locator('.model-select-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
   assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['全部模型']);
   assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.favoriteModels.length), 0, '取消收藏应写回设置');
   await page.keyboard.press('Escape');
   await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
-  assert.equal(await page.locator('.header-title small').innerText(), '模拟 chat | 本地模拟 chat');
+  // Style regressions. Everything above only reads text and roles, so a class name that drifts away
+  // from its rule, or a rule that loses a specificity fight, passes the whole suite while the panel
+  // renders with the global button styles. Both happened here once already; these assertions are
+  // what makes the next one loud.
+  const triggerStyle = await modelSelector.evaluate(el => {
+    const label = el.querySelector('span'), cs = getComputedStyle(el);
+    return { border: cs.borderTopWidth, radius: cs.borderTopLeftRadius, background: cs.backgroundColor, whiteSpace: getComputedStyle(label).whiteSpace, clipped: el.classList.contains('clipped') };
+  });
+  assert.equal(triggerStyle.border, '0px', '模型选择按钮不应有边框');
+  assert.equal(triggerStyle.radius, '0px', '模型选择按钮不应有圆角盒');
+  assert.equal(triggerStyle.background, 'rgba(0, 0, 0, 0)', '模型选择按钮应无底色');
+  assert.equal(triggerStyle.whiteSpace, 'nowrap', '模型名称应单行显示');
+  assert.equal(triggerStyle.clipped, false, '名称未超出时不该加淡出遮罩');
+  // Force the overflow branch: the fixture names are short, so shrink the label box until it clips.
+  await toolbar.evaluate(el => { el.style.maxWidth = '96px'; });
+  await page.locator('.model-select-trigger.clipped').waitFor();
+  const clippedStyle = await modelSelector.evaluate(el => {
+    const label = el.querySelector('span'), ls = getComputedStyle(label);
+    return { mask: ls.maskImage || ls.webkitMaskImage, overflow: ls.textOverflow, scrollable: label.scrollWidth > label.clientWidth };
+  });
+  assert.ok(clippedStyle.scrollable, '收窄后名称文本确实应超出可视宽度');
+  assert.match(clippedStyle.mask, /linear-gradient/, '超长名称应淡出截断，而不是省略号');
+  assert.equal(clippedStyle.overflow, 'clip', '淡出截断时不应再显示省略号');
+  assert.equal(await modelSelector.evaluate(el => el.querySelector('span').getClientRects().length), 1, '名称应始终只有一行');
+  await toolbar.evaluate(el => { el.style.maxWidth = ''; });
+  await page.locator('.model-select-trigger.clipped').waitFor({ state: 'detached' }).catch(() => {});
+  await page.locator('.header-title small').innerText();
   assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);

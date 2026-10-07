@@ -972,12 +972,17 @@ summary {
   color: var(--muted);
   min-width: 0;
 }
+/* The composer button carries no border, box or padding of its own: the global `button` rule brings
+   all three, and a plain class has to override them explicitly or the model name renders as a
+   button-shaped box inside the toolbar. */
 .model-select-trigger {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
   border: 0;
+  border-radius: 0;
   padding: 4px 2px;
   background: transparent;
   color: var(--text);
@@ -985,8 +990,15 @@ summary {
 }
 .model-select-trigger span {
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* An overflowing name fades out at the edge instead of ending in an ellipsis. The mask is applied by
+   the component only once the text really reaches the border, since masking a short label would fade
+   its last characters for no reason. */
+.model-select-trigger.clipped span {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 18px);
+  mask-image: linear-gradient(to left, transparent, #000 18px);
 }
 /* The panel is drawn over the page (usePopover positions it in viewport coordinates), so it needs
    a fixed position, a scroll area for long lists and a stacking level above the composer. */
