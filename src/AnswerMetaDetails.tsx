@@ -6,7 +6,7 @@ import type { Usage } from './types';
 // One control for everything about a finished answer: which model answered, through which
 // connection, when, and what it cost. The popover keeps the usage metrics in the same
 // definition list the smoke tests and the docs already describe.
-export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage }) {
+export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage, effort, rolePresetName }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage; effort?: string; rolePresetName?: string }) {
   const popover = usePopover();
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
   const totalDuration = usage?.elapsedMs === undefined ? '--' : `${(usage!.elapsedMs / 1000).toFixed(2)} s`;
@@ -21,6 +21,8 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
       <div className="answer-meta-block">
         <p><strong>{modelName}</strong></p>
         <p>{connectionName}</p>
+        {effort && <p>思考等级：{effort}</p>}
+        {rolePresetName && <p>角色预设：{rolePresetName}</p>}
         <p>{messageDateTime(timestamp)}</p>
       </div>
       {usage && <>

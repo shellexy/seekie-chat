@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -141,7 +141,7 @@ export default function App() {
   const activeSearchIndex = chatSearchResults.length ? ((chatSearchIndex % chatSearchResults.length) + chatSearchResults.length) % chatSearchResults.length : 0;
   const model = state.settings.models.find(m => m.id === branch?.config.modelId);
   // 当前分支用的是哪个角色预设：按内容匹配，与会话选项里的下拉同一套判断，认不出就是自定义提示词。
-  const rolePreset = branch ? state.settings.promptPresets.find(p => p.content === branch.config.system) : undefined;
+  const rolePreset = branch ? rolePresetName(state.settings, branch.config.system) : undefined;
   const modelConnection = state.settings.connections.find(c => c.id === model?.connectionId);
   const modelProtocol = modelConnection ? effectiveProtocol(modelConnection, model) : 'chat';
   const samplingSupported = !!model?.temperature && !(['responses', 'anthropic'].includes(modelProtocol || '') && model?.reasoning !== 'none');
@@ -480,7 +480,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                             <small className="model-label" title={model ? modelLabel(model, state.settings.connections) : '选择模型'}>
                                 {model ? modelLabel(model, state.settings.connections) : '选择模型'}
                                 </small>
-                                {rolePreset && <small className="role-preset" title={`角色预设：${rolePreset.name}`}>{rolePreset.name}</small>}
+                                {rolePreset && <small className="role-preset" title={`角色预设：${rolePreset}`}>·{rolePreset}</small>}
                                 </div>
 </div>
       <div className="header-actions">
@@ -582,7 +582,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       return <MessageRow key={m.id} message={m} taskKind={task?.kind} searchHighlighted={searchHighlightMessage === m.id}
         editing={editing === m.id} editTexts={editTexts} siblings={siblings} versionIndex={versionIndex}
         forkCount={conversation!.branches.filter(b => b.originId === m.id).length}
-        modelName={messageModelLabel(m, state.settings.models)} connectionName={connectionLabel(m)} busy={busy} pending={pending}
+        modelName={messageModelLabel(m, state.settings.models)} connectionName={connectionLabel(m)} {...answerMetaExtras(state.settings, m)} busy={busy} pending={pending}
         onStartEdit={startEdit} onCancelEdit={() => setEditing(null)} onEditTextChange={(index, text) => setEditTexts(current => current.map((value, position) => position === index ? text : value))} onSubmitEdit={submitEdit}
         onCopy={copyToolbarBody} onRegenerate={regenerate} onBranch={createBranch} onVersion={version} onDebug={openDebug}
         onOpenAttachment={setPreviewAttachment} onContextMenu={openMessageMenu} onOpenExternal={openExternal} onNotice={toast}/>;

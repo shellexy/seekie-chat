@@ -120,7 +120,22 @@ async function assertUsageDetails(page, output = 60) {
   // The popover opens on a short hover delay; retry once in case the pointer entered mid-render.
   await trigger.hover();
   try { await tooltip.waitFor({ timeout: 2000 }); } catch { await trigger.hover(); await tooltip.waitFor(); }
-  assert.match(await tooltip.locator('.answer-meta-block').innerText(), /模拟 .+\s+本地模拟 .+\s+\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
+  const metaBlock = await tooltip.locator('.answer-meta-block').innerText();
+  assert.match(metaBlock, /模拟 .+\s+本地模拟 .+[\s\S]*\d{4}-\d{2}-\d{2} \d{2}:\d{2}/, '详情块应有模型名、连接名与时间');
+  // 连接名之后补上这条回答自己的思考等级与角色预设名。两项都按这条回答记下的东西算：思考
+  // 等级只有按等级配置的模型才有，角色预设名按提示词内容匹配，都认不出就不显示。
+  const expected = await page.evaluate(async id => {
+    const s = await window.deepchan.load(), m = s.conversations.flatMap(c => c.messages).find(x => x.id === id);
+    const model = s.settings.models.find(x => x.id === m?.modelId);
+    return {
+      effort: model?.reasoning === 'effort' ? (m?.config?.effort || '') : '',
+      role: s.settings.promptPresets.find(p => p.content === m?.config?.system)?.name || ''
+    };
+  }, id);
+  if (expected.effort) { assert.match(metaBlock, new RegExp(`思考等级：${expected.effort}`), '详情块应显示这条回答用的思考等级'); assert.ok(metaBlock.indexOf('思考等级') > metaBlock.indexOf('本地模拟'), '思考等级应排在连接名之后'); }
+  else assert.doesNotMatch(metaBlock, /思考等级：/, '不用思考等级的模型不应显示思考等级');
+  if (expected.role) { assert.match(metaBlock, new RegExp(`角色预设：${expected.role}`), '详情块应显示这条回答用的角色预设名'); assert.ok(metaBlock.indexOf('角色预设') > metaBlock.indexOf('思考等级') || !expected.effort, '角色预设名应排在思考等级之后'); }
+  else assert.doesNotMatch(metaBlock, /角色预设：/, '自定义提示词不应显示角色预设名');
   assert.deepEqual(await tooltip.locator('dt').allTextContents(), ['输入：','输入（缓存）：','输出：','总耗时：','速度：','首字耗时：']);
   const values = await tooltip.locator('dd').allTextContents();
   assert.deepEqual(values.slice(0, 3), ['120 token','30 token',`${output} token`]);
@@ -524,6 +539,7 @@ try {
   const roleLabel = page.locator('.header-title small.role-preset');
   assert.equal(await roleLabel.count(), 1, '顶栏应显示角色预设名');
   assert.equal((await roleLabel.innerText()).replace(/^·/, ''), await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(x => x.id === s.selectedId), b = c.branches.find(x => x.id === c.activeBranchId); return s.settings.promptPresets.find(p => p.content === b.config.system)?.name || ''; }), '显示的应是与分支提示词匹配的那个预设名');
+  assert.ok((await roleLabel.innerText()).startsWith('·'), `角色预设名前应有间隔点，实际：${await roleLabel.innerText()}`);
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);
   // 折叠状态的当前值保持弱化层级，展开后的选项列表提到正文色；只断言计算样式里的颜色，
   // 因为原生下拉弹层在无头环境里画不出来。

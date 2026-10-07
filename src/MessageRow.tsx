@@ -38,11 +38,11 @@ function AssistantContent({ message, taskKind }: { message: Message; taskKind?: 
   </>;
 }
 
-function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, siblings, versionIndex, forkCount, modelName, connectionName, busy, pending,
+function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, siblings, versionIndex, forkCount, modelName, connectionName, effort, rolePresetName, busy, pending,
   onStartEdit, onCancelEdit, onEditTextChange, onSubmitEdit, onCopy, onRegenerate, onBranch, onVersion, onDebug, onOpenAttachment, onContextMenu, onOpenExternal, onNotice
 }: {
   message: Message; taskKind?: string; searchHighlighted: boolean; editing: boolean; editTexts: string[]; siblings: Message[]; versionIndex: number; forkCount: number;
-  modelName: string; connectionName: string; busy: boolean; pending: boolean;
+  modelName: string; connectionName: string; effort?: string; rolePresetName?: string; busy: boolean; pending: boolean;
   onStartEdit: (message: Message) => void; onCancelEdit: () => void; onEditTextChange: (index: number, text: string) => void; onSubmitEdit: (message: Message) => void;
   onCopy: (message: Message) => void; onRegenerate: (message: Message) => void; onBranch: (message: Message) => void; onVersion: (message: Message) => void;
   onDebug: (message: Message) => void; onOpenAttachment: (attachment: Attachment) => void; onContextMenu: (message: Message, point: { x: number; y: number }) => void;
@@ -76,7 +76,7 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, 
           <span>{versionIndex + 1} / {siblings.length}</span>
           <button className="icon-button" title="下一个版本" disabled={versionIndex === siblings.length - 1 || siblings[versionIndex + 1]?.status === 'streaming'} onClick={() => onVersion(siblings[versionIndex + 1])}><ChevronRight size={13}/></button>
         </div>}
-        {role === 'assistant' && <AnswerMetaDetails modelName={modelName} connectionName={connectionName} timestamp={message.created} usage={message.usage}/>}
+        {role === 'assistant' && <AnswerMetaDetails modelName={modelName} connectionName={connectionName} timestamp={message.created} usage={message.usage} effort={effort} rolePresetName={rolePresetName}/>}
       </div>
     </>}
   </article>;
@@ -96,6 +96,7 @@ function propsEqual(previous: Parameters<typeof MessageRow>[0], next: Parameters
   return previous.editing === next.editing && previous.editTexts.join('\u0000') === next.editTexts.join('\u0000') && previous.searchHighlighted === next.searchHighlighted
     && previous.busy === next.busy && previous.pending === next.pending && previous.taskKind === next.taskKind
     && previous.modelName === next.modelName && previous.connectionName === next.connectionName
+    && previous.effort === next.effort && previous.rolePresetName === next.rolePresetName
     && previous.versionIndex === next.versionIndex && previous.forkCount === next.forkCount && previous.siblings.length === next.siblings.length
     && sameNeighbour(-1) && sameNeighbour(1) && sameMessage(previous.message, next.message);
 }
