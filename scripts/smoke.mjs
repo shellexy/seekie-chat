@@ -70,9 +70,9 @@ async function waitFor(page, predicate, arg, { timeout = 10000 } = {}) {
 // only; .first() because a favourited model is listed in more than one section.
 async function pickModel(page, name) {
   await page.getByRole('button', { name: '聊天模型' }).first().click();
-  await page.locator('.model-picker-popover').waitFor();
-  await page.locator('.model-picker-popover').getByRole('option', { name }).first().click();
-  await page.locator('.model-picker-popover').waitFor({ state: 'hidden' });
+  await page.locator('.model-select-popover').waitFor();
+  await page.locator('.model-select-popover').getByRole('option', { name }).first().click();
+  await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
 }
 async function lengthenActiveHistory(page) {
   return await page.evaluate(async () => {
@@ -303,23 +303,23 @@ try {
   assert.equal(await modelSelector.getAttribute('title'), '模拟 chat | 本地模拟 chat');
   // The drawn list keeps the native select's alphabetical order, and the full list stays complete.
   await modelSelector.click();
-  await page.locator('.model-picker-popover').waitFor();
-  assert.equal(await page.locator('.model-picker-popover').getByRole('option').count(), 4, '每个模型都应出现在完整列表里');
-  assert.deepEqual(await page.locator('.model-picker-popover [role="option"]').allTextContents(), ['模拟 anthropic | 本地模拟 anthropic', '模拟 chat | 本地模拟 chat', '模拟 gemini | 本地模拟 gemini', '模拟 responses | 本地模拟 responses']);
-  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['全部模型'], '还没有收藏时只显示完整列表');
+  await page.locator('.model-select-popover').waitFor();
+  assert.equal(await page.locator('.model-select-popover').getByRole('option').count(), 4, '每个模型都应出现在完整列表里');
+  assert.deepEqual(await page.locator('.model-select-popover [role="option"]').allTextContents(), ['模拟 anthropic | 本地模拟 anthropic', '模拟 chat | 本地模拟 chat', '模拟 gemini | 本地模拟 gemini', '模拟 responses | 本地模拟 responses']);
+  assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['全部模型'], '还没有收藏时只显示完整列表');
   // Starring a model adds a 收藏 section above the list and takes the model out of 最近使用.
-  await page.locator('.model-picker-popover').getByRole('button', { name: '收藏 模拟 chat' }).first().click();
-  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['收藏', '全部模型']);
+  await page.locator('.model-select-popover').getByRole('button', { name: '收藏 模拟 chat' }).first().click();
+  assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['收藏', '全部模型']);
   // A favourited model is starred in both places it is listed: the shortcut section above and the
   // complete list below, which stays complete on purpose.
-  assert.equal(await page.locator('.model-picker-star.on').count(), 2);
-  assert.deepEqual(await page.locator('.model-picker-section').first().locator('[role="option"]').allTextContents(), ['模拟 chat | 本地模拟 chat']);
-  assert.equal(await page.locator('.model-picker-popover [role="option"]').count(), 5, '收藏区 1 条加上完整列表 4 条');
-  await page.locator('.model-picker-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
-  assert.deepEqual(await page.locator('.model-picker-heading').allTextContents(), ['全部模型']);
+  assert.equal(await page.locator('.model-select-star.on').count(), 2);
+  assert.deepEqual(await page.locator('.model-select-section').first().locator('[role="option"]').allTextContents(), ['模拟 chat | 本地模拟 chat']);
+  assert.equal(await page.locator('.model-select-popover [role="option"]').count(), 5, '收藏区 1 条加上完整列表 4 条');
+  await page.locator('.model-select-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
+  assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['全部模型']);
   assert.equal(await page.evaluate(async () => (await window.deepchan.load()).settings.favoriteModels.length), 0, '取消收藏应写回设置');
   await page.keyboard.press('Escape');
-  await page.locator('.model-picker-popover').waitFor({ state: 'hidden' });
+  await page.locator('.model-select-popover').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('.header-title small').innerText(), '模拟 chat | 本地模拟 chat');
   assert.equal(await page.locator('.header-title small').getAttribute('title'), '模拟 chat | 本地模拟 chat');
   assert.equal(await toolbar.getByRole('combobox', { name: '思考等级' }).count(), 1);

@@ -972,7 +972,7 @@ summary {
   color: var(--muted);
   min-width: 0;
 }
-.model-picker-trigger {
+.model-select-trigger {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -983,68 +983,76 @@ summary {
   color: var(--text);
   font-size: 11px;
 }
-.model-picker-trigger span {
+.model-select-trigger span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* The panel is drawn over the page (usePopover positions it in viewport coordinates), so it needs
    a fixed position, a scroll area for long lists and a stacking level above the composer. */
-.model-picker-popover {
+.model-select-popover {
   position: fixed;
   z-index: 90;
   width: 300px;
   max-width: calc(100vw - 16px);
-  max-height: min(420px, 60vh);
+  max-height: min(560px, 72vh);
   padding: 5px;
   overflow-y: auto;
 }
-.model-picker-section + .model-picker-section {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid var(--line);
+/* Groups are separated by spacing and the muted heading alone: a rule between every section made a
+   long list look like three separate tables. */
+.model-select-section + .model-select-section {
+  margin-top: 6px;
 }
-.model-picker-heading {
-  padding: 7px 8px 5px;
+.model-select-heading {
+  padding: 6px 8px 4px;
   color: var(--muted);
   font-size: 10px;
 }
-.model-picker-row {
+.model-select-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
 }
-.model-picker-row > .model-picker-name {
+.model-select-row > .model-select-label {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 5px 4px 5px 8px;
   font-size: 12px;
   color: var(--text);
 }
-.model-picker-row > .model-picker-name span {
+.model-select-row > .model-select-label span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.model-picker-row > .model-picker-name[aria-selected="true"] {
+.model-select-row > .model-select-label[aria-selected="true"] {
   color: var(--accent);
 }
-/* Star sits on the right of every row, so a model can be favourited straight from the list. */
-.model-picker-star {
+/* Star sits in a fixed column hard against the right edge, so every row's star lines up no matter
+   how long the model name is. It stays invisible until hover unless the model is already a
+   favourite, which keeps the list readable while still offering the action on every row. */
+.model-select-star {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
   color: var(--muted);
   opacity: 0;
 }
-.model-picker-row:hover .model-picker-star,
-.model-picker-star:focus-visible,
-.model-picker-star.on {
+.model-select-row:hover .model-select-star,
+.model-select-star:focus-visible,
+.model-select-star.on {
   opacity: 1;
 }
-.model-picker-star.on {
+.model-select-star.on {
   color: var(--accent);
 }
 .composer-option {
