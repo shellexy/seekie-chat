@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -533,6 +534,33 @@ test('deepseek search stays out of the automatic chain unless it is picked expli
   assert.equal(externalSearchAvailable('deepseek', settings), true);
   // 会话里直接选它也照常工作。
   assert.equal(resolveSearch(settings, 'm', 'deepseek'), 'deepseek');
+});
+
+test('the one-click free model adds the agreed connection and model and passes validation', () => {
+  const settings = initialState().settings;
+  const next = freeModelSettings(settings);
+  assert.equal(next.connections.length, 1);
+  assert.equal(next.models.length, 1);
+  const connection: Connection = next.connections[0], model: Model = next.models[0];
+  assert.equal(connection.name, 'OpenRouter·Kilo');
+  assert.equal(connection.protocol, 'chat');
+  assert.equal(connection.baseUrl, 'https://api.kilo.ai/api/openrouter');
+  assert.equal(connection.apiKey, 'anonymous');
+  assert.equal(model.connectionId, connection.id);
+  assert.equal(model.name, 'Auto Free');
+  assert.equal(model.model, 'kilo-auto/free');
+  assert.equal(model.contextWindow, 256_000);
+  assert.equal(model.maxOutput, 65_536);
+  assert.equal(model.vision, true);
+  assert.equal(model.tools, true);
+  assert.equal(model.reasoning, 'effort');
+  assert.equal(model.defaultEffort, 'low');
+  assert.equal(defaultModelEffort(model), 'low', '切换到这个模型时应默认用 low');
+  assert.equal(next.defaultModel, model.id, '还没有默认模型时选它');
+  // 落盘要过校验：id、地址、上下文与输出上限都得立即可用。
+  assert.deepEqual(settingsProblems(next), []);
+  // 已经有默认模型时不覆盖用户的选择。
+  assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
 });
 
 test('tool output that happens to be JSON is indented for reading, and only for reading', () => {

@@ -189,6 +189,19 @@ p {
   font-size: 12px;
   align-self: start;
 }
+/* 提示文字下方的一行文字链接：单独占一行，看起来像链接而不像按钮。 */
+.text-link {
+  display: block;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.text-link:hover {
+  text-decoration: underline;
+}
 .app-shell {
   display: flex;
   height: 100dvh;
@@ -556,7 +569,7 @@ p {
   gap: 7px;
   font-size: 11px;
   color: var(--muted);
-  margin-top: 38px;
+  margin-top: 20px;
 }
 .starter-grid {
   display: flex;

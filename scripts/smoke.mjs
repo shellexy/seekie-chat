@@ -95,6 +95,14 @@ async function openSettingsTab(page, name, id) {
   await page.locator('.settings-nav').getByRole('button', { name }).click();
   await waitFor(page, expected => !!document.querySelector(`.settings-content.${expected}`), id);
 }
+// 一键添加免费体验模型的用例会把连接写进数据；后面的阶段要从"还没有任何连接"开始，先复原再继续。
+async function resetConnections(page) {
+  await page.evaluate(async () => {
+    const state = await window.seekie.load();
+    state.settings.connections = []; state.settings.models = []; state.settings.defaultModel = '';
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
+  });
+}
 async function lengthenActiveHistory(page) {
   return await page.evaluate(async () => {
     const state = await window.seekie.load();
@@ -249,6 +257,21 @@ try {
   }
   assert.equal(await page.locator('.local-note').count(), 0, '隐藏侧栏底部本地保存提示');
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
+  console.log('stage: free model');
+  // 欢迎页的一键添加：不需要自己的 API Key 就能开始聊。
+  assert.equal(await page.locator('.welcome .text-link').count(), 1, '欢迎页应提供一键添加免费模型的入口');
+  await page.locator('.welcome .text-link').click();
+  await waitFor(page, async () => (await window.seekie.load()).settings.models.some(m => m.model === 'kilo-auto/free'));
+  const freeModel = await page.evaluate(async () => {
+    const state = await window.seekie.load(), model = state.settings.models.find(m => m.model === 'kilo-auto/free'), connection = state.settings.connections.find(c => c.id === model.connectionId);
+    return { name: connection.name, protocol: connection.protocol, baseUrl: connection.baseUrl, apiKey: connection.apiKey, label: model.name, contextWindow: model.contextWindow, maxOutput: model.maxOutput, vision: model.vision, tools: model.tools, reasoning: model.reasoning, defaultEffort: model.defaultEffort, isDefault: state.settings.defaultModel === model.id };
+  });
+  assert.deepEqual(freeModel, {
+    name: 'OpenRouter·Kilo', protocol: 'chat', baseUrl: 'https://api.kilo.ai/api/openrouter', apiKey: '••••••••',
+    label: 'Auto Free', contextWindow: 256_000, maxOutput: 65_536, vision: true, tools: true,
+    reasoning: 'effort', defaultEffort: 'low', isDefault: true
+  }, '一键添加应写入约定的连接与模型');
+  await resetConnections(page);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();
   const settingsControls = page.getByRole('toolbar', { name: '窗口控件' });
@@ -257,9 +280,19 @@ try {
   const settingsViewportWidth = await page.evaluate(() => innerWidth);
   assert.equal(settingsControlBounds.y, 0);
   assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
+  // 设置页的空状态也提供同一个入口；点完再复原，后面的阶段从零开始配预设。
+  assert.equal(await page.locator('.empty-card .text-link').count(), 1, '没有连接时设置页也应提供一键添加入口');
+  await page.locator('.empty-card .text-link').click();
+  await waitFor(page, async () => (await window.seekie.load()).settings.connections.some(c => c.name === 'OpenRouter·Kilo'));
+  assert.equal(await page.locator('.connection-tabs button').count(), 1, '一键添加后应出现连接标签');
+  assert.equal(await page.getByLabel('连接名称', { exact: true }).inputValue(), 'OpenRouter·Kilo');
+  await page.getByTitle('返回聊天', { exact: true }).click();
+  await page.locator('.settings-page').waitFor({ state: 'hidden' });
+  await resetConnections(page);
+  await page.getByRole('button', { name: /^设置/ }).click();
   // “DeepSeek” 排在最前且使用 OpenAI 兼容协议；只有 Anthropic 预设才带原生搜索。
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek');
-  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek · Anthropic', 'OpenAI', 'OpenRouter', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
+  assert.deepEqual(await page.locator('.preset-row button').allTextContents(), ['DeepSeek', 'DeepSeek·Anthropic', 'OpenAI', 'OpenRouter', 'Anthropic', 'Gemini', 'Ollama', 'Ollama Cloud', '自定义兼容服务']);
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
   }
@@ -296,7 +329,7 @@ try {
   for (const name of ['图片输入', '工具调用']) assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), false, 'OpenAI 兼容协议不提供服务端原生搜索');
   // Anthropic 预设保留，仍带原生搜索。
-  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek · Anthropic', exact: true }).click();
+  await page.locator('.preset-row').getByRole('button', { name: 'DeepSeek·Anthropic', exact: true }).click();
   assert.equal(await page.getByLabel(/^接口协议/).inputValue(), 'anthropic');
   assert.equal(await page.getByLabel(/^Base URL/).inputValue(), 'https://api.deepseek.com/anthropic');
   assert.equal(await page.getByLabel('原生搜索', { exact: true }).isChecked(), true, 'Anthropic 协议提供服务端原生搜索');
@@ -426,6 +459,8 @@ try {
   await page.getByLabel(/^新对话默认角色/).selectOption(roleId);
   // 改动不再要手动保存：切换设置项时自动写盘，切回来内容还在。
   await openSettingsTab(page, '联网搜索', 'search');
+  // 自动保存要明说一声，别让人以为改动没落地。
+  assert.match(await page.locator('.toast').innerText(), /已经自动保存/, '自动保存后应提示"已经自动保存"');
   await openSettingsTab(page, '系统提示词库', 'prompts');
   assert.equal(await page.getByLabel('角色名称', { exact: true }).first().inputValue(), '测试研究助手', '切换设置项后改动应保留');
   assert.equal(await page.getByLabel('角色系统提示词', { exact: true }).first().inputValue(), '你是测试研究助手，优先使用证据回答。', '切换设置项后提示词应保留');

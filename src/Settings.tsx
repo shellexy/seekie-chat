@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeft, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
 import { api } from './api';
 import { settingsProblems } from './validation';
-import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
+import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, freeModelSettings, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
 import type { Connection, Model, ServerModel, Settings as SettingsType } from './types';
 import WindowControls from './WindowControls';
 const saved = '••••••••';
@@ -12,7 +12,7 @@ const templates = [
   // OpenAI Chat，搜索改用显式的 DeepSeek Search（按次计费、可见、可控）；仍想要服务端
   // 搜索的人再选旁边的 Anthropic 预设。
   { name: 'DeepSeek', protocol: 'chat', baseUrl: 'https://api.deepseek.com/' },
-  { name: 'DeepSeek · Anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
+  { name: 'DeepSeek·Anthropic', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic' },
   // OpenAI 预设默认走 Responses：推理摘要等新特性只有它有。想用 Chat Completions 的人
   // 可以在连接里改协议。
   { name: 'OpenAI', protocol: 'responses', baseUrl: 'https://api.openai.com/v1' },
@@ -49,13 +49,13 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     const t = templates[index];
     // responsesForGpt 默认开启：gpt 模型走 Responses 协议才能用上推理摘要等新特性。
     const c: Connection = { name: t.name, protocol: t.protocol, baseUrl: t.baseUrl, id: uid(), apiKey: '', headers: {}, timeout: 120, proxy: '', responsesForGpt: true };
-    const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek · Anthropic';
+    const deepSeekPreset = t.name === 'DeepSeek' || t.name === 'DeepSeek·Anthropic';
     const presetModel: Model | undefined = deepSeekPreset ? {
       id: uid(), connectionId: c.id, name: 'DeepSeek-Flash', model: 'deepseek-flash',
       // 上下文与最大输出取服务端 /models 报告的值：1048576 / 393216（384K）。
       contextWindow: 1_048_576, maxOutput: 393_216, vision: true, tools: true,
       // 原生搜索只有 Anthropic 协议提供；OpenAI Chat 预设下改用显式的 DeepSeek 搜索。
-      nativeSearch: t.name === 'DeepSeek · Anthropic',
+      nativeSearch: t.name === 'DeepSeek·Anthropic',
       // 思考等级跟随官方新版：none / low / high / max，没有 medium 也没有 xhigh。none 是明确
       // 关闭思考；等级里没有 medium 时 defaultModelEffort 会落到首项，因此预设显式指定
       // high——官方文档说明默认档位也正是 high。
@@ -130,13 +130,14 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     return next;
   }) }); }
   /** 组装要写盘的设置：修掉指向已删除模型的 id，并把正在编辑的请求头文本解析进连接。 */
-  function buildNext(): SettingsType {
-    const ids = new Set(draft.models.map(m => m.id));
-    const next: SettingsType = { ...draft, defaultModel: ids.has(draft.defaultModel) ? draft.defaultModel : draft.models[0]?.id || '', titleModel: ids.has(draft.titleModel) ? draft.titleModel : '', compressionModel: ids.has(draft.compressionModel) ? draft.compressionModel : '',
+  function buildNext(source: SettingsType): SettingsType {
+    const ids = new Set(source.models.map(m => m.id));
+    const next: SettingsType = { ...source, defaultModel: ids.has(source.defaultModel) ? source.defaultModel : source.models[0]?.id || '', titleModel: ids.has(source.titleModel) ? source.titleModel : '', compressionModel: ids.has(source.compressionModel) ? source.compressionModel : '',
       // A deleted model leaves its id behind in both shortcuts; dropping it here keeps the picker
       // sections and the new-chat default from carrying ids that resolve to nothing.
-      favoriteModels: draft.favoriteModels.filter(id => ids.has(id)), recentModels: draft.recentModels.filter(id => ids.has(id)) };
-    if (headersEditing && connection) { let headers: unknown; try { headers = JSON.parse(headersText); } catch { throw new Error('自定义请求头必须是有效 JSON'); } if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(v => typeof v !== 'string')) throw new Error('请求头应为字符串值的 JSON 对象'); next.connections = next.connections.map(c => c.id === selected ? { ...c, headers: headers as Record<string,string> } : c); }
+      favoriteModels: source.favoriteModels.filter(id => ids.has(id)), recentModels: source.recentModels.filter(id => ids.has(id)) };
+    const target = source.connections.find(c => c.id === selected);
+    if (headersEditing && target) { let headers: unknown; try { headers = JSON.parse(headersText); } catch { throw new Error('自定义请求头必须是有效 JSON'); } if (!headers || Array.isArray(headers) || typeof headers !== 'object' || Object.values(headers).some(v => typeof v !== 'string')) throw new Error('请求头应为字符串值的 JSON 对象'); next.connections = next.connections.map(c => c.id === selected ? { ...c, headers: headers as Record<string,string> } : c); }
     return next;
   }
   /** 保存后密钥不再明文留在草稿里：输入框回到"已设置"的占位符，与重新载入磁盘时一致。 */
@@ -147,15 +148,16 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   }
   /**
    * 把草稿写盘。串行执行：连点切换设置项时，后一次要等前一次写完再写。
+   * 传 source 表示要写的是另一份设置（一键添加免费模型时已经算好了）。
    * 存不下来就返回 false——草稿留在页面上，用户看得见问题，也能改完再试。
    */
-  async function persist(): Promise<boolean> {
+  async function persist(source?: SettingsType): Promise<boolean> {
     const run = async (): Promise<boolean> => {
-      if (!dirty.current) return true;
+      if (!source && !dirty.current) return true;
       const at = version.current;
       try {
         if (mounted.current) setStatus('saving');
-        const next = buildNext();
+        const next = buildNext(source || draft);
         // One shared rule set for the settings page, the save path and backup import.
         const problem = settingsProblems(next)[0];
         if (problem) throw new Error(problem);
@@ -170,6 +172,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
           clearTimeout(statusTimer.current);
           statusTimer.current = setTimeout(() => { if (mounted.current) setStatus('idle'); }, 2000);
         }
+        toast('已经自动保存');
         return true;
       } catch (e) {
         if (mounted.current) setStatus('idle');
@@ -185,6 +188,16 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   async function switchTab(id: string) { if (id === tab) return; if (!(await persist())) return; setTab(id); }
   /** 离开设置页面前同样先写盘。 */
   async function close() { if (!(await persist())) return; onClose(); }
+  /** 一键添加免费体验模型：加好连接与模型并立刻写盘。 */
+  async function addFreeModel() {
+    const next = freeModelSettings(draft);
+    // 加好之后直接选中这条连接，否则页面还停在"先从上方添加一个连接"。
+    setSelected(next.connections[next.connections.length - 1].id);
+    setFound([]); setHeadersEditing(false);
+    dirty.current = true; version.current++; setPending(true);
+    setDraft(next);
+    await persist(next);
+  }
   useEffect(() => { persistRef.current = persist; });
   useEffect(() => () => {
     mounted.current = false;
@@ -241,7 +254,7 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
       </div>, document.body)}
       <div className="section-heading"><h3>此连接的模型</h3><button onClick={() => addModel()}><Plus size={15}/>手动添加</button></div>
       {[...draft.models].filter(m => m.connectionId === selected).sort((a, b) => (a.name || a.model).localeCompare(b.name || b.model, 'zh-Hans-CN', { numeric: true }) || a.id.localeCompare(b.id)).map(m => <div className="settings-card" key={m.id}><div className="card-heading"><h3>{m.name || '新模型'}</h3><button className="icon-button danger" title="删除模型" onClick={() => change({ models: draft.models.filter(x => x.id !== m.id) })}><Trash2 size={16}/></button></div><div className="form-grid"><label className="field">展示名称<input value={m.name} onChange={e => updateModel(m.id, { name: e.target.value })}/></label><label className="field">模型 ID<input placeholder="供应商提供的准确模型 ID" value={m.model} onChange={e => updateModel(m.id, { model: e.target.value, name: m.name === '新模型' ? e.target.value : m.name })}/></label><label className="field">上下文窗口（token）<input type="number" value={m.contextWindow} onChange={e => updateModel(m.id, { contextWindow: Number(e.target.value) })}/></label><label className="field">最大输出（token）<input type="number" value={m.maxOutput} onChange={e => updateModel(m.id, { maxOutput: Number(e.target.value) })}/></label></div>
-      <div className="check-row">{([['vision', '图片输入'], ['tools', '工具调用'], ['nativeSearch', '原生搜索'], ['videoInput', '视频输入'], ['audioInput', '音频输入'], ['pdfInput', 'PDF 输入']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={m[key] || false} onChange={e => updateModel(m.id, { [key]: e.target.checked })}/>{label}</label>)}</div><label className="field">思考参数<select value={m.reasoning} onChange={e => updateModel(m.id, { reasoning: e.target.value as Model['reasoning'] })}><option value="none">不发送思考参数</option><option value="effort">思考等级（effort）</option><option value="budget">思考预算（Anthropic / Gemini）</option></select></label>{m.reasoning === 'effort' && <label className="field">支持的等级（逗号分隔）<input value={m.efforts.join(',')} onChange={e => updateModel(m.id, { efforts: e.target.value.split(',').map(x => x.trim()) })}/></label>}{m.reasoning === 'effort' && m.defaultEffort && <small className="muted">切换到此模型时默认使用 {m.defaultEffort}</small>}{connection.protocol === 'chat' && <><label className="field">最大输出参数<select value={m.outputTokenField || 'max_completion_tokens'} onChange={e => updateModel(m.id, { outputTokenField: e.target.value as Model['outputTokenField'] })}><option value="max_completion_tokens">max_completion_tokens（OpenAI）</option><option value="max_tokens">max_tokens（部分兼容服务）</option></select></label><label className="toggle-row">请求流式 token 用量<input type="checkbox" checked={m.streamUsage !== false} onChange={e => updateModel(m.id, { streamUsage: e.target.checked })}/></label></>}<small className="muted">{connection.protocol === 'gemini' ? 'Gemini 3 及以上可使用思考等级，Gemini 2.5 使用思考预算；支持的等级因模型而异，请按模型文档配置。' : '根据供应商文档配置能力。Chat Completions 不提供统一的原生搜索接口。'}</small></div>)}</> : <div className="empty-card">先从上方添加一个连接，然后配置模型。</div>}</>}
+      <div className="check-row">{([['vision', '图片输入'], ['tools', '工具调用'], ['nativeSearch', '原生搜索'], ['videoInput', '视频输入'], ['audioInput', '音频输入'], ['pdfInput', 'PDF 输入']] as const).map(([key, label]) => <label key={key}><input type="checkbox" checked={m[key] || false} onChange={e => updateModel(m.id, { [key]: e.target.checked })}/>{label}</label>)}</div><label className="field">思考参数<select value={m.reasoning} onChange={e => updateModel(m.id, { reasoning: e.target.value as Model['reasoning'] })}><option value="none">不发送思考参数</option><option value="effort">思考等级（effort）</option><option value="budget">思考预算（Anthropic / Gemini）</option></select></label>{m.reasoning === 'effort' && <label className="field">支持的等级（逗号分隔）<input value={m.efforts.join(',')} onChange={e => updateModel(m.id, { efforts: e.target.value.split(',').map(x => x.trim()) })}/></label>}{m.reasoning === 'effort' && m.defaultEffort && <small className="muted">切换到此模型时默认使用 {m.defaultEffort}</small>}{connection.protocol === 'chat' && <><label className="field">最大输出参数<select value={m.outputTokenField || 'max_completion_tokens'} onChange={e => updateModel(m.id, { outputTokenField: e.target.value as Model['outputTokenField'] })}><option value="max_completion_tokens">max_completion_tokens（OpenAI）</option><option value="max_tokens">max_tokens（部分兼容服务）</option></select></label><label className="toggle-row">请求流式 token 用量<input type="checkbox" checked={m.streamUsage !== false} onChange={e => updateModel(m.id, { streamUsage: e.target.checked })}/></label></>}<small className="muted">{connection.protocol === 'gemini' ? 'Gemini 3 及以上可使用思考等级，Gemini 2.5 使用思考预算；支持的等级因模型而异，请按模型文档配置。' : '根据供应商文档配置能力。Chat Completions 不提供统一的原生搜索接口。'}</small></div>)}</> : <div className="empty-card">先从上方添加一个连接，然后配置模型。<button className="text-link" onClick={() => void addFreeModel()}>还没有 API？点击一键添加免费体验模型</button></div>}</>}
     {tab === 'roles' && <><h2>模型与上下文</h2><div className="settings-card">{chooseModel('默认聊天模型', 'defaultModel')}{chooseModel('对话标题生成模型', 'titleModel', true)}{chooseModel('历史压缩模型', 'compressionModel', true)}<p className="muted">标题和压缩请求会发送到对应模型的连接，并产生独立 API 用量。修改默认聊天模型仅影响新会话。</p></div><div className="settings-card"><h3>新对话的模型</h3><label className="toggle-row">新对话使用最近使用的模型<input type="checkbox" checked={draft.useRecentModel} onChange={e => change({ useRecentModel: e.target.checked })}/></label><p className="muted">开启后新建对话会接着你最近用过的模型（切换模型即记入，一次回答跑完再置顶）；此时“默认聊天模型”只在还没有任何使用记录时生效。关闭后每个新对话都从“默认聊天模型”开始。已有会话不受影响。</p></div><div className="settings-card"><label className="toggle-row">自动压缩历史<input type="checkbox" checked={draft.autoCompress} onChange={e => change({ autoCompress: e.target.checked })}/></label><label className="field">触发阈值：上下文窗口的 {Math.round(draft.compressionThreshold * 100)}%<input type="range" min="0.4" max="0.9" step="0.05" value={draft.compressionThreshold} onChange={e => change({ compressionThreshold: Number(e.target.value) })}/></label><p className="muted">按估算 token 预算触发；压缩后至少保留最近两轮，并按当前聊天模型上下文窗口额外保留到 10% 预算，最多 50k token。原始聊天记录始终保存在本地。</p></div></>}
     {tab === 'prompts' && <><h2>系统提示词库 / 角色预设</h2><p className="muted">在聊天输入框的“会话选项”中选择角色。提示词会复制到当前分支，可继续编辑；修改或删除库中的角色不会改变已有分支。</p>
       <div className="settings-card"><label className="field">新对话默认角色<select value={draft.defaultPromptPresetId || generalRole?.id || ''} onChange={e => change({ defaultPromptPresetId: e.target.value })}>{/* 角色库里已经有"通用助手"时，这个写死的兜底项与它内容相同、名字又一样，

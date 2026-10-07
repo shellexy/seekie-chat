@@ -23,6 +23,8 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 开始聊天
 
+还没有 API Key 时，设置页“模型服务”的空状态和新建对话页都提供“还没有 API？点击一键添加免费体验模型”：一键添加一条 `OpenRouter·Kilo` 连接（OpenAI 兼容协议，地址 `https://api.kilo.ai/api/openrouter`，密钥固定为 `anonymous`）和模型 `Auto Free`（模型 ID `kilo-auto/free`，上下文 256,000 token、最大输出 65,536 token，启用图片输入与工具调用，思考参数为思考等级、默认 `low`），加好即可直接开始聊。
+
 1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek（Anthropic Messages）、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1` 或 `/v1beta`，不要包含 `/responses`、`/messages` 等端点。
 3. 测试连接获取模型列表，或手动添加供应商提供的准确模型 ID。“添加服务端模型”对话框的列表上方有搜索框，按展示名或模型 ID 过滤，右侧显示匹配数；“全选”只作用于当前筛选出的模型。
@@ -30,7 +32,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 5. 选择默认聊天模型。标题模型和压缩模型可以独立选择，也可以继承聊天模型。
 6. 切换到别的设置项或返回聊天，改动会自动保存，新建对话即可。
 
-DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek · Anthropic”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`（展示名称写作“DeepSeek-Flash”，模型 ID 仍是服务端的 `deepseek-flash`），上下文窗口为 1,048,576 token、最大输出为 393,216 token（384K），启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。OpenAI 预设名为“+ OpenAI”，默认使用 Responses 协议（推理摘要等新特性只有它有）；想用 Chat Completions 的人可以在连接里改协议。Responses 协议的请求会显式带上 `store: false`：该字段省略时默认是 true，OpenAI 会把这次回答存在服务端并且不再把思考内容交回来，思考摘要因此不显示；本客户端是本地优先的，对话本来就不该留在 OpenAI 那边。两家的思考事件名也不同——OpenAI 发 `response.reasoning_summary_text.delta`（摘要），DeepSeek 的 Responses 接口发 `response.reasoning_text.delta`（思维链原文，其文档明确说明 `summary` 可传入但不生成摘要），客户端两种都认。Responses 服务的流式帧还会在 `data:` 之前多写一行 `event:`，解析器按 `data:` 前缀取内容，这两种帧格式都要支持。模型服务预设新增“+ OpenRouter”：OpenAI Chat 兼容的模型聚合服务，地址 `https://openrouter.ai/api/v1`，模型 ID 带厂商前缀（如 `openai/gpt-6`），从服务端列表添加时会带上它报告的上下文长度与模态。以 OpenAI 兼容协议连接时，“GPT 模型自动使用 Responses 协议”默认开启，模型 ID 形如 `gpt-6-astra`、`gpt-6-luna`、`gpt-6.1-sol` 的模型会改用 Responses 协议，`gpt-oss` 等不匹配的模型仍走 Chat Completions；该选项可随时关闭。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
+DeepSeek 官方提供 Anthropic、OpenAI 兼容与 Responses 三种协议，但**只有 Anthropic 协议提供服务端内置搜索**，且该内置搜索按官方说明将于 2026 年 11 月 1 日起按次收费。因此提供两个预设：“+ DeepSeek”使用 OpenAI 兼容协议与 `https://api.deepseek.com/`（自动拼成 `/v1/chat/completions`），联网搜索改用显式的“DeepSeek 搜索”，调用次数、来源与费用都可见可控；“+ DeepSeek·Anthropic”使用 Anthropic Messages 与 `https://api.deepseek.com/anthropic`，保留服务端原生搜索。两者都自动添加 `deepseek-flash`（展示名称写作“DeepSeek-Flash”，模型 ID 仍是服务端的 `deepseek-flash`），上下文窗口为 1,048,576 token、最大输出为 393,216 token（384K），启用图片输入与工具调用，思考参数默认选择“思考等级（effort）”；只有 Anthropic 预设勾选原生搜索。已存在的连接不受预设改动影响，仍按各自的协议继续使用。填写你自己的 API Key 后保存即可。OpenAI 预设名为“+ OpenAI”，默认使用 Responses 协议（推理摘要等新特性只有它有）；想用 Chat Completions 的人可以在连接里改协议。Responses 协议的请求会显式带上 `store: false`：该字段省略时默认是 true，OpenAI 会把这次回答存在服务端并且不再把思考内容交回来，思考摘要因此不显示；本客户端是本地优先的，对话本来就不该留在 OpenAI 那边。两家的思考事件名也不同——OpenAI 发 `response.reasoning_summary_text.delta`（摘要），DeepSeek 的 Responses 接口发 `response.reasoning_text.delta`（思维链原文，其文档明确说明 `summary` 可传入但不生成摘要），客户端两种都认。Responses 服务的流式帧还会在 `data:` 之前多写一行 `event:`，解析器按 `data:` 前缀取内容，这两种帧格式都要支持。模型服务预设新增“+ OpenRouter”：OpenAI Chat 兼容的模型聚合服务，地址 `https://openrouter.ai/api/v1`，模型 ID 带厂商前缀（如 `openai/gpt-6`），从服务端列表添加时会带上它报告的上下文长度与模态。以 OpenAI 兼容协议连接时，“GPT 模型自动使用 Responses 协议”默认开启，模型 ID 形如 `gpt-6-astra`、`gpt-6-luna`、`gpt-6.1-sol` 的模型会改用 Responses 协议，`gpt-oss` 等不匹配的模型仍走 Chat Completions；该选项可随时关闭。自定义兼容服务新增模型时，思考参数默认选择“思考等级（effort）”，仍可按服务能力修改；GPT 模型的思考等级包含 `xhigh` 和 `max`；DeepSeek 按官方新版为 `low`、`high`、`max` 三档。
 
 Ollama 预设指向本地服务 `http://localhost:11434/v1`。Ollama Cloud 使用 OpenAI Chat 兼容协议和 `https://ollama.com/`，自动添加 `gemma4:31b`（上下文与最大输出均为 256,000 token），并启用图片输入、工具调用和视频输入。该模型的思考能力未知，因此默认选择“思考等级（effort）”，等级为 `none, minimal, low, medium, high`。注意：Ollama 的 gemma4 只认思考等级，改成“思考预算”会导致完全不思考，也看不到思考摘要。Ollama Cloud Web Search 可使用其连接 API Key，或在“联网搜索”中单独填写 Ollama API Key。
 
@@ -50,7 +52,7 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 
 ## 系统提示词库 / 角色预设
 
-设置页面的“系统提示词库”提供通用助手、编程助手、写作助手、翻译助手和鲸鱼娘，并支持新增、编辑和删除角色、选择新对话的默认角色。新增的内置角色不会随升级自动补进旧用户的角色库——升级不改动已有数据；旧用户点一次“重置预设角色”就会补上。设置页不再有“保存设置”按钮：切换设置项或返回聊天时改动自动写盘，顶栏右侧会显示保存状态；写盘失败时草稿留在页面上并弹出提示，改完再切一次即可。提示词库保存在本地数据库中，并包含在结构化备份里。
+设置页面的“系统提示词库”提供通用助手、编程助手、写作助手、翻译助手和鲸鱼娘，并支持新增、编辑和删除角色、选择新对话的默认角色。新增的内置角色不会随升级自动补进旧用户的角色库——升级不改动已有数据；旧用户点一次“重置预设角色”就会补上。设置页不再有“保存设置”按钮：切换设置项或返回聊天时改动自动写盘，写盘后弹一条“已经自动保存”，顶栏右侧也会显示保存状态；写盘失败时草稿留在页面上并弹出提示，改完再切一次即可。提示词库保存在本地数据库中，并包含在结构化备份里。
 
 在设置页“系统提示词库”添加角色后，新角色卡片排在已有角色卡片之前。页面底部的“重置预设角色”把程序自带的角色恢复成默认的名称与提示词，被删掉的会补回；你自己添加的角色不受影响。删除角色与重置预设角色都会先弹出确认框。“新对话默认角色”下拉里不会出现两个“通用助手”：角色库里有这个角色时，只显示角色本身，没有时才显示兜底的“通用助手（内置提示词）”。在聊天输入框的“会话选项”中，通过“系统提示词 / 角色预设”选择角色。选择后会复制提示词到当前分支，下面的文本框可继续编辑。已有会话和其他分支不随库中的编辑或删除而改变；新分支继承创建时的提示词。升级旧数据时补充初始角色库，保留已有分支提示词。
 

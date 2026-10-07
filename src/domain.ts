@@ -244,6 +244,16 @@ export const EFFORT_OFF = 'none';
 // 说明默认档位就是 high。三条添加路径（预设、手动添加、从服务端列表）都要落到同一个起点，
 // 所以规则放在这里而不是只写进预设。
 export const DEEPSEEK_PREFERRED_EFFORT = 'high';
+/**
+ * 一键添加的免费体验连接。Kilo 的 OpenRouter 兼容入口用 anonymous 当密钥，
+ * 不需要用户自己的 API Key——设置页与欢迎页的"一键添加"都指向这里。
+ * 模型能力按服务实际给出的上限填写：上下文 256k、最大输出 64k。
+ */
+export function freeModelSettings(settings: Settings): Settings {
+  const connection: Connection = { id: uid(), name: 'OpenRouter·Kilo', protocol: 'chat', baseUrl: 'https://api.kilo.ai/api/openrouter', apiKey: 'anonymous', headers: {}, timeout: 120, proxy: '', responsesForGpt: true };
+  const model: Model = { id: uid(), connectionId: connection.id, name: 'Auto Free', model: 'kilo-auto/free', contextWindow: 256_000, maxOutput: 65_536, vision: true, tools: true, nativeSearch: false, videoInput: false, audioInput: false, pdfInput: false, reasoning: 'effort', efforts: defaultModelEfforts('chat', 'kilo-auto/free'), defaultEffort: 'low', temperature: true };
+  return { ...settings, connections: [...settings.connections, connection], models: [...settings.models, model], defaultModel: settings.defaultModel || model.id };
+}
 // Preference order for a model's initial effort: what the service recommends, then the usual middle
 // level if the model supports it, then whatever comes first.
 export function defaultModelEffort(model?: Model): string {

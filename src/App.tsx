@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -267,6 +267,8 @@ export default function App() {
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [showSettings, previewAttachment, renamingConversation, renamingBranch]);
   async function newChat() { await commit(s => { const c = createConversation(s.settings); s.conversations.unshift(c); s.selectedId = c.id; }); setShowArchived(false); setShowSettings(false); setAtBottom(true); textareaRef.current?.focus(); }
+  /** 欢迎页的一键添加：不需要 API Key 的免费体验模型，加好就能直接开始聊。 */
+  async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了')).catch(e => toast(String(e))); }
   // Reads the state it is given, so a mutation that also changes selectedId sees its own change.
   function find(s: AppState): { c: Conversation; b: Branch } { const id = s.selectedId || stateRef.current.selectedId; const c = s.conversations.find(c => c.id === id) || s.conversations[0]; const b = c.branches.find(b => b.id === c.activeBranchId)!; return { c, b }; }
   async function switchChat(id: string) { if (scrollRef.current && branch) branch.scrollTop = scrollRef.current.scrollTop; await commit(s => { s.selectedId = id; }); setShowSettings(false); }
@@ -577,8 +579,11 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                     <span className="eyebrow">一个想法，多种可能</span>
                       <h1>今天，想聊些什么？</h1>
                       <p>连接你喜欢的模型，让思路在对话中展开。</p>
-                            {!state.settings.models.length ? <button className="primary" onClick={() => setShowSettings(true)}>
-                              <Plus size={16}/>连接第一个模型</button> : !conversation ? <button className="primary" onClick={() => newChat()}>
+                            {!state.settings.models.length ? <>
+                              <button className="primary" onClick={() => setShowSettings(true)}>
+                              <Plus size={16}/>连接第一个模型</button>
+                              <button className="text-link" onClick={() => void addFreeModel()}>还没有 API？点击一键添加免费体验模型</button>
+                            </> : !conversation ? <button className="primary" onClick={() => newChat()}>
                               <Plus size={16}/>开始新对话</button> : <div className="starter-grid">
                                   {['帮我梳理一个项目的实现思路', '解释一个我想深入了解的概念', '一起比较几个方案的优缺点'].map(t => <button key={t} onClick={() => { draft(t); textareaRef.current?.focus(); }}>
                                       {t}
