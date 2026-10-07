@@ -146,8 +146,9 @@
 .attachment-viewer-header{display:flex;min-height:50px;align-items:center;gap:12px;padding:0 12px 0 18px;border-bottom:1px solid var(--line)}
 .attachment-viewer-title{display:flex;min-width:0;flex:1;align-items:center;gap:9px;font-size:13px}
 .attachment-viewer-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.attachment-viewer-zoom{display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px}
-.attachment-viewer-zoom button{width:30px;height:30px;padding:0;border:0;background:transparent}
+.attachment-viewer-image-actions,.attachment-viewer-zoom{display:flex;align-items:center;gap:2px;flex-shrink:0;color:var(--muted);font-size:11px}
+.attachment-viewer-image-actions button,.attachment-viewer-zoom button{width:30px;height:30px;padding:0;border:0;background:transparent;color:var(--muted)}
+.attachment-viewer-image-actions button:hover,.attachment-viewer-zoom button:hover{color:var(--text);background:var(--hover)}
 .attachment-viewer-zoom span{min-width:42px;text-align:center}
 .attachment-viewer-close{color:var(--text)}
 .attachment-viewer-content{display:flex;min-height:0;flex:1;align-items:center;justify-content:center;overflow:auto;background:var(--panel)}
@@ -155,13 +156,21 @@
 .attachment-viewer-image{position:absolute;top:50%;left:50%;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;user-select:none;pointer-events:none;will-change:transform}
 .image-viewer-content.zoomed{cursor:grab}
 .image-viewer-content.zoomed:active{cursor:grabbing}
-.attachment-viewer-markdown{width:min(960px,100%);height:100%;overflow:auto;padding:30px;background:var(--bg);color:var(--text)}
+.attachment-viewer-markdown-layout{display:grid;width:100%;height:100%;min-height:0;grid-template-columns:minmax(0,1fr) 240px}
+.attachment-viewer-outline{min-width:0;overflow:auto;padding:18px 10px;border-left:1px solid var(--line);background:var(--panel)}
+.attachment-viewer-outline h3{margin:0 0 10px;padding:0 8px;font-size:12px;font-weight:550}
+.attachment-viewer-outline button{display:block;width:100%;overflow:hidden;padding:6px 8px;border:0;background:transparent;color:var(--muted);font-size:11px;line-height:1.5;text-align:left;text-overflow:ellipsis;white-space:nowrap}
+.attachment-viewer-outline button:hover,.attachment-viewer-outline button.active{background:var(--accent-bg);color:var(--accent)}
+.attachment-viewer-outline small{display:block;padding:8px;color:var(--muted)}
+.attachment-viewer-markdown{width:100%;height:100%;min-width:0;min-height:0;overflow:auto;margin:0;padding:30px;background:var(--bg);color:var(--text)}
 .attachment-viewer-frame{width:100%;height:100%;border:0;background:#fff}
-.attachment-viewer-media{max-width:100%;max-height:100%;object-fit:contain}
+.video-viewer-content{padding:0;background:#000}
+.attachment-viewer-media{display:block;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;background:#000}
 .attachment-viewer-audio{width:min(760px,85%)}
 .attachment-viewer-download{padding:24px;text-align:center;color:var(--muted);font-size:13px}
 .attachment-viewer-download a{color:var(--accent)}
-@media(max-width:850px){.attachment-viewer-backdrop{padding:0}.attachment-viewer-window{width:100vw;height:100dvh;border:0;border-radius:0}.settings-content.connections .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.connections .field:has(> select),.settings-content.prompts .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.prompts .field:has(> select){grid-template-columns:minmax(100px,.8fr) minmax(0,1.4fr)}}
+@media(max-width:850px){.attachment-viewer-backdrop{padding:0}.attachment-viewer-window{width:100vw;height:100dvh;border:0;border-radius:0}.attachment-viewer-markdown-layout{grid-template-columns:minmax(0,1fr) 200px}.settings-content.connections .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.connections .field:has(> select),.settings-content.prompts .field:has(> input:not([type='checkbox']):not([type='range'])),.settings-content.prompts .field:has(> select){grid-template-columns:minmax(100px,.8fr) minmax(0,1.4fr)}}
+@media(max-width:560px){.attachment-viewer-header{flex-wrap:wrap;gap:3px;padding:5px 8px}.attachment-viewer-title{flex-basis:calc(100% - 40px)}.attachment-viewer-close{order:1}.attachment-viewer-image-actions{order:2;gap:0}.attachment-viewer-image-actions button,.attachment-viewer-zoom button{width:27px;height:27px}.attachment-viewer-zoom{order:3;gap:0}.attachment-viewer-zoom span{display:none}.attachment-viewer-markdown-layout{grid-template-columns:minmax(0,1fr) 140px}.attachment-viewer-outline{padding:14px 6px}.attachment-viewer-markdown{padding:18px 14px}}
 .config-popover .field.inline-config-field{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;margin:0 0 8px;line-height:1.35}
 .config-popover .inline-config-field select{min-width:0;padding:6px 8px}
 .conversation-popover{z-index:1000}

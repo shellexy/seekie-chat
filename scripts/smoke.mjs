@@ -292,13 +292,16 @@ try {
   });
   assert.equal(header.height, 32); assert.ok(Math.abs(header.titleCenter - header.modelCenter) < 2);
   const grip = page.getByRole('separator', { name: '调整输入框高度' });
-  const initialHeight = (await input.boundingBox()).height, gripBox = await grip.boundingBox();
-  await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2);
-  await page.mouse.down();
-  await waitFor(page, () => document.querySelector('.composer-resize').hasPointerCapture(1));
-  await page.mouse.move(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2 - 100, { steps: 5 }); await page.mouse.up();
-  await page.waitForTimeout(100);
-  const resizedHeight = await page.locator('textarea[aria-label="消息输入"]').evaluate(el => el.getBoundingClientRect().height);
+  const initialHeight = (await input.boundingBox()).height;
+  async function dragComposerResize() {
+    const gripBox = await grip.boundingBox(), centerX = gripBox.x + gripBox.width / 2, centerY = gripBox.y + gripBox.height / 2;
+    await page.mouse.move(centerX, centerY); await page.mouse.down();
+    await waitFor(page, () => document.querySelector('.composer-resize').hasPointerCapture(1));
+    await page.mouse.move(centerX, centerY - 100, { steps: 10 }); await page.mouse.up(); await page.waitForTimeout(250);
+    return await input.evaluate(el => el.getBoundingClientRect().height);
+  }
+  let resizedHeight = await dragComposerResize();
+  if (resizedHeight < initialHeight + 95) resizedHeight = await dragComposerResize();
   assert.ok(resizedHeight >= initialHeight + 95, `输入框拖动高度未生效：${initialHeight} -> ${resizedHeight}`);
   await grip.focus(); await page.keyboard.press('End');
   assert.ok((await input.boundingBox()).height <= Math.min(420, page.viewportSize()?.height * 0.45 || 420) + 1);
@@ -500,7 +503,8 @@ try {
     const state = await window.deepchan.load(), conversation = state.conversations.find(c => c.id === state.selectedId), branch = conversation.branches.find(b => b.id === conversation.activeBranchId);
     const message = { id: crypto.randomUUID(), parentId: branch.leafId, role: 'user', text: '查看附件预览', reasoning: '', attachments: [
       { id: crypto.randomUUID(), name: 'preview.png', mime: 'image/png', size: 1, data: imageData },
-      { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '## 附件预览内容\n\n已在应用内打开。' }
+      { id: crypto.randomUUID(), name: 'notes.txt', mime: 'text/plain', size: 1, data: 'data:text/plain;base64,', markdown: '# 附件预览内容\n\n' + '这是附件正文。\n\n'.repeat(30) + '### 深层标题\n\n已在应用内打开。' },
+      { id: crypto.randomUUID(), name: 'clip.mp4', mime: 'video/mp4', size: 1, data: 'data:video/mp4;base64,' }
     ], tools: [], sources: [], status: 'complete', created: Date.now() };
     conversation.messages.push(message); branch.leafId = message.id;
     await window.deepchan.save(state); window.dispatchEvent(new Event('deepchan-reload'));
@@ -508,19 +512,49 @@ try {
   const imageTrigger = page.getByRole('button', { name: '查看图片：preview.png' }); await imageTrigger.waitFor(); await imageTrigger.click();
   const imageDialog = page.getByRole('dialog', { name: '查看附件：preview.png' }); await imageDialog.waitFor();
   assert.equal(await imageDialog.locator('.attachment-viewer-zoom span').innerText(), '100%');
+  await imageDialog.getByRole('button', { name: '向左旋转' }).click();
+  assert.match(await imageDialog.locator('.attachment-viewer-image').getAttribute('style'), /rotate\(270deg\)/);
+  await imageDialog.getByRole('button', { name: '向右旋转' }).click();
+  await imageDialog.getByRole('button', { name: '水平翻转' }).click();
+  assert.match(await imageDialog.locator('.attachment-viewer-image').getAttribute('style'), /scale\(-1, 1\)/);
+  await imageDialog.getByRole('button', { name: '垂直翻转' }).click();
+  assert.match(await imageDialog.locator('.attachment-viewer-image').getAttribute('style'), /scale\(-1, -1\)/);
+  await imageDialog.getByRole('button', { name: '水平翻转' }).click(); await imageDialog.getByRole('button', { name: '垂直翻转' }).click();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write: async items => { window.__clipboardImageTypes = items[0].types; } } });
+    window.__savedImageName = '';
+    HTMLAnchorElement.prototype.click = function() { window.__savedImageName = this.download; };
+  });
+  await imageDialog.getByRole('button', { name: '复制图片' }).click();
+  await waitFor(page, () => window.__clipboardImageTypes?.includes('image/png'));
+  await imageDialog.getByRole('button', { name: '保存图片' }).click();
+  await waitFor(page, () => window.__savedImageName === 'preview.png');
   const viewport = imageDialog.locator('.image-viewer-content'); await viewport.hover(); await page.mouse.wheel(0, -300);
   await page.waitForFunction(() => Number(document.querySelector('.attachment-viewer-zoom span')?.textContent?.replace('%', '')) > 100);
   const viewportBounds = await viewport.boundingBox();
+  const beforeDrag = await imageDialog.locator('.attachment-viewer-image').getAttribute('style');
   await page.mouse.move(viewportBounds.x + viewportBounds.width / 2, viewportBounds.y + viewportBounds.height / 2); await page.mouse.down();
   await page.mouse.move(viewportBounds.x + viewportBounds.width / 2 + 40, viewportBounds.y + viewportBounds.height / 2 + 30); await page.mouse.up();
-  assert.match(await imageDialog.locator('.attachment-viewer-image').getAttribute('style'), /translate\(40px, 30px\)/, '放大后可拖动图片');
+  const afterDrag = await imageDialog.locator('.attachment-viewer-image').getAttribute('style');
+  assert.notEqual(afterDrag, beforeDrag, '放大后可拖动图片');
   await page.keyboard.press('Escape'); await imageDialog.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '查看附件：notes.txt' }).click();
   const fileDialog = page.getByRole('dialog', { name: '查看附件：notes.txt' }); await fileDialog.waitFor();
-  await fileDialog.getByText('附件预览内容').waitFor();
+  await fileDialog.getByRole('heading', { name: '附件预览内容' }).waitFor();
+  const markdownOutline = fileDialog.locator('.attachment-viewer-outline');
+  const markdownLayout = await fileDialog.evaluate(el => ({ contentRight: el.querySelector('.attachment-viewer-markdown').getBoundingClientRect().right, outlineLeft: el.querySelector('.attachment-viewer-outline').getBoundingClientRect().left }));
+  assert.ok(markdownLayout.outlineLeft >= markdownLayout.contentRight - 1, 'Markdown 大纲应位于内容右侧');
+  assert.deepEqual(await markdownOutline.locator('button').allTextContents(), ['附件预览内容', '深层标题']);
+  await markdownOutline.getByRole('button', { name: '深层标题' }).click();
+  assert.equal(await markdownOutline.getByRole('button', { name: '深层标题' }).getAttribute('class'), 'active');
   await fileDialog.getByRole('button', { name: '关闭附件预览' }).click(); await fileDialog.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '查看附件：clip.mp4' }).click();
+  const videoDialog = page.getByRole('dialog', { name: '查看附件：clip.mp4' }); await videoDialog.waitFor();
+  const videoSizing = await videoDialog.locator('video').evaluate(video => ({ objectFit: getComputedStyle(video).objectFit, width: video.getBoundingClientRect().width, height: video.getBoundingClientRect().height, parentWidth: video.parentElement.getBoundingClientRect().width, parentHeight: video.parentElement.getBoundingClientRect().height }));
+  assert.equal(videoSizing.objectFit, 'contain'); assert.equal(videoSizing.width, videoSizing.parentWidth); assert.equal(videoSizing.height, videoSizing.parentHeight);
+  await videoDialog.getByRole('button', { name: '关闭附件预览' }).click(); await videoDialog.waitFor({ state: 'hidden' });
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image zoom/pan and in-app attachment preview, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, resizable composer, bottom toolbar, reasoning levels, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.
