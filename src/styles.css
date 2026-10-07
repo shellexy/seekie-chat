@@ -70,3 +70,36 @@
 .rename-dialog h2{margin:0 0 16px;font-size:16px;font-weight:550}
 .rename-dialog .field{margin-bottom:12px}
 .rename-dialog .button-row{justify-content:flex-end}
+/* Match the settings surface to the conversation list and fit more list rows. */
+.settings-page{background:var(--panel)}
+.conversation-item{margin:1px 0}
+.conversation-select{gap:8px;padding:8px 10px;line-height:1.35}
+.conversation-more{padding:5px}
+.sidebar-label{margin-bottom:8px}
+.outline{padding-top:24px;padding-bottom:14px}
+.outline-heading{padding-bottom:12px}
+.outline-item{gap:7px;padding:5px 4px;line-height:1.45}
+.outline-item.user{margin-top:4px}
+.outline-item>span:last-child{-webkit-line-clamp:1}
+.outline-footer{padding-top:12px;margin-top:10px}
+/* Compact settings spacing while keeping section and field grouping clear. */
+.settings-header{height:82px;padding:14px 28px;gap:12px}
+.settings-header h1{font-size:21px;margin-bottom:3px}
+.settings-nav{padding:20px 11px}
+.settings-nav>button{margin-bottom:4px;padding:8px 10px;font-size:11px}
+.settings-content{padding:22px 30px}
+.settings-content>h2{font-size:18px;margin-bottom:8px}
+.settings-card{padding:16px;margin-bottom:12px}
+.settings-card h3{margin-bottom:13px}
+.settings-page .field{gap:5px;margin-bottom:12px;line-height:1.5}
+.settings-page .field input,.settings-page .field select,.settings-page .field textarea{padding:7px 9px}
+.settings-page .field textarea{line-height:1.55}
+.connection-tabs{padding:7px 0 12px;gap:4px}
+.preset-row{gap:6px;margin:14px 0}
+.section-heading{margin:20px 0 12px}
+.check-row{gap:14px;margin:2px 0 14px}
+.settings-card details{margin-bottom:14px}
+.settings-page .toggle-row{margin-bottom:14px}
+.settings-nav>button{color:var(--text)}
+@media(max-width:1150px){.settings-content{padding:20px 22px}}
+@media(max-width:850px){.settings-header{height:78px;padding:12px 16px}.settings-nav{padding:9px 10px}.settings-content{padding:16px}.settings-card{padding:14px}}
