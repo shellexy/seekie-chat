@@ -214,6 +214,9 @@ try {
     const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
     return conversation.branches.find(b => b.id === conversation.activeBranchId).config.webFetch === 'local';
   });
+  await page.locator('.message-scroll').click({ position: { x: 12, y: 12 } });
+  await page.locator('.config-popover').waitFor({ state: 'hidden' });
+  await toolbar.getByRole('button', { name: '会话选项' }).click();
   await page.getByRole('combobox', { name: '系统提示词预设', exact: true }).selectOption('coding');
   await page.getByLabel('系统提示词', { exact: true }).fill('当前分支定制提示词。');
   await page.getByRole('button', { name: '关闭会话选项', exact: true }).click();
