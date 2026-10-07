@@ -106,7 +106,8 @@ export default function AttachmentViewer({ attachment, onClose, onNotice }: { at
     context.scale(view.flipX ? -1 : 1, view.flipY ? -1 : 1);
     context.rotate(rotation * Math.PI / 180);
     context.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
-    const mime = currentAttachment.mime === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+    // 复制与保存都用 WebP：附件本身多半已经是 WebP，再压回 PNG 会把体积优势全丢掉。
+    const mime = 'image/webp';
     return await new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('无法导出图片')), mime, 0.92));
   }
 
@@ -122,7 +123,7 @@ export default function AttachmentViewer({ attachment, onClose, onNotice }: { at
   async function saveImage() {
     try {
       const blob = await transformedImage();
-      const extension = blob.type === 'image/jpeg' ? 'jpg' : 'png';
+      const extension = blob.type === 'image/webp' ? 'webp' : 'jpg';
       const basename = currentAttachment.name.replace(/\.[^.]*$/, '') || currentAttachment.name;
       const url = URL.createObjectURL(blob), link = document.createElement('a');
       link.href = url; link.download = `${basename}.${extension}`; document.body.append(link); link.click(); link.remove();

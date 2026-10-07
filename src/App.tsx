@@ -16,6 +16,7 @@ import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
 import MessageRow from './MessageRow';
 import { welcomeMask } from './brand';
+import { prepareImage } from './image';
 type Task = { conversationId: string; branchId: string; kind: string };
 function searchableParts(message: Message) {
   if (message.role === 'user') return [{ kind: '提问', text: message.text }];
@@ -348,13 +349,12 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       const extension = f.name.split('.').at(-1)?.toLowerCase() || '';
       const mime = (!f.type || f.type === 'application/octet-stream') ? (mimeByExtension[extension] || f.type || 'application/octet-stream') : f.type;
       try {
-        let data: string;
+        let data: string, storedMime = mime, storedSize = f.size;
         if (mime.startsWith('image/')) {
-          // Re-encode images to strip metadata and cap dimensions before upload.
-          const bitmap = await createImageBitmap(f); const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
-          const canvas = document.createElement('canvas'); canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
-          canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
-          const outputMime = mime === 'image/jpeg' ? 'image/jpeg' : 'image/png'; data = canvas.toDataURL(outputMime, 0.9);
+          // 图片先缩小再压成 WebP：长边超过 1280 的按比例缩小，体积够大的重新编码；
+          // 小图与动图原样保留。附件的 mime 与体积按处理后的实际值记。
+          const prepared = await prepareImage(f, mime);
+          data = prepared.data; storedMime = prepared.mime; storedSize = prepared.size;
         } else {
           data = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader(); reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('无法读取文件'));
@@ -362,7 +362,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
           });
         }
         if (data.length > 15_000_000) throw new Error('重新编码后的附件超过限制');
-        items.push({ id: uid(), name: f.name, mime: mime.startsWith('image/') ? (mime === 'image/jpeg' ? 'image/jpeg' : 'image/png') : mime, data, size: f.size });
+        items.push({ id: uid(), name: f.name, mime: storedMime, data, size: storedSize });
       } catch (error) { toast(`无法读取附件“${f.name}”：${error instanceof Error ? error.message : String(error)}`); }
     }
     const current = stateRef.current.conversations.find(c => c.id === conversation!.id)?.branches.find(b => b.id === branch.id);

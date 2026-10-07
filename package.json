@@ -21,6 +21,7 @@
     "dist:deb": "npm run build && electron-builder --linux deb"
   },
   "dependencies": {
+    "@aurouscia/image-compress": "^0.2.0",
     "@firecrawl/anydoc": "^0.2.4",
     "defuddle": "^0.19.5",
     "linkedom": "^0.18.13",

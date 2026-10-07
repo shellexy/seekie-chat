@@ -758,6 +758,63 @@ try {
     await debugWindow.waitFor({ state: 'hidden' });
     console.log('stage: protocol complete', protocol);
   }
+  // 图片附件的处理：长边缩到 1280、压成 WebP；小于 50KB 的与动图原样保留。
+  const buildGif = (frames, padding = 0) => {
+    const parts = [Buffer.from('GIF89a', 'latin1'), Buffer.from([0x10, 0, 0x10, 0, 0, 0, 0])];
+    if (padding) {
+      parts.push(Buffer.from([0x21, 0xff]));                 // Application Extension
+      let left = padding;
+      while (left > 0) { const n = Math.min(255, left); parts.push(Buffer.from([n]), Buffer.alloc(n, 0x41)); left -= n; }
+      parts.push(Buffer.from([0x00]));
+    }
+    const frame = () => Buffer.concat([Buffer.from([0x2c, 0, 0, 0, 0, 0x10, 0, 0x10, 0, 0]), Buffer.from([0x02, 0x02, 0x44, 0x01, 0x00])]);
+    for (let i = 0; i < frames; i++) parts.push(frame());
+    parts.push(Buffer.from([0x3b]));
+    return Buffer.concat(parts);
+  };
+  const draftImage = async () => await page.locator('.draft-attachments img').first().evaluate(el => {
+    const src = el.getAttribute('src') || '', comma = src.indexOf(',');
+    return { mime: /^data:([^;,]+)/.exec(src)?.[1] || '', bytes: comma < 0 ? 0 : Math.floor((src.length - comma - 1) * 3 / 4), width: el.naturalWidth, height: el.naturalHeight };
+  });
+  const upload = async (name, mimeType, buffer) => {
+    await page.locator('input[type=file]').setInputFiles({ name, mimeType, buffer });
+    await page.locator(`.draft-attachments img[alt="${name}"]`).waitFor();
+  };
+  // 一张长边超过 1280 的图：压成 WebP，尺寸缩到 1280 以内。
+  const bigPng = Buffer.from(await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 1400; canvas.height = 140;
+    const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
+    for (let i = 0; i < image.data.length; i += 4) { image.data[i] = Math.random() * 256; image.data[i + 1] = Math.random() * 256; image.data[i + 2] = Math.random() * 256; image.data[i + 3] = 255; }
+    ctx.putImageData(image, 0, 0);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+  }), 'base64');
+  assert.ok(bigPng.length > 50 * 1024, `测试用图必须大于 50KB 才走压缩路径，实际 ${bigPng.length}`);
+  await upload('big.png', 'image/png', bigPng);
+  const big = await draftImage();
+  assert.equal(big.mime, 'image/webp', '大图应压成 WebP');
+  assert.ok(big.bytes < bigPng.length, `压缩后应更小：${big.bytes} vs ${bigPng.length}`);
+  assert.ok(Math.max(big.width, big.height) <= 1280, `长边应不超过 1280，实际 ${big.width}×${big.height}`);
+  await page.getByTitle('移除附件', { exact: true }).first().click();
+  // 小图不压：原样保留，mime 也不变。
+  const smallPng = Buffer.from(await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 12; canvas.height = 8;
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#4488cc'; ctx.fillRect(0, 0, 12, 8);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    return await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+  }), 'base64');
+  assert.ok(smallPng.length < 50 * 1024, '小图必须小于 50KB 才走原样路径');
+  await upload('small.png', 'image/png', smallPng);
+  assert.equal((await draftImage()).mime, 'image/png', '小于 50KB 的图不压缩');
+  await page.getByTitle('移除附件', { exact: true }).first().click();
+  // 动图原样保留：DeepSeek、Qwen3+ 只读第一帧，转成静态图就白转了。
+  await upload('motion.gif', 'image/gif', buildGif(2, 60 * 1024));
+  assert.equal((await draftImage()).mime, 'image/gif', '动图应原样保留');
+  await page.getByTitle('移除附件', { exact: true }).first().click();
+  // 静态 GIF 没有帧的问题，照常压成 WebP。
+  await upload('still.gif', 'image/gif', buildGif(1, 60 * 1024));
+  assert.equal((await draftImage()).mime, 'image/webp', '静态 GIF 应压成 WebP');
+  await page.getByTitle('移除附件', { exact: true }).first().click();
   // The finished answer promoted its model to the front, and a new chat now starts from it.
   const resume = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
   const geminiModel = await page.evaluate(async () => (await window.deepchan.load()).settings.models.find(m => m.name === '模拟 gemini').id);
@@ -947,9 +1004,9 @@ try {
     HTMLAnchorElement.prototype.click = function() { window.__savedImageName = this.download; };
   });
   await imageDialog.getByRole('button', { name: '复制图片' }).click();
-  await waitFor(page, () => window.__clipboardImageTypes?.includes('image/png'));
+  await waitFor(page, () => window.__clipboardImageTypes?.includes('image/webp'));
   await imageDialog.getByRole('button', { name: '保存图片' }).click();
-  await waitFor(page, () => window.__savedImageName === 'preview.png');
+  await waitFor(page, () => window.__savedImageName === 'preview.webp');
   const viewport = imageDialog.locator('.image-viewer-content'); await viewport.hover(); await page.mouse.wheel(0, -300);
   await page.waitForFunction(() => Number(document.querySelector('.attachment-viewer-zoom span')?.textContent?.replace('%', '')) > 100);
   const viewportBounds = await viewport.boundingBox();
