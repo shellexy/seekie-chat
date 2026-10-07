@@ -95,6 +95,10 @@ try {
   let page = await launch();
   const windowControls = page.getByRole('toolbar', { name: '窗口控件' });
   assert.equal(await windowControls.getByRole('button').count(), 3);
+  const chatControlBounds = await windowControls.boundingBox();
+  const viewportWidth = await page.evaluate(() => innerWidth);
+  assert.equal(chatControlBounds.y, 0);
+  assert.ok(Math.abs(chatControlBounds.x + chatControlBounds.width - viewportWidth) < 1);
   await windowControls.getByRole('button', { name: '最大化窗口' }).click();
   await waitFor(page, async () => window.deepchan.isWindowMaximized());
   await windowControls.getByRole('button', { name: '还原窗口' }).click();
@@ -104,7 +108,12 @@ try {
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();
-  assert.equal(await page.getByRole('toolbar', { name: '窗口控件' }).count(), 1);
+  const settingsControls = page.getByRole('toolbar', { name: '窗口控件' });
+  assert.equal(await settingsControls.count(), 1);
+  const settingsControlBounds = await settingsControls.boundingBox();
+  const settingsViewportWidth = await page.evaluate(() => innerWidth);
+  assert.equal(settingsControlBounds.y, 0);
+  assert.ok(Math.abs(settingsControlBounds.x + settingsControlBounds.width - settingsViewportWidth) < 1);
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');

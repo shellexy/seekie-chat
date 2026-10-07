@@ -101,6 +101,12 @@
 .settings-nav>button{color:var(--text)}
 @media(max-width:1150px){.settings-content{padding:20px 22px}}
 @media(max-width:850px){.settings-header{height:78px;padding:12px 16px}.settings-nav{padding:9px 10px}.settings-content{padding:16px}.settings-card{padding:14px}}
+.chat-header{--window-controls-inset:28px}
+.settings-header{--window-controls-inset:28px;position:relative;padding-right:calc(var(--window-controls-inset) + 130px)}
+.window-controls{position:fixed;z-index:1001;top:0;right:0}
+.chat-header .header-actions{padding-right:130px}
+@media(max-width:1150px){.chat-header{--window-controls-inset:22px}}
+@media(max-width:850px){.settings-header{--window-controls-inset:16px}}
 
 /* Keep sampling controls compact and let sidebar menus escape the scrolling list. */
 .sampling-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
