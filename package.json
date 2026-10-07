@@ -18,7 +18,9 @@
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "test:dev": "node scripts/check-dev.mjs",
     "check": "npm run typecheck && npm test",
-    "dist:deb": "npm run build && electron-builder --linux deb"
+    "dist:deb": "npm run build && electron-builder --linux deb",
+    "dist:appimage": "npm run build && electron-builder --linux AppImage",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "@aurouscia/image-compress": "^0.2.0",
@@ -67,7 +69,8 @@
     ],
     "linux": {
       "target": [
-        "deb"
+        "deb",
+        "AppImage"
       ],
       "icon": "build/icon.png",
       "category": "Network;Chat;Development;",
@@ -82,6 +85,9 @@
       },
       "description": "Seekie Chat with DeepSeek LLM"
     },
+    "appImage": {
+      "artifactName": "${name}-${version}-${arch}.${ext}"
+    },
     "deb": {
       "depends": [
         "libgtk-3-0",
@@ -93,6 +99,18 @@
         "libatspi2.0-0",
         "libsecret-1-0"
       ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${name}-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
     }
   }
 }

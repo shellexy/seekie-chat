@@ -141,11 +141,27 @@ SEEKIE_DATA_DIR=/tmp/seekie-local npm run dev
 
 ## 安装与打包
 
-`npm run dist:deb` 用 electron-builder 产出 `release/seekie-chat_<版本>_amd64.deb`。安装后：
+三个目标都由 electron-builder 产出到 `release/`：
+
+```bash
+npm run dist:deb        # seekie-chat_<版本>_amd64.deb
+npm run dist:appimage   # seekie-chat-<版本>-x86_64.AppImage
+npm run dist:win        # seekie-chat-<版本>-setup.exe
+```
+
+deb 安装后：
 
 - 程序图标取自 `build/icon.png`，随包装进 `usr/share/icons/hicolor/512x512/apps/seekie-chat.png`，任务栏与应用菜单都能命中。
 - 桌面项由 electron-builder 生成，`Name=Seekie Chat`、`Comment=Seekie Chat with DeepSeek LLM`、`StartupWMClass=com.github.shellexy.seekie-chat`；这三项分别来自 `build.linux.desktop.entry` 与 `build.linux.description`。`StartupWMClass` 与窗口的 `WM_CLASS` 靠 package.json 的 `desktopName` 对上，桌面环境才能把运行中的窗口关联到这个启动器。
 - 应用数据仍在 `~/.config/Seekie Chat`（或 `SEEKIE_DATA_DIR` 指定的位置），与从源码运行完全一致。
+
+AppImage 是单个可执行文件，`chmod +x` 后直接运行，不需要安装；桌面项与图标都打包在文件内部，同样的 `Name`、`StartupWMClass` 与分类。
+
+Windows 安装包是 NSIS 一键安装器，装到当前用户目录，卸载时**不删除** `%APPDATA%\Seekie Chat` 里的对话数据。在 Linux 上交叉构建需要用 wine（electron-builder 借它给 exe 写入图标与版本信息，并生成卸载程序）；在 Windows 或 CI 上直接跑 `npx electron-builder --win` 则不需要。安装包没有代码签名，Windows 首次运行会提示“未知发布者”。只想拿到可执行文件、不生成安装包时，`npx electron-builder --win dir` 不需要 wine，产物在 `release/win-unpacked/`。
+
+Windows 版本目前只验证到打包这一步，没有在真机上运行过——窗口控件、数据目录等平台差异还需要实际跑一遍确认。
+
+程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
 
 程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
 
