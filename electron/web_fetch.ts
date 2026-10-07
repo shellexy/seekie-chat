@@ -2,10 +2,13 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Defuddle } from 'defuddle/node';
 import { parseHTML } from 'linkedom';
+import { ollamaWebSearchKey } from '../src/domain';
+import type { Settings, WebFetchMode } from '../src/types';
 
-export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean }
+export interface FetchedPage { url: string; title: string; content: string; contentType: string; truncated: boolean; provider?: 'exa' | 'ollama' | 'tavily' | 'local' }
 export type PageFetcher = (url: string, init?: RequestInit) => Promise<Response>;
 export type HostResolver = (hostname: string) => Promise<string[]>;
+export type WebFetchProvider = Exclude<WebFetchMode, 'auto' | 'off' | 'local'>;
 
 const ACCEPT = 'text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8, text/plain;q=0.7, application/json;q=0.6, */*;q=0.3';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -62,6 +65,9 @@ async function safeUrl(input: string, resolver: HostResolver): Promise<URL> {
     if (!addresses.length || addresses.some(address => isIP(address) === 4 ? !ipv4IsPublic(address) : !ipv6IsPublic(address))) throw new Error('web_fetch 只允许访问解析到公网地址的网页');
   }
   return url;
+}
+export async function validateWebFetchUrl(input: string, resolver: HostResolver = resolveAddresses): Promise<string> {
+  return (await safeUrl(input, resolver)).href;
 }
 function decoderFor(response: Response) {
   const charset = response.headers.get('content-type')?.match(/charset\s*=\s*["']?([^;"'\s]+)/i)?.[1];
@@ -121,5 +127,88 @@ export async function fetchWebPage(input: string, signal: AbortSignal, fetcher: 
   } else if (contentType.startsWith('text/') || !contentType) content = source;
   else throw new Error(`web_fetch 不支持此内容类型：${contentType}`);
   const trimmed = trimContent(content);
-  return { url: url.href, title: title || url.hostname, content: trimmed.content, contentType: contentType || 'text/plain', truncated: trimmed.truncated };
+  return { url: url.href, title: title || url.hostname, content: trimmed.content, contentType: contentType || 'text/plain', truncated: trimmed.truncated, provider: 'local' };
+}
+
+function apiKeyFor(provider: WebFetchProvider, settings: Settings) {
+  if (provider === 'exa') return settings.exaKey;
+  if (provider === 'ollama') return ollamaWebSearchKey(settings);
+  return settings.tavilyKey;
+}
+function providerUrl(provider: WebFetchProvider) {
+  return provider === 'exa' ? 'https://api.exa.ai/contents' : provider === 'ollama' ? 'https://ollama.com/api/web_fetch' : 'https://api.tavily.com/extract';
+}
+function providerName(provider: WebFetchProvider) {
+  return provider === 'exa' ? 'Exa' : provider === 'ollama' ? 'Ollama Cloud' : 'Tavily';
+}
+function providerHeaders(provider: WebFetchProvider, key: string): Record<string, string> {
+  return provider === 'exa' ? { 'Content-Type': 'application/json', 'x-api-key': key }
+    : { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
+}
+async function fetchFromProvider(provider: WebFetchProvider, url: string, key: string, signal: AbortSignal, fetcher: PageFetcher): Promise<FetchedPage> {
+  const body = provider === 'exa' ? { urls: [url], text: { maxCharacters: MAX_CONTENT_CHARS } }
+    : provider === 'ollama' ? { url }
+      : { urls: [url], format: 'markdown', extract_depth: 'basic' };
+  const response = await fetcher(providerUrl(provider), {
+    method: 'POST', headers: providerHeaders(provider, key), body: JSON.stringify(body), redirect: 'error',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)])
+  });
+  if (!response.ok) { await response.body?.cancel(); throw new Error(`${providerName(provider)} 网页获取失败 (${response.status})`); }
+  let data: any;
+  try { data = JSON.parse(await readBody(response)); } catch (error) { throw new Error(`${providerName(provider)} 返回了无效的网页内容`); }
+  let title = '', content = '';
+  if (provider === 'ollama') {
+    title = String(data?.title || ''); content = String(data?.content || '');
+  } else {
+    const result = Array.isArray(data?.results) ? data.results.find((item: any) => !item.url || item.url === url) || data.results[0] : undefined;
+    title = String(result?.title || '');
+    content = String(provider === 'exa' ? result?.text || '' : result?.raw_content || '');
+    if (!content.trim()) {
+      const failed = Array.isArray(data?.statuses) ? data.statuses.find((item: any) => item.url === url) : Array.isArray(data?.failed_results) ? data.failed_results.find((item: any) => item.url === url) : undefined;
+      throw new Error(String(failed?.error || `${providerName(provider)} 未能提取网页正文`));
+    }
+  }
+  if (!content.trim()) throw new Error(`${providerName(provider)} 未返回网页正文`);
+  const trimmed = trimContent(content);
+  return { url, title: title.trim() || new URL(url).hostname, content: trimmed.content, contentType: 'text/markdown', truncated: trimmed.truncated, provider };
+}
+
+/** Uses configured hosted extractors in priority order, then the Electron-backed local fetcher. */
+export async function fetchWebPageWithProviders(
+  input: string,
+  signal: AbortSignal,
+  settings: Settings,
+  mode: WebFetchMode | undefined,
+  localFetcher: PageFetcher,
+  apiFetcher: PageFetcher = localFetcher,
+  resolver: HostResolver = resolveAddresses
+): Promise<FetchedPage> {
+  const selected = mode || 'auto';
+  if (selected === 'off') throw new Error('网页阅读已关闭');
+  const url = await validateWebFetchUrl(input, resolver);
+  if (selected === 'local') return fetchWebPage(url, signal, localFetcher, resolver);
+  const configured: WebFetchProvider[] = selected === 'auto'
+    ? (['exa', 'ollama', 'tavily'] as const).filter(provider => !!apiKeyFor(provider, settings))
+    : [selected];
+  const failures: string[] = [];
+  for (const provider of configured) {
+    if (signal.aborted) throw signal.reason || new Error('网页获取已取消');
+    const key = apiKeyFor(provider, settings);
+    if (!key) {
+      if (selected !== 'auto') throw new Error(`请在设置中配置${providerName(provider)} API Key`);
+      continue;
+    }
+    try { return await fetchFromProvider(provider, url, key, signal, apiFetcher); }
+    catch (error) {
+      if (signal.aborted) throw error;
+      failures.push(`${providerName(provider)}：${error instanceof Error ? error.message : String(error)}`);
+      if (selected !== 'auto') throw error;
+    }
+  }
+  try { return await fetchWebPage(url, signal, localFetcher, resolver); }
+  catch (error) {
+    if (!failures.length) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${failures.join('；')}；本地获取网页失败：${detail}`);
+  }
 }

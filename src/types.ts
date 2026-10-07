@@ -1,5 +1,6 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
 export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily';
+export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily';
 export type Role = 'user' | 'assistant';
 export interface Connection {
   id: string; name: string; protocol: Protocol; baseUrl: string; apiKey: string;
@@ -14,6 +15,7 @@ export interface Model {
 }
 export interface ChatConfig {
   modelId: string; system: string; search: SearchMode; effort: string; budget: number;
+  webFetch?: WebFetchMode;
   temperature?: number; topP?: number;
 }
 export interface PromptPreset { id: string; name: string; content: string }

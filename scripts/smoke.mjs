@@ -95,7 +95,7 @@ try {
   let page = await launch();
   assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize()[1]), 720);
   console.log('stage: connection presets');
-  await page.locator('.settings-entry').click();
+  await page.getByRole('button', { name: /^设置/ }).click();
   assert.equal(await page.locator('.preset-row button').first().innerText(), 'DeepSeek·anthropic');
   for (const theme of ['light', 'dark', 'system']) {
     assert.equal(await page.evaluate(theme => { document.documentElement.dataset.theme = theme; return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); }, theme), '#3c64fe');
@@ -148,7 +148,7 @@ try {
   const presets = await page.evaluate(() => window.deepchan.load());
   assert.equal(presets.settings.models.find(m => m.model === 'deepseek-flash').nativeSearch, true);
   // Verify that the connection's defaults survive save/reopen and renaming.
-  await page.locator('.settings-entry').click();
+  await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.connection-tabs').getByRole('button', { name: '重命名的兼容服务', exact: true }).click();
   await page.getByRole('button', { name: '手动添加', exact: true }).click();
   assert.deepEqual(await page.getByLabel(/^思考参数/).evaluateAll(els => els.map(el => el.value)), ['effort', 'effort']);
@@ -176,11 +176,34 @@ try {
   assert.equal(await toolbar.getByRole('button', { name: '会话选项' }).count(), 1);
   await toolbar.getByRole('button', { name: '会话选项' }).click();
   assert.equal(await page.getByLabel('系统提示词', { exact: true }).inputValue(), '你是测试研究助手，优先使用证据回答。');
+  const webReading = page.getByRole('combobox', { name: '网页阅读' });
+  assert.deepEqual(await webReading.locator('option').allTextContents(), ['自动（默认）', 'Exa 网页获取', 'Ollama Cloud 网页获取', 'Tavily 网页获取', '本地获取网页', '关闭']);
+  assert.equal(await webReading.inputValue(), 'auto');
+  await webReading.selectOption('local');
+  await waitFor(page, async () => {
+    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    return conversation.branches.find(b => b.id === conversation.activeBranchId).config.webFetch === 'local';
+  });
   await page.getByRole('combobox', { name: '系统提示词预设', exact: true }).selectOption('coding');
   await page.getByLabel('系统提示词', { exact: true }).fill('当前分支定制提示词。');
   await page.getByRole('button', { name: '关闭会话选项', exact: true }).click();
   await page.locator('.config-popover').waitFor({ state: 'hidden' });
-  assert.equal(await toolbar.getByRole('button', { name: '联网搜索' }).getAttribute('aria-pressed'), 'true');
+  const networkToggle = toolbar.getByRole('button', { name: '联网', exact: true });
+  assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
+  await networkToggle.click();
+  await waitFor(page, async () => {
+    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const config = conversation.branches.find(b => b.id === conversation.activeBranchId).config;
+    return config.search === 'off' && config.webFetch === 'off';
+  });
+  assert.equal(await networkToggle.getAttribute('aria-pressed'), 'false');
+  await networkToggle.click();
+  await waitFor(page, async () => {
+    const state = await window.deepchan.load(); const conversation = state.conversations.find(c => c.id === state.selectedId);
+    const config = conversation.branches.find(b => b.id === conversation.activeBranchId).config;
+    return config.search === 'auto' && config.webFetch === 'auto';
+  });
+  assert.equal(await networkToggle.getAttribute('aria-pressed'), 'true');
   const layout = await toolbar.evaluate(el => { const text = document.querySelector('textarea[aria-label="消息输入"]').getBoundingClientRect(); const send = el.querySelector('.send-button').getBoundingClientRect(); return { textBottom: text.bottom, controlTop: el.getBoundingClientRect().top, sendLeft: send.left, controls: [...el.querySelectorAll('select')].map(s => s.getBoundingClientRect().right) }; });
   assert.ok(layout.controlTop >= layout.textBottom); assert.ok(layout.controls.every(right => right < layout.sendLeft));
   assert.equal(await page.getByText('AI 的回答可能有误，请核实重要信息。', { exact: true }).count(), 0);
@@ -231,7 +254,7 @@ try {
     await promise; window.dispatchEvent(new Event('deepchan-reload'));
     if ((await window.deepchan.load()).conversations.find(c => c.id === id).title !== '用户手动标题') throw new Error('后台标题覆盖了手动标题');
   });
-  await page.locator('.settings-entry').click();
+  await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '系统提示词库' }).click();
   await page.getByLabel('角色系统提示词', { exact: true }).last().fill('角色库更新后的提示词。');
   await page.getByRole('button', { name: '添加角色', exact: true }).click();
@@ -283,7 +306,7 @@ try {
       await page.getByRole('combobox', { name: '思考等级' }).selectOption('high');
       await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.titleModel = ''; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
     }
-    if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
+    if (protocol === 'responses' || protocol === 'gemini') { await page.locator('input[type=file][accept="image/*"]').setInputFiles({ name: 'fixture.png', mimeType: 'image/png', buffer: await page.screenshot({ type: 'png' }) }); await page.locator('.draft-attachments img').waitFor(); }
     await input.fill(`测试 ${protocol} 协议`); await page.getByTitle('发送消息', { exact: true }).click();
     await page.getByTitle('停止生成', { exact: true }).waitFor({ state: 'hidden' });
     await page.locator('.message.assistant .message-content').waitFor();

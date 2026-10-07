@@ -4,11 +4,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, validateState, SECRET_MARKER } from './store';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments } from './attachments';
-import { fetchWebPage } from './web_fetch';
+import { fetchWebPageWithProviders } from './web_fetch';
 import { contextMessages, estimateTokens, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RunRequest } from '../src/types';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
-const webFetch: WebFetch = (url, signal) => fetchWebPage(url, signal, (input, init) => net.fetch(input, init));
+const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
 const titles = new Map<string, AbortController>();
 let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -49,7 +49,7 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   if (!remaining.length) return;
   const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
   if (material.length / 2 + 2048 > model.contextWindow) throw new Error('压缩模型上下文不足以处理这些历史，请选择更大窗口的模型');
-  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 4096) }, { ...branch.config, modelId, search: 'off', effort: 'auto', budget: 1024, system: '将聊天历史压缩为可供后续对话使用的摘要。保留目标、事实、约束、偏好、结论、待办、引用。不得添加原文没有的事实。对图片仅保留附件引用，不猜测未提供的内容。只输出摘要。' }, [plainMessage(material)], state.settings, signal);
+  const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 4096) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: '将聊天历史压缩为可供后续对话使用的摘要。保留目标、事实、约束、偏好、结论、待办、引用。不得添加原文没有的事实。对图片仅保留附件引用，不猜测未提供的内容。只输出摘要。' }, [plainMessage(material)], state.settings, signal);
   if (!result.text.trim()) throw new Error('压缩模型未返回摘要');
   if (!state.conversations.some(c => c.id === conversation.id)) return;
   conversation.backgroundUsage = [...(conversation.backgroundUsage || []), { kind: 'compression', modelId, usage: result.usage, created: Date.now() }];
@@ -64,7 +64,7 @@ async function generateTitle(conversation: Conversation, config: ChatConfig, pat
   try {
     const modelId = state.settings.titleModel || config.modelId; const { connection, model } = resolve(modelId);
     const material = path.filter(m => m.text.trim()).slice(0, 2).map(m => `${m.role}：${m.text.slice(0, 3000)}`).join('\n');
-    const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 2048) }, { ...config, modelId, search: 'off', effort: 'auto', budget: 1024, system: '为下面的对话生成简短标题。中文约8至20字，其他语言同等长度。语言跟随用户。只输出标题，不加引号、解释或Markdown。' }, [plainMessage(material)], state.settings, controller.signal);
+    const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 2048) }, { ...config, modelId, search: 'off', webFetch: 'off', effort: 'auto', budget: 1024, system: '为下面的对话生成简短标题。中文约8至20字，其他语言同等长度。语言跟随用户。只输出标题，不加引号、解释或Markdown。' }, [plainMessage(material)], state.settings, controller.signal);
     const current = state.conversations.find(c => c.id === conversation.id);
     if (current) current.backgroundUsage = [...(current.backgroundUsage || []), { kind: 'title', modelId, usage: result.usage, created: Date.now() }];
     if (current?.manualTitle) current.titleState = 'done';

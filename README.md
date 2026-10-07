@@ -90,9 +90,11 @@ Gemini 模型设置支持图片、视频、音频、PDF、Google Search 原生�
 - **Exa**：在设置中填写独立密钥，由支持工具调用的模型触发检索，客户端向 Exa 请求结果。每次回答最多三轮工具调用，每轮最多三个查询。
 - **Ollama Cloud Web Search**：在设置中填写 Ollama API Key，或复用 Ollama Cloud 连接的密钥；搜索请求发送到 `https://ollama.com/api/web_search`。
 - **Tavily**：在设置中填写 Tavily API Key；使用 basic 搜索深度，由支持工具调用的模型触发检索。
-- **web_fetch**：联网开启时同时提供给模型，可抓取公开网页正文；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。它使用 Electron Chromium 网络栈，遵循系统 / 浏览器代理设置。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
+- **网页阅读**：与联网搜索独立设置，默认自动按 Exa、Ollama Cloud、Tavily 的顺序使用已配置 API Key 的 Contents / Extract 服务；服务失败或都未配置时回退到本地获取网页。也可以指定服务、本地获取网页或关闭。Ollama Cloud 可复用连接 API Key。
+- **本地获取网页**：使用 Electron Chromium 网络栈的 `net.fetch`，遵循系统 / 浏览器代理设置；请求优先声明 `text/markdown`，HTML 会用 Defuddle 转为 Markdown。只允许公网 HTTP(S)，最多跟随 5 次重定向；响应上限 2 MB，送给模型的正文最多 20,000 字符。
+- **联网按钮**：同时启用或关闭联网搜索和网页阅读；两项仍可在会话选项中分别调整。
 
-Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择已配置的 Exa、Ollama Cloud 或 Tavily 搜索模式，才能同时使用 `web_fetch`。
+网页阅读和外部服务搜索都要求模型支持工具调用。Gemini 原生 Google Search 与 `web_fetch` 同时使用需要 Gemini 3 或更新的模型；较早的 Gemini 模型需选择外部搜索模式，才能同时使用 `web_fetch`。
 
 思考等级按模型配置的 `effort` 枚举发送；Anthropic 和 Gemini 还可设置 token 预算。推理区仅展示服务返回的摘要或文本，不推测内部思考。供应商协议会继续变化，自定义兼容服务需要按其文档配置能力。
 

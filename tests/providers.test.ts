@@ -187,6 +187,30 @@ for (const provider of ['ollama', 'tavily'] as const) test(`${provider} web sear
   assert.equal(result.sources[0].url, 'https://example.com/result'); assert.equal(result.sources[0].title, `${provider} result`);
   await agent.close();
 });
+test('web_fetch works independently of search and receives the selected reading mode', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any, selectedMode: string | undefined;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    firstBody = JSON.parse(String(options.body));
+    return [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'fetch-only', function: { name: 'web_fetch', arguments: '{"url":"https://example.com/article"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+    ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
+    secondBody = JSON.parse(String(options.body));
+    return [{ choices: [{ delta: { content: '网页已读。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请读网页');
+  const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'off', webFetch: 'local' }, c.messages, state.settings, new AbortController().signal, undefined, async (url, _signal, _settings, mode) => {
+    selectedMode = mode; return { url, title: 'Page', content: '# Page\n\nLocal Markdown.', contentType: 'text/markdown', truncated: false, provider: 'local' };
+  });
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['web_fetch']);
+  assert.equal(selectedMode, 'local'); assert.equal(secondBody.messages.at(-1).tool_call_id, 'fetch-only');
+  assert.match(secondBody.messages.at(-1).content, /Local Markdown/); assert.equal(result.sources[0].url, 'https://example.com/article');
+  await agent.close();
+});
+
 test('web_fetch is offered beside search, records its source and returns Markdown to the model', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid'); let firstBody: any, secondBody: any, fetched = '';
