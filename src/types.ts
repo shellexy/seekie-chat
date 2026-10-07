@@ -1,5 +1,7 @@
 export type Protocol = 'chat' | 'responses' | 'anthropic' | 'gemini';
 export type SearchMode = 'auto' | 'off' | 'native' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
+// The providers that answer a search request themselves, as opposed to the model's own native search.
+export type ExternalSearchMode = Exclude<SearchMode, 'auto' | 'off' | 'native'>;
 export type WebFetchMode = 'auto' | 'off' | 'local' | 'exa' | 'ollama' | 'tavily' | 'firecrawl' | 'anysearch';
 export type Role = 'user' | 'assistant';
 export interface Connection {
@@ -31,6 +33,10 @@ export interface Settings {
   favoriteModels: string[]; recentModels: string[]; useRecentModel: boolean;
   // 新对话的搜索起点，以及自动模式下模型原生搜索是否优先于外部搜索服务。
   defaultSearch: SearchMode; preferNativeSearch: boolean;
+  // 自动模式下外部搜索链的第一项：'auto' 保持内置顺序。缺 Key 时跳过该家继续降级。
+  preferredExternalSearch: ExternalSearchMode | 'auto';
+  // 新对话的默认读取网页方法，'last' 表示接着最近一次在会话里选择的；lastWebFetch 记录那个值。
+  defaultWebFetch: WebFetchMode | 'last'; lastWebFetch: WebFetchMode;
   exaKey: string; ollamaKey: string; tavilyKey: string; firecrawlKey: string; anysearchKey: string;
   exaResults: number; autoCompress: boolean; compressionThreshold: number;
   secureStorage: boolean; secretPolicy: 'file' | 'session' | 'encrypted'; credentialStorageVersion?: number;

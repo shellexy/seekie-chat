@@ -396,6 +396,10 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       b.config = { ...b.config, ...values };
       // Switching the model records it straight away, so the list is useful before any answer runs.
       if (values.modelId) rememberRecentModel(s.settings, values.modelId);
+      // Likewise for the webpage reader: a new chat configured to follow the last choice has to see
+      // the choice that was actually made, not the one that seeded the branch it was changed on.
+      // A branch only ever stores a concrete mode, never 'last'.
+      if (values.webFetch) s.settings.lastWebFetch = values.webFetch;
     }).catch(() => {});
   }
   function toggleFavorite(modelId: string) {

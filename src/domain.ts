@@ -1,4 +1,4 @@
-import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, Message, Model, PromptPreset, Protocol, SearchMode, Settings, Usage } from './types';
+import type { AppState, AssistantSegment, Branch, ChatConfig, Connection, Conversation, ExternalSearchMode, Message, Model, PromptPreset, Protocol, SearchMode, Settings, Usage, WebFetchMode } from './types';
 export const DEFAULT_SYSTEM_PROMPT = '你是一位严谨、友善的助手。使用用户的语言回答。';
 export function defaultPromptPresets(): PromptPreset[] {
   return [
@@ -24,9 +24,14 @@ export function normalizeSettings(settings: Settings) {
   if (typeof settings.useRecentModel !== 'boolean') settings.useRecentModel = true;
   if (!SEARCH_MODES.includes(settings.defaultSearch)) settings.defaultSearch = 'auto';
   if (typeof settings.preferNativeSearch !== 'boolean') settings.preferNativeSearch = true;
+  if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) settings.preferredExternalSearch = 'auto';
+  if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) settings.defaultWebFetch = 'auto';
+  if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) settings.lastWebFetch = 'auto';
 }
 export const uid = () => crypto.randomUUID();
 export const SEARCH_MODES: SearchMode[] = ['auto', 'native', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'off'];
+export const EXTERNAL_SEARCH_MODES: ExternalSearchMode[] = ['exa', 'ollama', 'tavily', 'firecrawl', 'anysearch'];
+export const WEB_FETCH_MODES: WebFetchMode[] = ['auto', 'exa', 'ollama', 'tavily', 'firecrawl', 'anysearch', 'local', 'off'];
 // 最近使用只用于挑模型，不值得无限增长；收藏没有上限，删除模型后的残留由保存时清理。
 export const MAX_RECENT_MODELS = 8;
 /** 搜索偏好只影响自动模式的降级顺序；会话里显式选定的模式一律按用户的指定执行。 */
@@ -34,6 +39,26 @@ export const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   auto: '自动联网（默认）', off: '关闭', native: '模型原生', exa: 'Exa',
   ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch'
 };
+export const EXTERNAL_SEARCH_LABELS: Record<ExternalSearchMode, string> = {
+  exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch'
+};
+export const WEB_FETCH_LABELS: Record<WebFetchMode, string> = {
+  auto: '自动（默认）', exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily',
+  firecrawl: 'Firecrawl', anysearch: 'AnySearch', local: '本地读取', off: '关闭'
+};
+/** Tavily、Firecrawl、AnySearch 免 Key 也能用；Exa 与 Ollama Cloud 必须有密钥。 */
+export function externalSearchAvailable(mode: ExternalSearchMode, settings: Settings) {
+  if (mode === 'exa') return !!settings.exaKey;
+  if (mode === 'ollama') return !!ollamaWebSearchKey(settings);
+  return true;
+}
+/**
+ * 新对话的默认读取网页方法。'last' 表示接着最近一次在会话里选择的；还没有任何记录时回到自动。
+ */
+export function resolveDefaultWebFetch(settings: Settings): WebFetchMode {
+  if (settings.defaultWebFetch && settings.defaultWebFetch !== 'last') return settings.defaultWebFetch;
+  return WEB_FETCH_MODES.includes(settings.lastWebFetch) ? settings.lastWebFetch : 'auto';
+}
 /**
  * "切换即记，成功置顶"：在输入框选中模型时把它记进列表末尾（已经记过的保持原位，
  * 否则反复切换会把顺序搅乱），一次回答真正跑完再由调用方把它挪到最前。
@@ -77,7 +102,7 @@ export function defaultModelEffort(model?: Model): string {
 export const defaultConfig = (settings: Settings): ChatConfig => {
   const modelId = newChatModelId(settings), model = settings.models.find(m => m.id === modelId);
   return { modelId, system: settings.promptPresets?.find(p => p.id === settings.defaultPromptPresetId)?.content ?? DEFAULT_SYSTEM_PROMPT,
-    search: SEARCH_MODES.includes(settings.defaultSearch) ? settings.defaultSearch : 'auto', webFetch: 'auto',
+    search: SEARCH_MODES.includes(settings.defaultSearch) ? settings.defaultSearch : 'auto', webFetch: resolveDefaultWebFetch(settings),
     effort: defaultModelEffort(model), budget: Math.min(4096, Math.max(1024, (model?.maxOutput || 8192) - 1)), temperature: 1, topP: 1 };
 };
 export function ollamaWebSearchKey(settings: Settings): string {
@@ -96,6 +121,9 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   const native = (): Exclude<ChatConfig['search'], 'auto'> | undefined => model?.nativeSearch && connection && connection.protocol !== 'chat' ? 'native' : undefined;
   const external = (): Exclude<ChatConfig['search'], 'auto'> | undefined => {
     if (!model?.tools) return undefined;
+    // 用户指定的外部搜索排在最前；它没有可用密钥时跳过，继续走下面的内置顺序。
+    const preferred = settings.preferredExternalSearch;
+    if (preferred && preferred !== 'auto' && externalSearchAvailable(preferred, settings)) return preferred;
     if (settings.exaKey) return 'exa';
     if (ollamaWebSearchKey(settings)) return 'ollama';
     if (settings.firecrawlKey) return 'firecrawl';
@@ -107,7 +135,7 @@ export function resolveSearch(settings: Settings, modelId: string, mode: ChatCon
   return settings.preferNativeSearch === false ? external() ?? native() ?? 'off' : native() ?? external() ?? 'off';
 }
 export function initialState(): AppState {
-  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
+  return { settings: { promptPresets: defaultPromptPresets(), defaultPromptPresetId: 'general', connections: [], models: [], defaultModel: '', titleModel: '', compressionModel: '', favoriteModels: [], recentModels: [], useRecentModel: true, defaultSearch: 'auto', preferNativeSearch: true, preferredExternalSearch: 'auto', defaultWebFetch: 'auto', lastWebFetch: 'auto', theme: 'light', fontSize: 15, exaKey: '', ollamaKey: '', tavilyKey: '', firecrawlKey: '', anysearchKey: '', exaResults: 5, autoCompress: true, compressionThreshold: 0.75, secureStorage: false, secretPolicy: 'file', credentialStorageVersion: 1 }, conversations: [], selectedId: null };
 }
 export function createConversation(settings: Settings): Conversation {
   const id = uid(), branchId = uid(), now = Date.now();

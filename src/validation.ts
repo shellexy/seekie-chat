@@ -1,4 +1,4 @@
-import { normalizeSettings, SEARCH_MODES } from './domain';
+import { EXTERNAL_SEARCH_MODES, normalizeSettings, SEARCH_MODES, WEB_FETCH_MODES } from './domain';
 import type { AppState, Settings } from './types';
 
 // Settings and state validation live here, outside the Electron layer, so the settings page, the
@@ -23,6 +23,9 @@ export function settingsProblems(settings: Settings): string[] {
   if (!idList(settings.favoriteModels) || !idList(settings.recentModels)) problems.push('模型收藏或最近使用记录无效');
   else for (const id of [...settings.favoriteModels, ...settings.recentModels]) if (!modelIds.has(id)) problems.push('模型收藏或最近使用指向已删除的模型');
   if (!SEARCH_MODES.includes(settings.defaultSearch)) problems.push('默认联网搜索模式无效');
+  if (settings.preferredExternalSearch !== 'auto' && !EXTERNAL_SEARCH_MODES.includes(settings.preferredExternalSearch)) problems.push('自动模式下优先使用的外部搜索无效');
+  if (settings.defaultWebFetch !== 'last' && !WEB_FETCH_MODES.includes(settings.defaultWebFetch)) problems.push('默认读取网页方法无效');
+  if (!WEB_FETCH_MODES.includes(settings.lastWebFetch)) problems.push('最近使用的读取网页方式无效');
   for (const connection of settings.connections) {
     if (!connection.name?.trim()) problems.push('请填写连接名称');
     if (!validId(connection.id) || !['chat', 'responses', 'anthropic', 'gemini'].includes(connection.protocol) || typeof connection.apiKey !== 'string' || !Number.isFinite(connection.timeout) || connection.timeout < 10 || connection.timeout > 600) problems.push('连接配置无效');

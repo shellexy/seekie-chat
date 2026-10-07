@@ -157,7 +157,9 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 联网搜索和读取网页分别配置。联网搜索支持自动联网、关闭、模型原生搜索、Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch。新对话默认自动联网，优先原生搜索，其次按 Exa、Ollama Cloud、Firecrawl、AnySearch、Tavily 的顺序选择已配置 Key 的外部提供方；没有搜索 Key 时自动使用 Firecrawl 的免 Key 搜索。Tavily、Firecrawl 和 AnySearch 也支持手动选择免 Key 模式。原生搜索取决于模型及协议支持；外部搜索由桌面主进程编排，并保存真实来源。
 
 - 新对话的默认搜索模式在“设置 → 联网搜索 → 默认联网搜索”中指定，默认“自动联网”；之后每个分支仍可单独调整，切换模型时保留显式的“关闭”并回到该默认值。
+- 新对话的默认读取网页方法同样可配置，默认“自动”，另提供“上次使用”：新对话接着最近一次在会话里选择的读取方式记录该值，尚无记录时回落到自动。
 - “自动模式下优先使用模型原生搜索”默认开启。关闭后自动模式改为先选择外部搜索服务，原生搜索只作最后兜底。该偏好只决定自动模式的降级顺序，不覆盖会话里显式选择的模式；模型不支持原生搜索或不支持工具调用时，请求自动落到可用的一侧。
+- “自动模式下优先使用的外部搜索”决定外部搜索链的第一项，默认“默认顺序（内置）”。界面将未配置 API Key 的选项置灰，但已保存的值必须容错：密钥被删除或从无密钥备份导入时跳过该家继续降级——Tavily、Firecrawl、AnySearch 支持免 Key，只有 Exa 与 Ollama Cloud 强制要求密钥。该偏好只作用于联网搜索，不改变读取网页的自动降级顺序。
 
 - 模型原生搜索：传递供应商要求的工具或参数，消费返回的搜索事件和引用。
 - Exa、Ollama Cloud Web Search、Tavily、Firecrawl 和 AnySearch：在联网搜索设置中配置可选 API Key 与结果数量；Ollama 搜索可复用 Ollama Cloud 连接密钥。Tavily 无 Key 时发送 `X-Tavily-Access-Mode: keyless`；Firecrawl 和 AnySearch 无 Key 时使用官方匿名请求。所有外部搜索均由模型工具调用触发，因此要求所选模型支持工具调用，并在设置中说明。

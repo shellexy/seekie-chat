@@ -269,12 +269,32 @@ try {
   assert.deepEqual(await page.getByLabel('新对话的搜索模式').locator('option').allTextContents(), ['自动联网（默认）', '模型原生', 'Exa', 'Ollama Cloud', 'Tavily', 'Firecrawl', 'AnySearch', '关闭']);
   assert.equal(await page.getByLabel('新对话的搜索模式').inputValue(), 'auto');
   assert.equal(await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).isChecked(), true, '默认原生搜索优先');
+  // The external head and the default webpage reader are separate preferences; both land in settings.
+  const preferredExternal = page.getByLabel('自动模式下优先使用的外部搜索');
+  assert.deepEqual(await preferredExternal.locator('option').allTextContents(), ['默认顺序（内置）', 'Exa（需 API Key）', 'Ollama Cloud（需 API Key）', 'Tavily', 'Firecrawl', 'AnySearch']);
+  assert.equal(await preferredExternal.inputValue(), 'auto');
   await page.getByRole('checkbox', { name: '自动模式下优先使用模型原生搜索' }).uncheck();
-  await page.getByLabel('新对话的搜索模式').selectOption('tavily');
+  await preferredExternal.selectOption('tavily');
+  await page.getByLabel('新对话的默认读取网页方法').selectOption('last');
   await page.getByRole('button', { name: '保存设置', exact: true }).click();
   await page.locator('.settings-page').waitFor({ state: 'hidden' });
-  assert.deepEqual(await page.evaluate(async () => { const s = await window.deepchan.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch]; }), ['tavily', false]);
-  await page.evaluate(async () => { const s = await window.deepchan.load(); s.settings.defaultSearch = 'auto'; s.settings.preferNativeSearch = true; await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload')); });
+  assert.deepEqual(await page.evaluate(async () => { const s = await window.deepchan.load(); return [s.settings.defaultSearch, s.settings.preferNativeSearch, s.settings.preferredExternalSearch, s.settings.defaultWebFetch]; }), ['auto', false, 'tavily', 'last']);
+  // "上次使用" has nothing recorded yet, so a new chat still starts on the automatic reader.
+  const readerBefore = await page.evaluate(async () => { const s = await window.deepchan.load(); return { count: s.conversations.length, selected: s.selectedId }; });
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, readerBefore.count + 1);
+  const probeChat = await page.evaluate(async () => (await window.deepchan.load()).selectedId);
+  const inheritedFetch = await page.evaluate(async () => { const s = await window.deepchan.load(), c = s.conversations.find(item => item.id === s.selectedId); return c.branches.find(b => b.id === c.activeBranchId).config.webFetch; });
+  assert.equal(inheritedFetch, 'auto', '“上次使用”在没有记录时应回落到自动读取网页');
+  // Drop the probe chat again and put the preferences back, so later stages see the state they expect.
+  await page.evaluate(async before => {
+    const s = await window.deepchan.load();
+    s.conversations = s.conversations.filter(c => c.id !== before.probe);
+    s.selectedId = before.selected;
+    s.settings.defaultSearch = 'auto'; s.settings.preferNativeSearch = true; s.settings.preferredExternalSearch = 'auto'; s.settings.defaultWebFetch = 'auto';
+    await window.deepchan.save(s); window.dispatchEvent(new Event('deepchan-reload'));
+  }, { probe: probeChat, ...readerBefore });
+  await waitFor(page, async expected => (await window.deepchan.load()).conversations.length === expected, readerBefore.count);
   // Saving closes the settings page, so open it again for the steps that follow.
   await page.getByRole('button', { name: /^设置/ }).click();
   await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();

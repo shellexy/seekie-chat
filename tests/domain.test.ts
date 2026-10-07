@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, createConversation, defaultModelEfforts, editMessage, estimateTokens, fork, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, uniqueBranchName } from '../src/domain';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
   const u = addMessage(c, b, 'user', '比较桌面框架'); const a = addMessage(c, b, 'assistant', 'Electron 和 Tauri'); a.status = 'complete';
@@ -355,4 +355,61 @@ test('automatic search prefers external providers when native search is not pref
   settings.models[0].nativeSearch = false;
   assert.equal(resolveSearch(settings, 'm', 'auto'), 'off', '两侧都拿不出来才真的关闭');
   assert.equal(resolveSearch(settings, 'm', 'tavily'), 'tavily', '会话里显式指定的模式不受偏好影响');
+});
+
+test('automatic search starts from the preferred external provider and skips it without a key', () => {
+  const state = initialState(), settings = state.settings;
+  settings.connections = [{ id: 'c', name: 'fixture', protocol: 'responses', baseUrl: 'https://fixture.invalid/v1', apiKey: '', headers: {}, timeout: 30, proxy: '' }];
+  settings.models = [{ id: 'm', connectionId: 'c', name: 'fixture', model: 'fixture', contextWindow: 10000, maxOutput: 4096, vision: false, tools: true, nativeSearch: true, reasoning: 'none', efforts: [], temperature: false }];
+  // Native first, so the preference only decides the head of the external chain.
+  settings.exaKey = 'exa-fixture';
+  settings.preferredExternalSearch = 'auto';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'native', '原生搜索优先');
+  settings.preferNativeSearch = false;
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'exa', '默认顺序里 Exa 排最前');
+  settings.tavilyKey = 'tavily-fixture';
+  settings.preferredExternalSearch = 'tavily';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '指定的外部搜索应排在最前');
+  // Tavily、Firecrawl、AnySearch 免 Key 也能用，所以优先项在无密钥时依然生效。
+  settings.preferredExternalSearch = 'anysearch';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'anysearch', 'AnySearch 免 Key 可用，优先项依然生效');
+  // Exa 与 Ollama Cloud 必须有密钥：缺密钥时跳过这一家，继续走内置顺序。
+  settings.preferredExternalSearch = 'exa';
+  settings.exaKey = '';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '没有 Exa 密钥时应跳过它并继续降级');
+  settings.preferredExternalSearch = 'ollama';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'tavily', '没有 Ollama 密钥时同样跳过');
+  settings.ollamaKey = 'ollama-fixture';
+  assert.equal(resolveSearch(settings, 'm', 'auto'), 'ollama', '配好密钥后优先的那家才生效');
+});
+
+test('a new chat can follow the webpage reader that was last used', () => {
+  const settings = initialState().settings;
+  const start = () => createConversation(settings).branches[0].config.webFetch;
+  assert.equal(start(), 'auto');
+  settings.defaultWebFetch = 'local';
+  assert.equal(start(), 'local');
+  settings.defaultWebFetch = 'last';
+  settings.lastWebFetch = 'local';
+  assert.equal(start(), 'local', '“上次使用”应取最近一次在会话里选择的读取方式');
+  settings.lastWebFetch = 'firecrawl';
+  assert.equal(start(), 'firecrawl');
+  settings.lastWebFetch = 'nonsense' as typeof settings.lastWebFetch;
+  normalizeSettings(settings);
+  assert.equal(settings.lastWebFetch, 'auto', '无法识别的记录退回自动');
+  assert.equal(start(), 'auto');
+});
+
+test('settings written before the search preferences existed get working defaults', () => {
+  const { preferredExternalSearch, defaultWebFetch, lastWebFetch, ...before } = initialState().settings;
+  const settings = before as Settings;
+  normalizeSettings(settings);
+  assert.equal(settings.preferredExternalSearch, 'auto', '旧数据应保持默认的外部搜索顺序');
+  assert.equal(settings.defaultWebFetch, 'auto', '旧数据的新对话仍默认自动读取网页');
+  assert.equal(settings.lastWebFetch, 'auto');
+  settings.preferredExternalSearch = 'nonsense' as typeof settings.preferredExternalSearch;
+  settings.defaultWebFetch = 'nonsense' as typeof settings.defaultWebFetch;
+  normalizeSettings(settings);
+  assert.equal(settings.preferredExternalSearch, 'auto');
+  assert.equal(settings.defaultWebFetch, 'auto');
 });
