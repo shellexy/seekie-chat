@@ -10,6 +10,9 @@ import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, 
 import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
 import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
+const toStream = (chunks: string[]): AsyncIterable<Uint8Array> => ({
+  async *[Symbol.asyncIterator]() { for (const chunk of chunks) yield new TextEncoder().encode(chunk); }
+});
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
 test('no User-Agent is sent by default, while Codex originator and Responses beta are kept', () => {
@@ -946,4 +949,17 @@ test('the Responses protocol reads the reasoning event name DeepSeek actually se
     assert.equal(reasoning.join(''), label);
     await agent.close();
   }
+});
+
+test('the stream parser keeps the upstream response text for the debug view', async () => {
+  const chunks = ['data: {"a":1}\n\n', 'data: {"b":2}\n\n'];
+  const sink: { response?: string } = {};
+  const events = [];
+  for await (const event of sse(toStream(chunks), sink)) events.push(event);
+  assert.deepEqual(events, [{ a: 1 }, { b: 2 }]);
+  assert.equal(sink.response, 'data: {"a":1}\n\ndata: {"b":2}\n\n', '上游原文应被完整留下');
+  // 不传 sink 时不应出错——模型列表等路径没有记录对象。
+  const plain = [];
+  for await (const event of sse(toStream(chunks))) plain.push(event);
+  assert.equal(plain.length, 2);
 });

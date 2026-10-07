@@ -21,6 +21,7 @@ function recordMarkdown(record: RequestRecord, index: number) {
     '### 请求体',
     fence(record.body, 'json')
   ];
+  if (record.response) sections.push('### 响应内容', fence(record.response, 'text'));
   if (record.error) sections.push('### 上游返回', fence(record.error, 'text'));
   return sections.join('\n\n');
 }

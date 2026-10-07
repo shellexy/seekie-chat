@@ -175,7 +175,11 @@ async function runChat(request: RunRequest) {
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';
       void generateTitle(conversation, config, pathTo(conversation, message.id));
     } catch (error) { message.status = controller.signal.aborted ? 'interrupted' : 'error'; message.error = controller.signal.aborted ? '已停止生成' : redact(error); }
-    finally { streaming = null; finishReasoning(); for (const t of message.tools) if (t.status === 'running' || t.status === 'pending') { if (t.status === 'running') t.elapsed = Date.now() - t.started; t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state); emit(true); }
+    finally { streaming = null; finishReasoning(); for (const t of message.tools) if (t.status === 'running' || t.status === 'pending') { if (t.status === 'running') t.elapsed = Date.now() - t.started; t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state);
+      // 请求记录在发出时就落盘了，但上游返回的原文与失败原因都是之后才填上的同一个对象，
+      // 这里再存一次，调试视图在重启后也能看到它们。
+      store.saveRequests(message.id, requestLog.get(message.id));
+      emit(true); }
   })().catch(error => notify(redact(error)));
 }
 function register() {

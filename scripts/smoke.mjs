@@ -774,6 +774,9 @@ try {
     const debugText = await debugWindow.innerText();
     assert.match(debugText, /第 1 次请求/);
     assert.match(debugText, /请求头/); assert.match(debugText, /请求体/);
+    // 调试时还要看得到上游返回了什么，而不只是我们发出去的。
+    assert.match(debugText, /响应内容/, '请求详情应显示上游返回的内容');
+    assert.ok(debugText.includes('这是本地模拟 API 的回答'), `响应内容应含上游原文，实际：${debugText.slice(0, 400)}`);
     assert.ok(debugText.includes('••••••••'), '请求详情应显示掩码后的密钥');
     // Header names may contain "secret"; what must never appear is the credential value itself.
     assert.ok(!debugText.includes('Bearer fixture-secret'), '请求详情不得泄露 API Key 的值');

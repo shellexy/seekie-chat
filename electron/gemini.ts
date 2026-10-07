@@ -8,7 +8,7 @@ type Dependencies = {
   request: typeof request; buildInput: typeof buildInput;
   search: (mode: ExternalSearchMode, args: string, settings: Settings, signal: AbortSignal) => Promise<Source[]>;
   webFetch?: WebFetch;
-  sse: (body: AsyncIterable<Uint8Array>) => AsyncGenerator<any>;
+  sse: (body: AsyncIterable<Uint8Array>, sink?: { response?: string }) => AsyncGenerator<any>;
   record?: (entry: RequestRecord) => void;
 };
 function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return EXTERNAL_SEARCH_MODES.includes(mode as ExternalSearchMode); }
@@ -158,13 +158,13 @@ export async function generateGemini(connection: Connection, model: Model, confi
       } else hooks.notice?.('中转服务未转发 tool_config，本次回答不含联网搜索');
       round--; continue;
     }
-    const { response, close } = request;
+    const { response, close, entry } = request;
     const parts: any[] = [], pendingSignature: { thoughtSignature?: string } = {};
     let finishReason = '', callSequence = 0;
     const searchId = crypto.randomUUID(), searchStarted = Date.now();
     try {
       if (!response.body) throw new Error('服务没有返回响应内容');
-      for await (const ev of deps.sse(response.body)) {
+      for await (const ev of deps.sse(response.body, entry)) {
         if (ev.error) throw new Error(ev.error.message || 'Gemini 生成失败');
         if (ev.promptFeedback?.blockReason) throw new Error('Gemini 拒绝了此请求：' + ev.promptFeedback.blockReason);
         const candidate = ev.candidates?.find((c: any) => c.index === 0 || c.index === undefined);

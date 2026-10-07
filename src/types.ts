@@ -97,7 +97,7 @@ export interface Conversation {
 export interface AppState { settings: Settings; conversations: Conversation[]; selectedId: string | null }
 // One outgoing API request as shown by the in-app debug view. Credentials are masked before the
 // renderer ever receives the record, and the body is a pretty-printed (possibly truncated) string.
-export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; error?: string }
+export interface RequestRecord { url: string; method: string; headers: Record<string, string>; body: string; response?: string; error?: string }
 // One entry of a provider's model list. Only the id is guaranteed: services such as DeepSeek also
 // describe the display name, the context window, the output limit and the supported modalities, and
 // those descriptions become the defaults of a newly added model.

@@ -17,6 +17,8 @@ const CODEX_ORIGINATOR = 'codex_cli_rs';
 const REDACTED = '••••••••';
 const SECRET_HEADERS = /^(authorization|proxy-authorization|x-api-key|x-goog-api-key|api-key)$/i;
 const MAX_RECORDED_BODY = 200_000;
+// 上游返回的原文同样只留这么多：长回答的流式原文能到几百 KB，调试看个开头就够。
+const MAX_RECORDED_RESPONSE = 200_000;
 // Custom headers are treated as secrets everywhere else, so their values are masked here too.
 export function debugHeaders(connection: Connection, headers: Record<string, string>) {
   const custom = new Set(Object.keys(connection.headers).map(name => name.toLowerCase()));
@@ -85,16 +87,28 @@ async function requestUrl(connection: Connection, url: string, body: unknown, si
       throw new Error(`${labels[response.status] || '服务请求失败'} (${response.status})：${detail}`);
     }
     // Keep the proxy alive until the response body has been consumed.
-    return { response, close: () => dispatcher?.close() };
+    // The entry is returned so the caller can hand it to the stream parser, which fills in the
+    // upstream response text for the debug view.
+    return { response, close: () => dispatcher?.close(), entry };
   } catch (error) { if (entry && !entry.error) entry.error = String(error); await dispatcher?.close(); throw error; }
 }
 export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>, record?: (entry: RequestRecord) => void) {
   return requestUrl(connection, endpoint(connection, path), body, signal, model, record);
 }
-export async function* sse(body: AsyncIterable<Uint8Array>) {
+export async function* sse(body: AsyncIterable<Uint8Array>, sink?: { response?: string }) {
   const decoder = new TextDecoder(); let buffer = '';
+  // 上游返回的原文也留下来：调试时能看到服务到底返回了什么，而不只是我们发出去的。
+  let captured = sink?.response ?? '', truncated = false;
   for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
+    const text = decoder.decode(chunk, { stream: true });
+    if (sink) {
+      if (!truncated) {
+        captured += text;
+        if (captured.length > MAX_RECORDED_RESPONSE) { captured = captured.slice(0, MAX_RECORDED_RESPONSE); truncated = true; }
+      }
+      sink.response = truncated ? `${captured}\n…（响应过长，仅记录前 ${MAX_RECORDED_RESPONSE} 字符）` : captured;
+    }
+    buffer += text;
     buffer = buffer.replace(/\r\n/g, '\n');
     let i: number;
     while ((i = buffer.indexOf('\n\n')) >= 0) {
@@ -351,7 +365,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
       }
       if (model.reasoning === 'effort') { body.thinking = { type: 'adaptive' }; if (config.effort !== 'auto') body.output_config = { effort: config.effort }; }
     }
-    const { response, close } = await request(connection, path, body, signal, model, record);
+    const { response, close, entry } = await request(connection, path, body, signal, model, record);
     const calls: { id: string; name: string; args: string }[] = [];
     const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls: PendingToolCall[] = [];
     let finished = false;
@@ -367,7 +381,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
     };
     try {
       if (!response.body) throw new Error('服务没有返回响应内容');
-      for await (const ev of sse(response.body)) {
+      for await (const ev of sse(response.body, entry)) {
         if (ev.error || ev.type === 'error' || ev.type === 'response.failed') throw new Error(ev.error?.message || ev.response?.error?.message || '模型生成失败');
         if (connection.protocol === 'chat') {
           const choice = ev.choices?.[0], d = choice?.delta;
