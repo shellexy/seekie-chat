@@ -923,3 +923,27 @@ test('reasoning_effort none is sent when the user turns thinking off', async () 
   assert.equal(body.reasoning_effort, 'none', 'auto 是"不发字段"（服务会自行开启），none 才是明确关闭');
   await agent.close();
 });
+
+test('the Responses protocol reads the reasoning event name DeepSeek actually sends', async () => {
+  // OpenAI 发 response.reasoning_summary_text.delta（摘要），DeepSeek 的 Responses 接口发
+  // response.reasoning_text.delta（思维链原文）——两种都要认，否则 DeepSeek 的思考整段丢失。
+  const cases = [
+    ['response.reasoning_summary_text.delta', 'OpenAI 摘要'],
+    ['response.reasoning_text.delta', 'DeepSeek 思维链']
+  ] as const;
+  for (const [event, label] of cases) {
+    const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+    const events = [
+      { type: event, delta: label },
+      { type: 'response.output_text.delta', delta: '你好' },
+      { type: 'response.completed', response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '你好', annotations: [] }] }], usage: { input_tokens: 10, output_tokens: 2 } } }
+    ];
+    agent.get('https://fixture.invalid').intercept({ path: '/v1/responses', method: 'POST' }).reply(200, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    const state = initialState(), c = createConversation(state.settings), b = c.branches[0]; addMessage(c, b, 'user', '你好');
+    const reasoning: string[] = [];
+    const result = await generate(connection('responses'), model, b.config, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning: s => reasoning.push(s), tool() {}, sources() {} });
+    assert.equal(result.reasoning, label, `${event} 应被读成思考内容`);
+    assert.equal(reasoning.join(''), label);
+    await agent.close();
+  }
+});

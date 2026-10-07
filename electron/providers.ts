@@ -391,7 +391,10 @@ export async function generate(connection: Connection, model: Model, config: Cha
           if (ev.usage) counter.observe({ input: ev.usage.prompt_tokens, output: ev.usage.completion_tokens, cachedInput: ev.usage.prompt_tokens_details?.cached_tokens ?? ev.usage.prompt_cache_hit_tokens });
         } else if (connection.protocol === 'responses') {
           if (ev.type === 'response.output_text.delta') addText(ev.delta);
-          if (ev.type === 'response.reasoning_summary_text.delta') addReason(ev.delta);
+          // 两家的事件名不同：OpenAI 发 reasoning_summary_text.delta（摘要），DeepSeek 的
+          // Responses 接口发 reasoning_text.delta（思维链原文，其文档明确说 summary 可传入
+          // 但不生成摘要）。只认前者，DeepSeek 的思考内容就整段丢了。
+          if (ev.type === 'response.reasoning_summary_text.delta' || ev.type === 'response.reasoning_text.delta') addReason(ev.delta);
           if (ev.type === 'response.output_item.added' && ev.item?.type === 'web_search_call') updateResponseSearch(ev.item.id, { input: searchParameters(ev.item.action) });
           if (ev.type === 'response.output_item.added' && ev.item?.type === 'function_call') hooks.tool({ id: ev.item.call_id || ev.item.id, name: ev.item.name || 'tool', input: replayArguments(ev.item.arguments), output: '', status: 'pending', started: Date.now() });
           if (ev.type === 'response.output_item.done') responseItems.push(ev.item);
