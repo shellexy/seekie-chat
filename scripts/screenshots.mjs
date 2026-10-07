@@ -87,6 +87,33 @@ await page.evaluate(async () => {
   const mainBranch = { id: uuid(), name: '主线', leafId: finalAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now };
   const sideBranch = { id: uuid(), name: '只看内存占用', leafId: answer.id, originId: answer.id, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - 90_000 };
   const main = { id: uuid(), title: '对比 Tauri 与 Electron 的取舍', manualTitle: true, titleState: 'done', created: now - day, updated: now, activeBranchId: mainBranch.id, branches: [mainBranch, sideBranch], messages: [question, answer, followUp, finalAnswer] };
+  // 多段正文的回答：正文被推理与工具调用隔开，编辑时每段各自一个输入框。
+  const weeklyQuestion = { id: uuid(), parentId: null, role: 'user', text: '把刚才的调研整理成一段能贴进周报的话。', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: now - 3 * 60_000 };
+  const confirmSize = { id: uuid(), name: 'web_search', input: '{\n  "type": "search",\n  "query": "Electron 打包体积 实测"\n}', output: '搜索完成，来源见回答引用', status: 'done', started: now - 2.9 * 60_000, elapsed: 1180 };
+  const confirmPage = { id: uuid(), name: 'web_fetch', input: '{"url":"https://example.com/bundle-size"}', output: '读取完成', status: 'done', started: now - 2.7 * 60_000, elapsed: 540 };
+  const bodyOne = '本周完成了桌面端两个候选框架的对比验证。';
+  const bodyTwo = '结论：短期内继续用 Electron。安装包更大，但行为一致、调试链路完整，团队不需要为不同发行版分别验证。';
+  const bodyThree = '下一步：先做一次打包体积的实测，再决定要不要评估 Tauri。';
+  const weeklyAnswer = {
+    id: uuid(), parentId: weeklyQuestion.id, role: 'assistant',
+    text: `${bodyOne}\n\n${bodyTwo}\n\n${bodyThree}`,
+    reasoning: '周报要的是结论和依据，不是过程。', reasoningMs: 1800,
+    segments: [
+      { type: 'text', text: bodyOne },
+      { type: 'reasoning', text: '周报要的是结论和依据，不是过程；结论放前面。', ms: 900 },
+      { type: 'tool', toolId: confirmSize.id },
+      { type: 'text', text: bodyTwo },
+      { type: 'reasoning', text: '体积差距得补一个实测，不能只凭印象。', ms: 900 },
+      { type: 'tool', toolId: confirmPage.id },
+      { type: 'text', text: bodyThree }
+    ],
+    attachments: [], tools: [confirmSize, confirmPage], sources: [], status: 'complete', created: now - 2 * 60_000,
+    modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config,
+    usage: { input: 2600, output: 320, cachedInput: 2100, elapsedMs: 5400, generationMs: 4700, firstTokenMs: 700, firstOutputMs: 650 }
+  };
+  const weeklyBranch = { id: uuid(), name: '主线', leafId: weeklyAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - 2 * 60_000 };
+  const weekly = { id: uuid(), title: '把调研整理成周报', manualTitle: true, titleState: 'done', created: now - 3 * 60_000, updated: now - 2 * 60_000, activeBranchId: weeklyBranch.id, branches: [weeklyBranch], messages: [weeklyQuestion, weeklyAnswer] };
+
   const others = ['整理 Electron 主进程的启动流程', '把这段 SQL 改写成窗口函数', '周报：本周进展与下周计划', '给鲸鱼娘写一段角色设定'].map((title, index) => {
     const branchId = uuid();
     return { id: uuid(), title, manualTitle: true, titleState: 'done', created: now - (index + 2) * day, updated: now - (index + 2) * day, activeBranchId: branchId, branches: [{ id: branchId, name: '主线', leafId: null, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - (index + 2) * day }], messages: [] };
@@ -97,7 +124,7 @@ await page.evaluate(async () => {
   state.settings.defaultModel = flash.id; state.settings.titleModel = ''; state.settings.compressionModel = '';
   state.settings.favoriteModels = [flash.id]; state.settings.recentModels = [flash.id];
   state.settings.exaKey = 'exa-demo'; state.settings.tavilyKey = 'tavily-demo';
-  state.conversations = [main, ...others];
+  state.conversations = [main, weekly, ...others];
   state.selectedId = main.id;
   await window.seekie.save(state);
   window.dispatchEvent(new Event('seekie-reload'));
@@ -160,6 +187,13 @@ await page.waitForTimeout(250);
 await shot('answer-meta');
 await page.keyboard.press('Escape');
 
+// 回答右键菜单：三种格式的复制、编辑、重新生成、请求详情与建分支都收在这里。
+await page.locator('.message.assistant').first().click({ button: 'right' });
+await page.locator('.message-context-menu').waitFor();
+await page.waitForTimeout(200);
+await shot('answer-menu');
+await page.keyboard.press('Escape');
+
 // 设置 · 模型服务
 await page.getByRole('button', { name: /^设置/ }).click();
 await page.locator('.settings-nav').getByRole('button', { name: '模型服务' }).click();
@@ -182,8 +216,16 @@ await openSources();
 await page.waitForTimeout(300);
 await shot('main-window-dark');
 
-// 新建对话页放在最后：它会多出一个空会话，别让这个空会话进到别的图里。
+// 多段正文编辑：换到那条正文被推理与工具调用隔开的回答，点铅笔。
 await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+await page.locator('.conversation-item', { hasText: '把调研整理成周报' }).click();
+await page.locator('.message.assistant').last().getByTitle('编辑为新版本').click();
+await page.locator('.edit-box').waitFor();
+await page.waitForTimeout(300);
+await shot('multi-body-edit');
+await page.keyboard.press('Escape');
+
+// 新建对话页放在最后：它会多出一个空会话，别让这个空会话进到别的图里。
 await page.getByRole('button', { name: /新建对话/ }).first().click();
 await page.locator('.starter-grid').waitFor();
 await page.waitForTimeout(300);
