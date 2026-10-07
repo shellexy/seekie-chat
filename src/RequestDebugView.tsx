@@ -12,18 +12,24 @@ function fence(content: string, language = '') {
   return `${ticks}${language}\n${content}\n${ticks}`;
 }
 
-function recordMarkdown(record: RequestRecord, index: number) {
-  const sections = [
-    `## 第 ${index + 1} 次请求${record.error ? '（失败）' : ''}`,
-    `\`${record.method}\` \`${record.url}\``,
-    '### 请求头',
-    fence(JSON.stringify(record.headers, null, 2), 'json'),
-    '### 请求体',
-    fence(record.body, 'json')
-  ];
-  if (record.response) sections.push('### 响应内容', fence(record.response, 'text'));
-  if (record.error) sections.push('### 上游返回', fence(record.error, 'text'));
-  return sections.join('\n\n');
+// One request's big payloads each get their own collapsible block. A request body or a streamed
+// response runs to hundreds of lines, and laying them all out pushes everything else off screen;
+// the ::details-content rule keeps the first few lines visible so the shape of the payload is
+// still readable without scrolling.
+function RecordBlock({ label, content, language }: { label: string; content: string; language: string }) {
+  return <details className="debug-block">
+    <summary>{label}</summary>
+    <Markdown text={fence(content, language)}/>
+  </details>;
+}
+
+function recordView(record: RequestRecord, index: number) {
+  return <section className="debug-record" key={index}>
+    <Markdown text={`## 第 ${index + 1} 次请求${record.error ? '（失败）' : ''}\n\n\`${record.method}\` \`${record.url}\`\n\n### 请求头\n\n${fence(JSON.stringify(record.headers, null, 2), 'json')}`}/>
+    <RecordBlock label="请求体" content={record.body} language="json"/>
+    {record.response && <RecordBlock label="响应内容" content={record.response} language="text"/>}
+    {record.error && <RecordBlock label="上游返回" content={record.error} language="text"/>}
+  </section>;
 }
 
 const EMPTY_HINT = '这条回答没有可用的请求记录。\n\n请求详情随对话保存在本地，但只保留最近一段时间的记录，且不进入导出和备份。';
@@ -34,7 +40,6 @@ export default function RequestDebugView({ messageLabel, records, onClose }: { m
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const text = records.length ? records.map(recordMarkdown).join('\n\n') : EMPTY_HINT;
   return createPortal(
     <div className="attachment-viewer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="attachment-viewer-window" role="dialog" aria-modal="true" aria-label="查看请求详情">
@@ -42,7 +47,11 @@ export default function RequestDebugView({ messageLabel, records, onClose }: { m
           <div className="attachment-viewer-title"><FileJson size={16}/><span title={messageLabel}>请求详情 · {records.length} 次 · {messageLabel}</span></div>
           <button className="icon-button" aria-label="关闭请求详情" title="关闭" onClick={onClose}><X size={16}/></button>
         </header>
-        <div className="attachment-viewer-markdown-layout"><div className="attachment-viewer-markdown"><Markdown text={text}/></div></div>
+        <div className="attachment-viewer-markdown-layout">
+          <div className="attachment-viewer-markdown debug-view">
+            {records.length ? records.map(recordView) : <Markdown text={EMPTY_HINT}/>}
+          </div>
+        </div>
       </section>
     </div>, document.body
   );

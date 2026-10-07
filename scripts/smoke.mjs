@@ -864,6 +864,21 @@ try {
     // 调试时还要看得到上游返回了什么，而不只是我们发出去的。
     assert.match(debugText, /响应内容/, '请求详情应显示上游返回的内容');
     assert.ok(debugText.includes('这是本地模拟 API 的回答'), `响应内容应含上游原文，实际：${debugText.slice(0, 400)}`);
+    // 请求体与响应内容默认折叠，但借 ::details-content 露出开头几行，不必展开就能看出内容形状。
+    const debugBlocks = debugWindow.locator('.debug-block');
+    assert.ok(await debugBlocks.count() >= 2, `请求体与响应内容应各自可折叠，实际 ${await debugBlocks.count()} 个`);
+    const bodyBlock = debugWindow.locator('.debug-block', { hasText: '请求体' }).first();
+    assert.equal(await bodyBlock.evaluate(el => el.hasAttribute('open')), false, '请求体默认折叠');
+    // 裁切发生在 ::details-content 这个伪元素盒上，子元素的布局高度仍是全文——所以量 <details>
+    // 自身的高度，它才是视觉上真正占掉的那一截。
+    const blockHeight = el => el.evaluate(e => Math.round(e.getBoundingClientRect().height));
+    const summaryHeight = await bodyBlock.locator('summary').evaluate(e => Math.round(e.getBoundingClientRect().height));
+    const collapsedHeight = await blockHeight(bodyBlock);
+    assert.ok(collapsedHeight > summaryHeight + 20, `折叠时应仍露出内容开头几行：块高 ${collapsedHeight} 摘要高 ${summaryHeight}`);
+    await bodyBlock.locator('summary').click();
+    assert.equal(await bodyBlock.evaluate(el => el.hasAttribute('open')), true, '点击标题应展开');
+    const expandedHeight = await blockHeight(bodyBlock);
+    assert.ok(expandedHeight > collapsedHeight * 2, `展开后应显示完整内容：${expandedHeight} vs ${collapsedHeight}`);
     assert.ok(debugText.includes('••••••••'), '请求详情应显示掩码后的密钥');
     // Header names may contain "secret"; what must never appear is the credential value itself.
     assert.ok(!debugText.includes('Bearer fixture-secret'), '请求详情不得泄露 API Key 的值');

@@ -2721,6 +2721,39 @@ input[type="range"] {
   background: var(--bg);
   color: var(--text);
 }
+/* 请求详情里的大段文本：请求体、响应内容动辄几百行，铺开会把弹窗撑得很长。折叠时用
+   ::details-content 露出开头几行，一眼能看出内容形状；展开后恢复完整内容。旧版 Chromium
+   不支持这个伪元素，退化成普通折叠，功能不受影响。 */
+.debug-block {
+  margin: 16px 0 0;
+}
+.debug-block > summary {
+  font-size: 1.17em;
+  font-weight: bold;
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 8px;
+}
+.debug-block > summary::after {
+  content: "⌄";
+  margin-left: 8px;
+  font-weight: normal;
+  color: var(--muted);
+}
+.debug-block[open] > summary::after {
+  content: "⌃";
+}
+.debug-block::details-content {
+  content-visibility: visible;
+  /* 代码块顶部有 41px 给"复制代码"按钮，再露出三行代码。 */
+  height: calc(41px + 1.7em * 3 + 16px);
+  overflow: clip;
+  transition: height 0.25s ease;
+}
+.debug-block[open]::details-content {
+  height: auto;
+  overflow: visible;
+}
 .attachment-viewer-frame {
   width: 100%;
   height: 100%;
