@@ -1,12 +1,31 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MockAgent, setGlobalDispatcher } from 'undici';
-import { buildInput, endpoint, generate, sse } from '../electron/providers';
+import { authHeaders, buildInput, endpoint, generate, request, sse } from '../electron/providers';
 import { addMessage, createConversation, initialState } from '../src/domain';
 import type { Connection, Model } from '../src/types';
 import { UsageCounter } from '../electron/usage';
 const connection = (protocol: Connection['protocol']): Connection => ({ id: 'c', name: 'Mock', protocol, baseUrl: 'https://fixture.invalid/v1', apiKey: 'fixture-only', headers: {}, timeout: 10, proxy: '' });
 const model: Model = { id: 'm', connectionId: 'c', name: 'Mock', model: 'fixture', contextWindow: 100000, maxOutput: 4096, vision: true, tools: true, nativeSearch: false, reasoning: 'none', efforts: [], temperature: true };
+test('model family User-Agent defaults identify Codex or Claude Code and respect custom headers', () => {
+  assert.match(authHeaders(connection('responses'), 'gpt-4o')['User-Agent'], /^codex_cli_rs\/\d+\.\d+\.\d+ \(/);
+  assert.match(authHeaders(connection('anthropic'), 'anthropic/claude-sonnet-4')['User-Agent'], /^claude-cli\/\d+\.\d+\.\d+ \(external, cli\)$/);
+  assert.match(authHeaders(connection('responses'), { model: 'compatible-id', name: 'GPT 4o' })['User-Agent'], /^codex_cli_rs\//);
+  assert.match(authHeaders(connection('anthropic'), { model: 'compatible-id', name: 'Claude Sonnet 4' })['User-Agent'], /^claude-cli\//);
+  assert.equal(authHeaders(connection('chat'), 'deepseek-flash')['User-Agent'], undefined);
+  assert.equal(authHeaders({ ...connection('responses'), headers: { 'user-agent': 'custom-agent/1.0' } }, 'gpt-4o')['user-agent'], 'custom-agent/1.0');
+});
+for (const [modelName, protocol, prefix] of [['gpt-4o', 'responses', 'codex_cli_rs/'], ['claude-3-7-sonnet', 'anthropic', 'claude-cli/']] as const) test(`HTTP requests for ${modelName} send the matching client User-Agent`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent); let userAgent = '';
+  agent.get('https://fixture.invalid').intercept({ path: '/v1/models', method: 'GET' }).reply(options => {
+    userAgent = new Headers(options.headers as HeadersInit).get('user-agent') || '';
+    return { statusCode: 200, data: { data: [] } };
+  });
+  const { response, close } = await request(connection(protocol), 'models', undefined, new AbortController().signal, modelName);
+  await response.json(); close();
+  assert.ok(userAgent.startsWith(prefix), userAgent);
+  await agent.close();
+});
 test('usage aggregation counts cumulative frames once and keeps unknown cache distinct from zero across rounds', () => {
   const counter = new UsageCounter();
   counter.observe({ input: 100, output: 1, cachedInput: 20 });

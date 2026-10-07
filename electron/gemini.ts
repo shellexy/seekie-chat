@@ -71,7 +71,7 @@ export async function generateGemini(connection: Connection, model: Model, confi
     if (allowTools && hasWebFetch) tools.push({ functionDeclarations: [webFetchTool] });
     if (tools.length) body.tools = tools;
     if (config.search === 'native' && allowTools && hasWebFetch) body.toolConfig = { includeServerSideToolInvocations: true };
-    const { response, close } = await deps.request(connection, path, body, signal);
+    const { response, close } = await deps.request(connection, path, body, signal, model);
     const parts: any[] = [];
     let finishReason = '';
     const searchId = crypto.randomUUID(), searchStarted = Date.now();

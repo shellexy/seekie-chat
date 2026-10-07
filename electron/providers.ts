@@ -1,4 +1,6 @@
 import { fetch, ProxyAgent } from 'undici';
+import * as os from 'node:os';
+import appInfo from '../package.json';
 import { generateGemini } from './gemini';
 import { UsageCounter } from './usage';
 import { convertUnsupportedAttachments, markdownForUnsupported } from './attachments';
@@ -16,17 +18,30 @@ export function endpoint(connection: Connection, path: string) {
   const version = connection.protocol === 'gemini' ? '/v1beta' : '/v1';
   return `${base}${url.pathname !== '/' ? '' : version}/${path}`;
 }
-export function authHeaders(connection: Connection) {
+function modelUserAgent(modelNames: string[]) {
+  const matches = (pattern: RegExp) => modelNames.some(name => pattern.test(name.trim()));
+  if (matches(/(?:^|\/)gpt(?:[-_/\s]|$)/i)) {
+    const architecture = ({ x64: 'x86_64', arm64: 'aarch64' } as Record<string, string>)[os.arch()] || os.arch();
+    return `codex_cli_rs/${appInfo.version} (${os.type()} ${os.release()}; ${architecture})`;
+  }
+  if (matches(/(?:^|\/)claude(?:[-_/\s]|$)/i)) return `claude-cli/${appInfo.version} (external, cli)`;
+  return undefined;
+}
+export function authHeaders(connection: Connection, model?: string | Pick<Model, 'model' | 'name'>) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...connection.headers };
+  const hasCustomUserAgent = Object.keys(connection.headers).some(name => name.toLowerCase() === 'user-agent');
+  const modelNames = typeof model === 'string' ? [model] : model ? [model.model, model.name] : [];
+  const userAgent = !hasCustomUserAgent ? modelUserAgent(modelNames) : undefined;
+  if (userAgent) headers['User-Agent'] = userAgent;
   if (connection.protocol === 'anthropic') { headers['anthropic-version'] = '2023-06-01'; if (connection.apiKey) headers['x-api-key'] = connection.apiKey; }
   else if (connection.protocol === 'gemini') { if (connection.apiKey) headers['x-goog-api-key'] = connection.apiKey; }
   else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
   return headers;
 }
-export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal) {
+export async function request(connection: Connection, path: string, body: unknown, signal: AbortSignal, model?: string | Pick<Model, 'model' | 'name'>) {
   const dispatcher = connection.proxy ? new ProxyAgent(connection.proxy) : undefined;
   try {
-    const response = await fetch(endpoint(connection, path), { method: body ? 'POST' : 'GET', headers: authHeaders(connection), body: body ? JSON.stringify(body) : undefined,
+    const response = await fetch(endpoint(connection, path), { method: body ? 'POST' : 'GET', headers: authHeaders(connection, model), body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(10, connection.timeout) * 1000)]), dispatcher });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 1200);
@@ -204,7 +219,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
       }
       if (model.reasoning === 'effort') { body.thinking = { type: 'adaptive' }; if (config.effort !== 'auto') body.output_config = { effort: config.effort }; }
     }
-    const { response, close } = await request(connection, path, body, signal);
+    const { response, close } = await request(connection, path, body, signal, model);
     const calls: { id: string; name: string; args: string }[] = [];
     const blocks: any[] = []; let responseItems: any[] = [], chatText = '', chatReason = ''; const chatCalls = new Map<number, any>();
     let finished = false;
