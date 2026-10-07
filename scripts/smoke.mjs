@@ -376,16 +376,24 @@ try {
   assert.equal(await page.locator('.model-select-star.on').count(), 2);
   assert.deepEqual(await page.locator('.model-select-section').first().locator('[role="option"]').allTextContents(), ['模拟 chat | 本地模拟 chat']);
   assert.equal(await page.locator('.model-select-popover [role="option"]').count(), 5, '收藏区 1 条加上完整列表 4 条');
-  // The star owns the right edge of its row, so its alignment has to survive the generic
-  // `.popover button` rule as well as a class name that drifts away from its stylesheet rule.
+  // The star button owns the right edge of its row, so the column has to line up across rows, but
+  // the glyph itself must sit centred inside that button and carry no button background: it was
+  // previously flush right (flex-end plus left padding) and floated on a grey box.
   const pickerStyle = await page.locator('.model-select-popover').evaluate(el => {
     const panel = el.getBoundingClientRect(), cs = getComputedStyle(el);
-    const stars = [...el.querySelectorAll('.model-select-star')], icons = stars.map(s => s.querySelector('svg').getBoundingClientRect());
+    const stars = [...el.querySelectorAll('.model-select-star')];
     const contentRight = panel.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
-    return { gaps: [...new Set(icons.map(r => Math.round((contentRight - r.right) * 10) / 10))], justify: getComputedStyle(stars[0]).justifyContent, starWidth: getComputedStyle(stars[0]).width };
+    return {
+      columnGaps: [...new Set(stars.map(s => Math.round((contentRight - s.getBoundingClientRect().right) * 10) / 10))],
+      centred: stars.every(s => { const b = s.getBoundingClientRect(), i = s.querySelector('svg').getBoundingClientRect(); return Math.abs((i.left - b.left) - (b.right - i.right)) <= 0.5; }),
+      backgrounds: [...new Set(stars.map(s => getComputedStyle(s).backgroundColor))],
+      justify: getComputedStyle(stars[0]).justifyContent, starWidth: getComputedStyle(stars[0]).width
+    };
   });
-  assert.deepEqual(pickerStyle.gaps, [0], '星标图标应贴住行内容右边缘，且所有行对齐成同一列');
-  assert.equal(pickerStyle.justify, 'flex-end', '.popover button 的 justify-content 会压过裸类名，星标规则必须挂在面板作用域下');
+  assert.deepEqual(pickerStyle.columnGaps, [0], '星标按钮应贴住行内容右边缘，且所有行对齐成同一列');
+  assert.equal(pickerStyle.centred, true, '星形应在按钮内水平居中');
+  assert.deepEqual(pickerStyle.backgrounds, ['rgba(0, 0, 0, 0)'], '星标不应有按钮底色');
+  assert.equal(pickerStyle.justify, 'center', '.popover button 的 justify-content 会压过裸类名，星标规则必须挂在面板作用域下');
   assert.equal(pickerStyle.starWidth, '26px', '星标点击区宽度不应被 padding 挤掉');
   await page.locator('.model-select-popover').getByRole('button', { name: '取消收藏 模拟 chat' }).first().click();
   assert.deepEqual(await page.locator('.model-select-heading').allTextContents(), ['全部模型']);

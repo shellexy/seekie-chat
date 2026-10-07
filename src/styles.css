@@ -154,9 +154,14 @@ p {
   flex-shrink: 0;
 }
 .icon-button:hover,
-.icon-button.selected,
-/* 连接已停用时，开关本身要显出"这是个正在生效的状态"，而不只是可点的按钮。 */
-.icon-button.on {
+.icon-button.selected {
+  color: var(--text);
+  background: var(--hover);
+}
+/* 停用状态需要显出"这是个正在生效的状态"，但用 .on 这类通用类名会漏到别处：模型选择器的
+   收藏星标也是 icon-button + on，被这里一起命中后每个已收藏模型背后都浮着一块灰底。
+   因此只认这个专用类名。 */
+.connection-toggle.on {
   color: var(--text);
   background: var(--hover);
 }
@@ -1072,12 +1077,19 @@ summary {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  /* 居中而不是靠右：原先 flex-end 配 padding-left 让星形紧贴右缘、左侧空 12px，看上去是歪的。 */
+  justify-content: center;
   width: 26px;
   height: 24px;
-  padding: 0 0 0 6px;
+  padding: 0;
+  /* 星标只是一个图标，不要按钮底色；已收藏由 color 变 accent 表达即可。 */
+  background: transparent;
   color: var(--muted);
   opacity: 0;
+}
+/* 悬停反馈保留，但必须显式写：上面的 transparent 特异性更高，会盖掉 .popover button:hover。 */
+.model-select-popover .model-select-star:hover {
+  background: var(--hover);
 }
 .model-select-row:hover .model-select-star,
 .model-select-star:focus-visible,
