@@ -74,6 +74,33 @@ for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${prot
   assert.equal(result.text, '你好'); assert.equal(result.reasoning, '摘要'); assert.deepEqual(result.usage, { input: 10, output: 2 }); assert.equal(output.join(''), '你好'); assert.ok(result.raw.entries.length);
   await agent.close();
 });
+for (const protocol of ['responses', 'anthropic'] as const) test(`${protocol} web_search records the actual search parameters`, async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const query = 'How do streamed native searches expose their query?';
+  const events = protocol === 'responses' ? [
+    { type: 'response.web_search_call.in_progress', item_id: 'ws-1' },
+    { type: 'response.output_text.delta', delta: 'Answer' },
+    { type: 'response.output_item.done', item: { type: 'web_search_call', id: 'ws-1', status: 'completed', action: { type: 'search', query } } },
+    { type: 'response.completed', response: { output: [{ type: 'web_search_call', id: 'ws-1', status: 'completed', action: { type: 'search', query } }, { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Answer', annotations: [] }] }], usage: { input_tokens: 10, output_tokens: 2 } } }
+  ] : [
+    { type: 'message_start', message: { usage: { input_tokens: 10 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'search-1', name: 'web_search', input: {} } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ query }) } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'search-1', content: [] } },
+    { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'Answer' } },
+    { type: 'message_stop' }
+  ];
+  const path = protocol === 'responses' ? '/v1/responses' : '/v1/messages';
+  agent.get('https://fixture.invalid').intercept({ path, method: 'POST' }).reply(200, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(), c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', 'Search'); const tools: Array<{ id: string; name: string; input: string; status: string }> = [];
+  const result = await generate(connection(protocol), { ...model, nativeSearch: true }, { ...c.branches[0].config, search: 'native' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => tools.push(t), sources() {} });
+  const search = tools.filter(t => t.name === 'web_search').at(-1);
+  assert.equal(JSON.parse(search?.input || '{}').query, query);
+  assert.equal(search?.status, 'done'); assert.equal(result.text, 'Answer');
+  await agent.close();
+});
 test('a stream ending without completion is an error, not a successful answer', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   agent.get('https://fixture.invalid').intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, 'data: {"choices":[{"delta":{"content":"部分回答"}}]}\n\n');

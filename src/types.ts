@@ -38,6 +38,7 @@ export interface Usage {
 }
 export interface Message {
   id: string; parentId: string | null; role: Role; text: string; reasoning: string;
+  reasoningMs?: number;
   attachments: Attachment[]; tools: ToolEvent[]; sources: Source[];
   status: 'complete' | 'streaming' | 'interrupted' | 'error'; error?: string;
   created: number; edited?: boolean; modelId?: string; config?: ChatConfig; usage?: Usage;

@@ -79,6 +79,13 @@ async function runChat(request: RunRequest) {
   const controller = new AbortController(); tasks.set(conversation.id, { controller, branchId: branch.id, messageId: message.id, kind: 'chat' });
   message.modelId = model.id; message.config = config; emit(true);
   void (async () => {
+    let reasoningStarted: number | undefined, reasoningElapsed = 0;
+    const finishReasoning = () => {
+      if (reasoningStarted === undefined) return;
+      reasoningElapsed += performance.now() - reasoningStarted;
+      reasoningStarted = undefined;
+      message.reasoningMs = reasoningElapsed;
+    };
     try {
       let context = contextMessages(conversation, branch, message.parentId);
       await convertUnsupportedAttachments(context.messages, connection.protocol, model);
@@ -91,8 +98,8 @@ async function runChat(request: RunRequest) {
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');
       const started = performance.now(); let firstTokenMs: number | undefined;
       const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
-        text: s => { if (s && firstTokenMs === undefined) firstTokenMs = performance.now() - started; message.text += s; emit(); }, reasoning: s => { message.reasoning += s; emit(); },
-        tool: t => { const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index]; message.tools[index] = { ...t, started: old.started, elapsed: t.elapsed ?? (t.status !== 'running' ? Date.now() - old.started : undefined) }; } emit(); },
+        text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) firstTokenMs = performance.now() - started; } message.text += s; emit(); }, reasoning: s => { if (s && reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; emit(); },
+        tool: t => { if (t.status === 'running') finishReasoning(); const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index]; message.tools[index] = { ...t, started: old.started, elapsed: t.elapsed ?? (t.status !== 'running' ? Date.now() - old.started : undefined) }; } emit(); },
         sources: sources => { message.sources = sources; emit(); }
       });
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
@@ -100,7 +107,7 @@ async function runChat(request: RunRequest) {
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';
       void generateTitle(conversation, config, pathTo(conversation, message.id));
     } catch (error) { message.status = controller.signal.aborted ? 'interrupted' : 'error'; message.error = controller.signal.aborted ? '已停止生成' : redact(error); }
-    finally { for (const t of message.tools) if (t.status === 'running') { t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state); emit(true); }
+    finally { finishReasoning(); for (const t of message.tools) if (t.status === 'running') { t.status = 'error'; t.output = '任务已结束或中断'; } tasks.delete(conversation.id); store.save(state); emit(true); }
   })().catch(error => notify(redact(error)));
 }
 function register() {

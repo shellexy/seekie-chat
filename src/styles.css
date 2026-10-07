@@ -18,6 +18,9 @@
 /* The composer toolbar sits below the text field, alongside the send button. */
 .brand { font-size: 18px; letter-spacing: -.55px; gap: 7px; white-space: nowrap; }
 .composer-bottom { gap: 6px; }
+.thinking summary::after { margin-left: auto; }
+.thinking .thinking-status, .thinking .cot-time { color: var(--muted); font-size: 10px; font-weight: 400; }
+.thinking .thinking-status { margin-left: auto; }
 .composer-meta { display: flex; align-items: center; justify-content: flex-start; gap: 9px; margin: 0; padding: 0; min-width: 0; }
 .model-selector select { max-width: 145px; font-size: 11px; }
 .reasoning-selector { display: flex; align-items: center; gap: 3px; color: var(--muted); min-width: 0; }
