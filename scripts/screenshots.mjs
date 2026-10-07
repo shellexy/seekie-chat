@@ -1,7 +1,7 @@
 // 生成 docs/screenshots/ 下的界面截图。
 // 用隔离的临时数据目录和模拟连接，不碰真实数据、不发起任何网络请求。
 // 重新生成：node scripts/screenshots.mjs
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -120,6 +120,44 @@ await page.locator('.branch-pill').click();
 await page.locator('.branch-option').first().waitFor();
 await page.waitForTimeout(250);
 await shot('branches');
+await page.keyboard.press('Escape');
+
+// 请求详情：给第一条回答补一条请求记录。真实运行时是主进程写入 requests/<消息 id>.json，
+// 这里直接写同一个位置，内容和真实记录同形（头已脱敏、请求体是格式化后的 JSON）。
+const answerId = await page.evaluate(async () => {
+  const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === state.selectedId);
+  return conversation.messages.find(m => m.role === 'assistant').id;
+});
+mkdirSync(join(directory, 'requests'), { recursive: true });
+writeFileSync(join(directory, 'requests', `${answerId}.json`), JSON.stringify([{
+  url: 'https://api.deepseek.com/anthropic/v1/messages',
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': '••••••••' },
+  body: JSON.stringify({
+    model: 'deepseek-flash', max_tokens: 8192, stream: true,
+    thinking: { type: 'enabled', budget_tokens: 4096 },
+    system: '你是一位严谨、友善的助手。使用用户的语言回答。',
+    tools: [
+      { type: 'web_search_20250305', name: 'web_search', max_uses: 3 },
+      { name: 'web_fetch', description: '读取公开网页正文并转换为 Markdown。输入应是搜索结果或用户提供的完整网页 URL。', input_schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } }
+    ],
+    messages: [{ role: 'user', content: '对比一下 Tauri 和 Electron，重点说说打包体积和内存占用。' }]
+  }, null, 2),
+  response: 'event: message_start\ndata: {"type":"message_start","message":{"model":"deepseek-flash","usage":{"input_tokens":1820}}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"先把两边拆成运行时…"}}\n\nevent: message_stop\ndata: {"type":"message_stop"}'
+}]), { mode: 0o600 });
+await page.getByRole('button', { name: '查看请求详情' }).first().click();
+await page.getByRole('dialog', { name: '查看请求详情' }).waitFor();
+await page.waitForTimeout(300);
+await shot('request-details');
+await page.getByRole('button', { name: '关闭请求详情' }).click();
+await page.getByRole('dialog', { name: '查看请求详情' }).waitFor({ state: 'hidden' });
+
+// 用量详情：点开回答右侧那串"模型·时间·输入·输出"，浮窗里有完整指标。
+const metaTrigger = page.getByRole('button', { name: /^查看回答详情：/ }).first();
+await metaTrigger.click();
+await page.getByRole('tooltip').waitFor();
+await page.waitForTimeout(250);
+await shot('answer-meta');
 await page.keyboard.press('Escape');
 
 // 设置 · 模型服务
