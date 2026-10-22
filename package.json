@@ -1,6 +1,6 @@
 {
   "name": "seekie-chat",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "productName": "seekie-chat",
   "description": "Linux desktop LLM chat with conversation branches",
@@ -64,6 +64,7 @@
       "package.json",
       "!**/*.map"
     ],
+    "afterPack": "./scripts/after-pack-linux-sandbox.mjs",
     "asarUnpack": [
       "dist-electron/icon.png"
     ],
@@ -86,7 +87,10 @@
       "description": "Seekie Chat with DeepSeek LLM"
     },
     "appImage": {
-      "artifactName": "${name}-${version}-${arch}.${ext}"
+      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "executableArgs": [
+        "--no-sandbox"
+      ]
     },
     "deb": {
       "depends": [
