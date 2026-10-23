@@ -85,7 +85,9 @@ await page.evaluate(async () => {
   };
 
   const mainBranch = { id: uuid(), name: '主线', leafId: finalAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now };
-  const sideBranch = { id: uuid(), name: '只看内存占用', leafId: answer.id, originId: answer.id, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - 90_000 };
+  // 副分支真实由 fork() 从主线分出，父分支必须指向主线：截图要能展示分支菜单按父子
+  // 关系缩进的树形，两个都写 null 会让它退化成两行平铺。
+  const sideBranch = { id: uuid(), name: '只看内存占用', leafId: answer.id, originId: answer.id, parentBranchId: mainBranch.id, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - 90_000 };
   const main = { id: uuid(), title: '对比 Tauri 与 Electron 的取舍', manualTitle: true, titleState: 'done', created: now - day, updated: now, activeBranchId: mainBranch.id, branches: [mainBranch, sideBranch], messages: [question, answer, followUp, finalAnswer] };
   // 多段正文的回答：正文被推理与工具调用隔开，编辑时每段各自一个输入框。
   const weeklyQuestion = { id: uuid(), parentId: null, role: 'user', text: '把刚才的调研整理成一段能贴进周报的话。', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: now - 3 * 60_000 };
@@ -201,6 +203,15 @@ await page.locator('.message-context-menu').waitFor();
 await page.waitForTimeout(200);
 await shot('answer-menu');
 await page.keyboard.press('Escape');
+
+// 会话选项：温度/top_p、联网搜索与读取网页、系统提示词/角色预设和压缩入口都收在这个浮窗里，
+// 配置按分支各自保存——每个分支可以是完全不同的问法。
+await page.getByRole('button', { name: /^会话选项/ }).click();
+await page.locator('.config-popover').waitFor();
+await page.waitForTimeout(250);
+await shot('session-options');
+await page.keyboard.press('Escape');
+await page.locator('.config-popover').waitFor({ state: 'hidden' });
 
 // 设置 · 模型服务
 await page.getByRole('button', { name: /^设置/ }).click();
