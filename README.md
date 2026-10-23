@@ -1,10 +1,10 @@
 # Seekie Chat
 
-Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色主题，聊天数据保存在本机。
+跨平台桌面 LLM 聊天客户端（Linux / Windows / macOS）。Electron + React + TypeScript，默认浅色主题，聊天数据保存在本机。
 
 <sub>基于 MIT License 开源。Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。</sub>
 
-![version](https://img.shields.io/badge/version-0.2.1-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)
+![version](https://img.shields.io/badge/version-0.2.2-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 
 ![主界面](docs/screenshots/main-window.webp)
 
@@ -27,6 +27,7 @@ Linux 桌面 LLM 聊天客户端。Electron + React + TypeScript，默认浅色�
 - **Linux deb**（`seekie-chat_<版本>_amd64.deb`）：`sudo dpkg -i` 安装。装完命令行敲 `seekie-chat`，或从应用菜单启动。
 - **Linux AppImage**（`seekie-chat-<版本>-x86_64.AppImage`）：`chmod +x` 后直接运行，免安装。
 - **Windows**（`seekie-chat-<版本>-setup.exe`）：一键安装到当前用户目录。安装包未签名，首次运行会提示“未知发布者”。
+- **macOS**（`seekie-chat-<版本>-arm64.dmg` / `seekie-chat-<版本>-x64.dmg`）：按芯片选包，拖进“应用程序”。构建未签名也未公证，首次打开需右键 →“打开”，或先执行 `xattr -dr com.apple.quarantine /Applications/seekie-chat.app`。
 
 想从源码运行见下一节；自己打包见[安装与打包](#安装与打包)。
 
@@ -198,13 +199,16 @@ SEEKIE_DATA_DIR=/tmp/seekie-local npm run dev
 
 ## 安装与打包
 
-三个目标都由 electron-builder 产出到 `release/`：
+三个平台的产物都由 electron-builder 产出到 `release/`：
 
 ```bash
 npm run dist:deb        # seekie-chat_<版本>_amd64.deb
 npm run dist:appimage   # seekie-chat-<版本>-x86_64.AppImage
 npm run dist:win        # seekie-chat-<版本>-setup.exe
+npm run dist:mac        # seekie-chat-<版本>-<arch>.dmg / .zip（须在 macOS 上运行）
 ```
+
+不想在本机凑齐三套工具链时，推一个 `v*` 标签就会让 GitHub Actions 打包：`.github/workflows/release.yml` 在 Linux、Windows、macOS 三个 runner 上各自构建，全部成功后再合并产物发布到 Releases，并先校验标签与 `package.json` 的版本号一致。在 Actions 页面手动触发（workflow_dispatch）则只构建、不发布，产物留在该次运行的 Artifacts 里。公开仓库的 Actions 额度免费。
 
 deb 装到 `/opt/seekie-chat/`，并创建 `/usr/bin/seekie-chat` 软链接，命令行直接敲 `seekie-chat` 就能启动。除此之外：
 
@@ -218,7 +222,7 @@ Windows 安装包是 NSIS 一键安装器，装到当前用户目录，卸载时
 
 Windows 版本目前只验证到打包这一步，没有在真机上运行过——窗口控件、数据目录等平台差异还需要实际跑一遍确认。
 
-程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
+macOS 版本同样只验证到打包这一步：产物未签名也未公证，首次启动会被 Gatekeeper 拦下；窗口沿用同一套自绘标题栏，没有系统红绿灯，实际观感需要真机确认。Intel 与 Apple 芯片分别出包，没有做 universal 合并。
 
 程序与任务栏图标用 `build/icon.png` 的彩色版；新建对话页另用 `build/welcome-icon.png` 的线稿版（白底已转为透明、只留黑线），以 128×128 显示。线稿不能直接当图片贴——深色主题下近黑的线配近黑的底会整个消失，因此改用 CSS mask：形状由 PNG 的 alpha 决定、颜色用品牌蓝 `--accent`，一份素材在浅色与深色主题下都清晰（实测与底色的对比度 4.39:1 与 3.16:1，均高于图形元素的 3:1）。侧栏顶栏按设计不显示图标。
 
@@ -256,7 +260,7 @@ xvfb-run -a npm run test:desktop
 
 ## 当前边界
 
-- 不含安装包、账号、云同步、任意插件或命令执行、本地模型部署。
+- 不含自动更新、账号、云同步、任意插件或命令执行、本地模型部署。
 - 暂未实现 SOCKS 代理、系统代理自动探测、可独立展开的完整分支树面板（分支切换菜单已按树形缩进展示父子关系）和全文搜索。
 - 按模型能力原生发送图片、视频、音频和 PDF；模型不支持的文件类型尝试由 `@firecrawl/anydoc` 在本地转成 Markdown，支持 Word、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV 和 PDF，纯文本直接输入。转换默认不上传文件；扫描版 PDF 需要 OCR，视频和音频不支持转换，不支持或无法提取内容的格式会提示失败。
 - 不自动重发已经接收内容的流式请求；明确重试会产生新请求。

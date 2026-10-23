@@ -1,0 +1,79 @@
+name: Release
+
+# 推 v* 标签时三个平台各打一份包，全部成功后才发布到 Releases；
+# 手动触发只构建、产物留在 Actions 里，方便先跑通流程再真正发版。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 打包 ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            args: --linux
+          - os: windows-latest
+            platform: win
+            args: --win
+          - os: macos-latest
+            platform: mac
+            # runner 本身是 arm64，x64 一起出 Intel Mac 才能用：没有原生运行时依赖，交叉打包是安全的。
+            args: --mac --x64 --arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # 标签和 package.json 版本对不上时，发出去的包版本号就是错的，宁可这里先挂掉。
+      - name: 校验标签与版本号一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: node -e "const v=require('./package.json').version,t=process.env.GITHUB_REF_NAME.slice(1);if(v!==t){console.error('标签',process.env.GITHUB_REF_NAME,'与 package.json 的',v,'不一致');process.exit(1)}"
+      - run: npm run check
+      - run: npm run build
+      # 没有签名证书：显式关掉自动查找，否则 macOS 上可能报错中断。产物未签名，首次打开要手动放行。
+      - name: 打包
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            release/*.deb
+            release/*.AppImage
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+
+  release:
+    name: 发布到 Releases
+    # 手动触发只验证构建，不碰 Releases。
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

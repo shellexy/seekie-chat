@@ -14,6 +14,7 @@
 | `npm run dist:deb` | 打 Linux deb 到 `release/` | 发布前 |
 | `npm run dist:appimage` | 打 Linux AppImage 到 `release/` | 发布前 |
 | `npm run dist:win` | 打 Windows NSIS 安装包；在 Linux 上交叉构建需要 wine | 发布前 |
+| `npm run dist:mac` | 打 macOS dmg/zip；必须在 macOS 上运行 | 发布前 |
 
 - 类型检查通过**不代表**改对了：`check` 里还有一百多个单测，`test:desktop` 覆盖真实窗口。
 - `test:desktop` 与 `test:dev` 都要能创建窗口。有显示器就直接跑；纯 SSH / CI 才需要 `xvfb-run -a`。
@@ -59,6 +60,7 @@
 - `MessageRow` 用自定义 `propsEqual`（消息本身靠 `sameMessage` 逐字段比较），`Markdown` 用默认浅比较、只认 `text`。**新增 `Message` 字段或给消息行加 prop 时，必须同时加进 `sameMessage` / `propsEqual`**，否则那一行不会更新——表现是界面停在旧内容而不是报错，很难联想到 memo。
 - 若冒烟偶发失败在**悬停 / 浮层**类断言上，先重跑一次：本机 GPU 进程会反复崩，渲染节流会让这类断言抖动。
 - 发版时三处要一起改：`package.json` 的 `version`、README 顶部的版本徽章（静态徽章不会自动更新）、README 里出现版本号的路径示例。
+- 推 `v*` 标签会触发 `.github/workflows/release.yml` 在 Linux/Windows/macOS 三个 runner 上打包并发布到 Releases；标签号必须与 `package.json` 的 `version` 一致，否则构建先失败。不想发版时用 workflow_dispatch 手动跑，只产 Actions Artifacts。
 
 ## 别做
 

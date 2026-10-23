@@ -1,9 +1,9 @@
 {
   "name": "seekie-chat",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "productName": "seekie-chat",
-  "description": "Linux desktop LLM chat with conversation branches",
+  "description": "Cross-platform desktop LLM chat with conversation branches",
   "author": "Shellexy <299902+shellexy@users.noreply.github.com>",
   "license": "MIT",
   "homepage": "https://github.com/shellexy/seekie-chat",
@@ -20,7 +20,8 @@
     "check": "npm run typecheck && npm test",
     "dist:deb": "npm run build && electron-builder --linux deb",
     "dist:appimage": "npm run build && electron-builder --linux AppImage",
-    "dist:win": "npm run build && electron-builder --win"
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
     "@aurouscia/image-compress": "^0.2.0",
@@ -117,6 +118,15 @@
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.social-networking",
+      "artifactName": "${name}-${version}-${arch}.${ext}"
     }
   }
 }
