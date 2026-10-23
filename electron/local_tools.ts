@@ -3,7 +3,9 @@ import type { ChatConfig, Model } from '../src/types';
 // Client-executed tools keep separate per-answer budgets. A tool the model calls often
 // (datetime needs no arguments and always succeeds) must not consume the quota that
 // search or web_fetch still needs, and adding a tool must not require editing every loop.
-export const DEFAULT_TOOL_CALL_LIMIT = 30;
+// 60 is sized for research-style answers that chain dozens of searches and fetches; the
+// round budget scales with it, so raising this never breaks the loop cap.
+export const DEFAULT_TOOL_CALL_LIMIT = 60;
 const TOOL_CALL_LIMITS: Record<string, number> = { datetime: DEFAULT_TOOL_CALL_LIMIT };
 
 export const datetimeTool = {

@@ -242,6 +242,22 @@ test('Exa failures return explicit tool errors without fabricated sources', asyn
   assert.match(secondBody.messages.at(-1).content, /搜索未成功/); assert.equal(result.sources.length, 0);
   await agent.close();
 });
+test('search result bodies are truncated to 8000 characters before reaching the model', async () => {
+  const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
+  const pool = agent.get('https://fixture.invalid');
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-long', function: { name: 'tavily_search', arguments: '{"query":"long body"}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
+  ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+  agent.get('https://api.tavily.com').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: 'Long result', url: 'https://example.com/long', content: '正'.repeat(20_000) }] });
+  let secondBody: any;
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => { secondBody = JSON.parse(String(options.body)); return [ { choices: [{ delta: { content: '已收到。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] } ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''); }, { headers: { 'content-type': 'text/event-stream' } });
+  const state = initialState(); state.settings.tavilyKey = 'fixture'; const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '查询');
+  await generate(connection('chat'), model, { ...c.branches[0].config, search: 'tavily' }, c.messages, state.settings, new AbortController().signal);
+  const fed = JSON.parse(secondBody.messages.at(-1).content);
+  assert.equal(fed[0].text.length, 8_000);
+  await agent.close();
+});
 for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) test(`${provider} web search sends authenticated queries and returns source snippets to the model`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');

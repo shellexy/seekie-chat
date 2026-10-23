@@ -19,6 +19,10 @@ const SECRET_HEADERS = /^(authorization|proxy-authorization|x-api-key|x-goog-api
 const MAX_RECORDED_BODY = 200_000;
 // 上游返回的原文同样只留这么多：长回答的流式原文能到几百 KB，调试看个开头就够。
 const MAX_RECORDED_RESPONSE = 200_000;
+// 每条搜索结果送进模型的正水上限。调研类任务要靠多轮搜索拼出全貌，2500 字把很多正文
+// 压成了只能看个开头的碎片，模型只好反复改写查询重搜；放宽到 8000 后一次搜索的性价比高得多。
+// Exa 在请求侧用同一个值，避免服务端先截一遍、这里再截一遍。
+const SEARCH_RESULT_MAX_CHARS = 8_000;
 // Custom headers are treated as secrets everywhere else, so their values are masked here too.
 export function debugHeaders(connection: Connection, headers: Record<string, string>) {
   const custom = new Set(Object.keys(connection.headers).map(name => name.toLowerCase()));
@@ -233,7 +237,7 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
   let url: string, body: unknown;
   if (mode === 'exa') {
     url = 'https://api.exa.ai/search'; headers['x-api-key'] = key;
-    body = { query, numResults: count, contents: { text: { maxCharacters: 2500 } } };
+    body = { query, numResults: count, contents: { text: { maxCharacters: SEARCH_RESULT_MAX_CHARS } } };
   } else if (mode === 'ollama') {
     url = 'https://ollama.com/api/web_search'; headers.Authorization = `Bearer ${key}`;
     body = { query, max_results: count };
@@ -265,7 +269,7 @@ async function externalSearch(mode: ExternalSearchMode, args: string, settings: 
     title: String(r.title || r.url || ''), url: String(r.url || ''),
     // summary 排在 description/snippet 之前：DeepSeek 文档明确它是"适用于给模型阅读"的
     // 长摘要，比 100~200 字的 snippet 更适合直接送进上下文。
-    text: String(r.text || r.markdown || r.content || r.summary || r.description || r.snippet || (Array.isArray(r.highlights) ? r.highlights.join('\n') : '')).slice(0, 2500)
+    text: String(r.text || r.markdown || r.content || r.summary || r.description || r.snippet || (Array.isArray(r.highlights) ? r.highlights.join('\n') : '')).slice(0, SEARCH_RESULT_MAX_CHARS)
   })).filter((r: Source) => /^https?:\/\//.test(r.url));
 }
 export async function generate(connection: Connection, model: Model, config: ChatConfig, messages: Message[], settings: Settings, signal: AbortSignal, hooks = noop, webFetch?: WebFetch): Promise<Result> {

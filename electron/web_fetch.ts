@@ -12,7 +12,9 @@ export type WebFetchProvider = Exclude<WebFetchMode, 'auto' | 'off' | 'local'>;
 
 const ACCEPT = 'text/markdown, text/html;q=0.9, application/xhtml+xml;q=0.8, text/plain;q=0.7, application/json;q=0.6, */*;q=0.3';
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-const MAX_CONTENT_CHARS = 20_000;
+// 送给模型的单页正水上限。调研任务经常要读长文档，20,000 字符会把文章拦腰截断，
+// 模型拿不到后半截就只能凭开头作答；40,000 覆盖绝大多数正文页，仍远小于上下文窗口。
+const MAX_CONTENT_CHARS = 40_000;
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 // 自动读取网页的顺序，与联网搜索的内置顺序一致：Tavily 排最前，它的响应明显快于 Firecrawl。
 const AUTO_FETCH_ORDER: WebFetchProvider[] = ['tavily', 'exa', 'ollama', 'anysearch', 'firecrawl'];

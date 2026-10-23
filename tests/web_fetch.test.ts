@@ -7,6 +7,16 @@ const publicHost = async () => ['93.184.216.34'];
 const signal = () => new AbortController().signal;
 const html = `<!doctype html><html><head><title>Example article</title></head><body><nav>Home | About | Contact</nav><main><article><h1>Example article heading</h1><p>This is the first paragraph of a readable article. It contains enough useful detail to make it clearly identifiable as the page's main content, rather than a navigation item or a footer.</p><p>This second paragraph adds further detail about the subject and gives Defuddle meaningful article text to extract and convert into Markdown for the assistant.</p></article></main><footer>Copyright and related links</footer></body></html>`;
 
+test('web_fetch truncates extracted content at 40,000 characters and flags it', async () => {
+  const page = await fetchWebPage('https://article.example/long', signal(), async () => {
+    return new Response('# Long article\n\n' + '内容'.repeat(25_000), { status: 200, headers: { 'content-type': 'text/markdown' } });
+  }, publicHost);
+  assert.equal(page.truncated, true);
+  assert.match(page.content, /\[内容已截断\]$/);
+  // 40,000 字符正文加截断标记；标记本身不计入上限。
+  assert.equal(page.content.length, 40_000 + '\n\n[内容已截断]'.length);
+});
+
 test('web_fetch requests Markdown first and converts HTML into Markdown', async () => {
   let accept = '';
   const page = await fetchWebPage('https://article.example/story', signal(), async (_url, init) => {
@@ -74,7 +84,7 @@ test('the Exa extractor sends the authenticated Contents request', async () => {
   }, publicHost);
   assert.equal(request?.url, 'https://api.exa.ai/contents');
   assert.equal(new Headers(request?.init?.headers).get('x-api-key'), 'exa-fixture');
-  assert.deepEqual(JSON.parse(String(request?.init?.body)), { urls: ['https://article.example/story'], text: { maxCharacters: 20_000 } });
+  assert.deepEqual(JSON.parse(String(request?.init?.body)), { urls: ['https://article.example/story'], text: { maxCharacters: 40_000 } });
   assert.equal(page.provider, 'exa'); assert.equal(page.contentType, 'text/markdown');
   assert.equal(page.title, 'Exa page'); assert.match(page.content, /Markdown from Exa/);
   assert.equal(localRequests, 0);
