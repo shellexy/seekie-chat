@@ -121,8 +121,7 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "icon": "build/icon.png",
       "category": "public.app-category.social-networking",

@@ -205,7 +205,7 @@ SEEKIE_DATA_DIR=/tmp/seekie-local npm run dev
 npm run dist:deb        # seekie-chat_<版本>_amd64.deb
 npm run dist:appimage   # seekie-chat-<版本>-x86_64.AppImage
 npm run dist:win        # seekie-chat-<版本>-setup.exe
-npm run dist:mac        # seekie-chat-<版本>-<arch>.dmg / .zip（须在 macOS 上运行）
+npm run dist:mac        # seekie-chat-<版本>-<arch>.dmg（须在 macOS 上运行）
 ```
 
 不想在本机凑齐三套工具链时，推一个 `v*` 标签就会让 GitHub Actions 打包：`.github/workflows/release.yml` 在 Linux、Windows、macOS 三个 runner 上各自构建，全部成功后再合并产物发布到 Releases，并先校验标签与 `package.json` 的版本号一致。在 Actions 页面手动触发（workflow_dispatch）则只构建、不发布，产物留在该次运行的 Artifacts 里。公开仓库的 Actions 额度免费。

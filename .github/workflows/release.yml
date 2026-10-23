@@ -61,7 +61,6 @@ jobs:
             release/*.AppImage
             release/*.exe
             release/*.dmg
-            release/*.zip
 
   release:
     name: 发布到 Releases
