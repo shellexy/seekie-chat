@@ -278,6 +278,10 @@ try {
     label: 'Auto Free', contextWindow: 256_000, maxOutput: 65_536, vision: true, tools: true,
     reasoning: 'effort', defaultEffort: 'low', isDefault: true
   }, '一键添加应写入约定的连接与模型');
+  // 免费模型不能当日常主力，提示里要把限制和替代方案说出来。
+  const freeNotice = page.locator('.toast', { hasText: '免费体验模型有使用量限制' });
+  await freeNotice.waitFor();
+  assert.ok((await freeNotice.innerText()).includes('日常使用建议添加 DeepSeek 等 API'), '提示还应建议日常改用 DeepSeek 等 API');
   await resetConnections(page);
   console.log('stage: connection presets');
   await page.getByRole('button', { name: /^设置/ }).click();
@@ -440,9 +444,9 @@ try {
     assert.match(await added.innerText(), /切换到此模型时默认使用 high/, '服务端的 default_level 应被记住并用于该模型的默认档位');
   }
   await addServerModel('fixture-model');
-  // 浮动提示显示在窗口正中间。
+  // 浮动提示水平居中、垂直方向比正中略低72px（正中会压住正在读的对话内容）。
   const toastLayout = await page.locator('.toast').evaluate(el => { const r = el.getBoundingClientRect(); return { xOffset: (r.left + r.right) / 2 - window.innerWidth / 2, yOffset: (r.top + r.bottom) / 2 - window.innerHeight / 2 }; });
-  assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset) < 1);
+  assert.ok(Math.abs(toastLayout.xOffset) < 1); assert.ok(Math.abs(toastLayout.yOffset - 72) < 1);
   await page.screenshot({ path: join(directory, 'center-toast.png') });
   // 已经添加过的行仍要显示服务端给出的信息，只是前面多一个"已添加"，否则同一行看不出模型多大。
   await page.getByRole('button', { name: '测试连接 / 获取模型', exact: true }).click();

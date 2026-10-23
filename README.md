@@ -51,7 +51,7 @@ Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间。请以
 
 ## 开始聊天
 
-还没有 API Key 时，设置页“模型服务”的空状态和新建对话页都提供“还没有 API？点击一键添加免费体验模型”：一键添加一条 `OpenRouter·Kilo` 连接（OpenAI 兼容协议，地址 `https://api.kilo.ai/api/openrouter`，密钥固定为 `anonymous`）和模型 `Auto Free`（模型 ID `kilo-auto/free`，上下文 256,000 token、最大输出 65,536 token，启用图片输入与工具调用，思考参数为思考等级、默认 `low`），加好即可直接开始聊。
+还没有 API Key 时，设置页“模型服务”的空状态和新建对话页都提供“还没有 API？点击一键添加免费体验模型”：一键添加一条 `OpenRouter·Kilo` 连接（OpenAI 兼容协议，地址 `https://api.kilo.ai/api/openrouter`，密钥固定为 `anonymous`）和模型 `Auto Free`（模型 ID `kilo-auto/free`，上下文 256,000 token、最大输出 65,536 token，启用图片输入与工具调用，思考参数为思考等级、默认 `low`），加好即可直接开始聊，同时提示免费体验模型有使用量限制、日常使用建议添加 DeepSeek 等 API。
 
 1. 打开左下角设置，添加 OpenAI Responses、OpenAI Chat Completions、Anthropic、DeepSeek（Anthropic Messages）、Gemini、Ollama、Ollama Cloud 或自定义兼容连接。
 2. 填写 Base URL 和 API Key。地址可以包含 `/v1` 或 `/v1beta`，不要包含 `/responses`、`/messages` 等端点。

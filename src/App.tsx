@@ -268,7 +268,7 @@ export default function App() {
   }, [showSettings, previewAttachment, renamingConversation, renamingBranch]);
   async function newChat() { await commit(s => { const c = createConversation(s.settings); s.conversations.unshift(c); s.selectedId = c.id; }); setShowArchived(false); setShowSettings(false); setAtBottom(true); textareaRef.current?.focus(); }
   /** 欢迎页的一键添加：不需要 API Key 的免费体验模型，加好就能直接开始聊。 */
-  async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了')).catch(e => toast(String(e))); }
+  async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了\n免费体验模型有使用量限制\n日常使用建议添加 DeepSeek 等 API')).catch(e => toast(String(e))); }
   /** 欢迎页的"找鲸鱼娘聊天"：换到鲸鱼娘这个角色，并替用户把开场白填进输入框。 */
   async function talkToWhaleLady() {
     const preset = state.settings.promptPresets.find(p => p.id === 'whale_lady');

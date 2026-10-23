@@ -1560,10 +1560,12 @@ summary {
   position: fixed;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  /* 屏幕正中正好压住正在读的对话内容，往下让一点：提示从上方进入视线，不打断阅读位置。 */
+  transform: translate(-50%, calc(-50% + 72px));
   max-width: min(calc(100vw - 40px), 380px);
   border-radius: 10px;
-  background: var(--text);
+  /* 半透明而不是实底：toast 不是模态框，不该把身后整个界面遮死。 */
+  background: color-mix(in srgb, var(--text) 80%, transparent);
   color: var(--bg);
   box-shadow: 0 4px 20px #00000020;
   padding: 12px 15px;
@@ -1574,6 +1576,8 @@ summary {
   gap: 15px;
   z-index: 100;
   overflow-wrap: anywhere;
+  /* 多行提示（如免费体验模型的限制说明）靠文案里的 \n 换行。 */
+  white-space: pre-line;
 }
 .toast .icon-button {
   color: var(--bg);
