@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Copy, FileJson, GitBranch, Paperclip, Pencil
 import Markdown from './Markdown';
 import AnswerMetaDetails from './AnswerMetaDetails';
 import { useAttachmentPayload } from './attachment_cache';
-import { formatToolOutput, messageDateTime, sameMessage, toolQuery } from './domain';
+import { formatToolOutput, estimateToolTokens, messageDateTime, sameMessage, toolQuery } from './domain';
 import type { Attachment, Message } from './types';
 
 function ReasoningDetails({ message, text, active, duration }: { message: Message; text: string; active: boolean; duration?: number }) {
@@ -78,7 +78,7 @@ function MessageRow({ message, taskKind, searchHighlighted, editing, editTexts, 
           <span>{versionIndex + 1} / {siblings.length}</span>
           <button className="icon-button" title="下一个版本" disabled={versionIndex === siblings.length - 1 || siblings[versionIndex + 1]?.status === 'streaming'} onClick={() => onVersion(siblings[versionIndex + 1])}><ChevronRight size={13}/></button>
         </div>}
-        {role === 'assistant' && <AnswerMetaDetails modelName={modelName} connectionName={connectionName} timestamp={message.created} usage={message.usage} effort={effort} rolePresetName={rolePresetName}/>}
+        {role === 'assistant' && <AnswerMetaDetails modelName={modelName} connectionName={connectionName} timestamp={message.created} usage={message.usage} effort={effort} rolePresetName={rolePresetName} toolTokens={estimateToolTokens(message)}/>}
       </div>
     </>}
   </article>;

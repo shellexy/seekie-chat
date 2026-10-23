@@ -325,6 +325,31 @@ export function uniqueBranchName(branches: Branch[], base: string): string {
   if (!taken.has(base)) return base;
   for (let index = 2; ; index++) { const candidate = `${base} ${index}`; if (!taken.has(candidate)) return candidate; }
 }
+/**
+ * 把分支数组按 parentBranchId 排成深度优先的树，返回带缩进层级的有序列表。
+ * 分支多了以后平铺的菜单看不出"这个分支从哪儿分出来"，树形顺序配合逐层缩进才能一眼看清分叉。
+ * 父分支缺失（数据异常）时当作根，避免整棵树消失；用 visited 防脏数据里的环把渲染拖死。
+ */
+export function branchTree(branches: Branch[]): { branch: Branch; depth: number }[] {
+  const byId = new Map(branches.map(b => [b.id, b]));
+  const children = new Map<string | null, Branch[]>();
+  for (const branch of branches) {
+    const parent = branch.parentBranchId && byId.has(branch.parentBranchId) ? branch.parentBranchId : null;
+    const list = children.get(parent) || []; list.push(branch); children.set(parent, list);
+  }
+  const result: { branch: Branch; depth: number }[] = [];
+  const visited = new Set<string>();
+  const walk = (branch: Branch, depth: number) => {
+    if (visited.has(branch.id)) return;
+    visited.add(branch.id);
+    result.push({ branch, depth });
+    for (const child of children.get(branch.id) || []) walk(child, depth + 1);
+  };
+  for (const root of children.get(null) || []) walk(root, 0);
+  // 数据里若有游离分支（父分支不在数组中），上面的 walk 走不到，这里兜底补上，保证一个不少。
+  for (const branch of branches) walk(branch, 0);
+  return result;
+}
 // A deleted model must not turn every historical answer into "未知模型": the message keeps the
 // names it was answered with, so history still explains itself.
 export function modelLabel(model: Model | undefined, connections: Connection[]): string {
@@ -346,6 +371,15 @@ export function fork(conversation: Conversation, sourceId: string, name?: string
 }
 export function summaryValid(summary: NonNullable<Branch['summary']>, path: Message[]): boolean {
   return summary.nodeIds.length > 0 && summary.nodeIds.every((id, i) => path[i]?.id === id);
+}
+/**
+ * 被压缩的那批消息里有没有工具结果。压缩素材只取正文、附件与来源（见 main.ts 的 compress），
+ * 搜索结果与网页原文不会进摘要——早期查到的细节在压缩后就回不去了，界面上要让用户知道
+ * 这一点，否则"原始消息仍可阅读"会让人以为模型还看得见那些内容。
+ */
+export function summaryHasToolResults(conversation: Conversation, summary: NonNullable<Branch['summary']>): boolean {
+  const byId = new Map(conversation.messages.map(message => [message.id, message]));
+  return summary.nodeIds.some(id => byId.get(id)?.tools.some(tool => !!tool.output));
 }
 export function contextMessages(conversation: Conversation, branch: Branch, leafId = branch.leafId) {
   const path = pathTo(conversation, leafId);
@@ -371,13 +405,15 @@ export function sameMessage(a: Message, b: Message): boolean {
     && a.tools.length === b.tools.length
     && a.tools.every((tool, index) => { const other = b.tools[index]; return !!other && tool.id === other.id && tool.name === other.name && tool.status === other.status && tool.input === other.input && tool.output === other.output && tool.elapsed === other.elapsed; })
     && a.sources.length === b.sources.length && a.sources.every((source, index) => source.url === b.sources[index]?.url && source.title === b.sources[index]?.title)
-    && a.attachments.length === b.attachments.length && a.attachments.every((attachment, index) => { const other = b.attachments[index]; return !!other && attachment.id === other.id && attachment.name === other.name && attachment.markdown === other.markdown && attachment.data === other.data; })
+    // mime 决定这一行渲染成图片还是文件按钮，漏比它就会停在旧形态上。
+    && a.attachments.length === b.attachments.length && a.attachments.every((attachment, index) => { const other = b.attachments[index]; return !!other && attachment.id === other.id && attachment.name === other.name && attachment.mime === other.mime && attachment.markdown === other.markdown && attachment.data === other.data; })
     && sameUsage(a.usage, b.usage);
 }
 function sameUsage(a?: Usage, b?: Usage) {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.input === b.input && a.output === b.output && a.cachedInput === b.cachedInput && a.elapsedMs === b.elapsedMs && a.generationMs === b.generationMs && a.firstTokenMs === b.firstTokenMs;
+  // firstOutputMs 显示在用量浮窗的"首 Token 生成时间"里，必须参与比较。
+  return a.input === b.input && a.output === b.output && a.cachedInput === b.cachedInput && a.elapsedMs === b.elapsedMs && a.generationMs === b.generationMs && a.firstTokenMs === b.firstTokenMs && a.firstOutputMs === b.firstOutputMs;
 }
 // "最终正文" is the last text segment: the toolbar copy button, the answer editor and the copy
 // menu all act on it, so the definition lives in one place.
@@ -505,6 +541,7 @@ function tokenCounter(system = '') {
   };
   addText(system);
   return {
+    addText,
     addMessage(message: Message) {
       if (messageCount) ascii++;
       const hasReportedOutput = message.role === 'assistant' && message.status === 'complete' && !message.edited
@@ -527,6 +564,16 @@ function tokenCounter(system = '') {
 export function estimateTokens(messages: Message[], system = '') {
   const counter = tokenCounter(system);
   messages.forEach(message => counter.addMessage(message));
+  return counter.value();
+}
+/**
+ * 一次回答里工具调用带回的 token 估算。工具的输入与结果都会原样回灌进后续请求
+ * （providers.ts 把 tool result push 进 input），是调研型任务输入暴涨的主因。
+ * 用量浮窗把它单列出来，让人看清一次搜索到底吃掉多少上下文。与 estimateTokens 同一套字符估算。
+ */
+export function estimateToolTokens(message: Message): number {
+  const counter = tokenCounter();
+  for (const tool of message.tools) counter.addText(tool.input + tool.output);
   return counter.value();
 }
 export const MAX_COMPRESSION_RETAINED_TOKENS = 50_000;

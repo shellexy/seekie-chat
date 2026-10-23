@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, toolQuery, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -43,6 +43,15 @@ test('token estimates prefer reported assistant output and use the lightweight t
   a.usage.estimated = true;
   assert.equal(estimateTokens([a]), 21, 'estimated usage falls back to message text and tool arguments');
 });
+test('tool token estimate isolates the search and page results that ride along in input', () => {
+  const { a } = fixture();
+  assert.equal(estimateToolTokens(a), 0, 'no tool calls means no tool-result tokens');
+  a.tools = [{ id: 't', name: 'web_fetch', input: '{}', output: '', status: 'done', started: 0 }];
+  assert.equal(estimateToolTokens(a), 1, "input '{}' is two ASCII chars ≈ 0.6 → rounds up to 1");
+  a.tools[0].output = 'a中'.repeat(10);
+  // 文本 = '{}' + 10 个 'a' + 10 个 '中'：12 ASCII × 0.3 + 10 非 ASCII × 0.6 = 9.6 → 10。
+  assert.equal(estimateToolTokens(a), 10, 'tool output uses the same ASCII/non-ASCII character estimate as body text');
+});
 test('history compression retains at least two rounds and grows the suffix to 10% or 50k tokens', () => {
   const c = createConversation(initialState().settings), branch = c.branches[0];
   for (let turn = 0; turn < 7; turn++) {
@@ -69,6 +78,25 @@ test('forks share the selected prefix and isolate subsequent context', () => {
   assert.deepEqual(contextMessages(c, second).messages.map(m => m.text), ['比较桌面框架', 'Electron 和 Tauri', '讨论 Tauri']);
   assert.equal(pathTo(c, b.leafId).at(-1)?.text, '原有后续');
 });
+test('branch tree orders branches depth-first with their nesting level', () => {
+  const { c, b, a } = fixture();
+  // fork 把父分支设为当前活动分支，所以每次分叉前都要把活动分支切回目标父分支。
+  const first = fork(c, a.id, 'Electron');
+  c.activeBranchId = b.id; const second = fork(c, a.id, 'Tauri');
+  // 要造 first 的孙分支：先在 first 上加一条完成回答，再从它分叉。
+  c.activeBranchId = first.id;
+  const firstAnswer = addMessage(c, first, 'assistant', '打包方案'); firstAnswer.status = 'complete';
+  const grandchild = fork(c, firstAnswer.id, 'Electron 打包');
+  c.activeBranchId = second.id;
+  const tree = branchTree(c.branches);
+  // 根（b）在最前，深度 0；两个子分支紧随其后深度 1；孙分支紧跟它的父分支之后深度 2。
+  assert.deepEqual(tree.map(t => [t.branch.name, t.depth]), [['主线', 0], ['Electron', 1], ['Electron 打包', 2], ['Tauri', 1]]);
+  // 脏数据（first 与 grandchild 成环、second 的父分支缺失）不应让渲染崩溃或丢分支。
+  const cycledFirst = { ...first, parentBranchId: grandchild.id };
+  const orphan = { ...second, parentBranchId: '不存在' };
+  const dirty = branchTree([b, cycledFirst, grandchild, orphan]);
+  assert.equal(dirty.length, c.branches.length, '游离与成环分支都要保留在树里');
+});
 test('editing a shared node preserves other branches and invalidates its summary', () => {
   const { c, b, u, a } = fixture(); const branch = fork(c, a.id);
   branch.summary = { text: '旧摘要', nodeIds: [u.id, a.id], modelId: '', created: Date.now() };
@@ -82,6 +110,15 @@ test('summary from a sibling path cannot leak into a regenerated answer', () => 
   const alternative = addMessage(c, b, 'assistant', '不同回答', u.id); alternative.status = 'complete';
   assert.equal(contextMessages(c, b).summary, '');
   assert.equal(contextMessages(c, b).messages.at(-1)?.text, '不同回答');
+});
+test('summary reports whether the compressed messages carried tool results', () => {
+  const { c, b, u, a } = fixture();
+  const summary = { text: '摘要', nodeIds: [u.id, a.id], modelId: '', created: 1 };
+  // 压缩素材只取正文与附件：被压缩消息里有工具结果时界面必须说明这一点。
+  assert.equal(summaryHasToolResults(c, summary), false, '没有工具结果时不该提示');
+  a.tools = [{ id: 't1', name: 'exa_search', input: '{}', output: '结果', status: 'done', started: 1 }];
+  assert.equal(summaryHasToolResults(c, summary), true, '被压缩消息里有工具结果时要提示');
+  assert.equal(summaryHasToolResults(c, { ...summary, nodeIds: [u.id] }), false, '工具结果不在压缩范围内时不该提示');
 });
 test('deleting a child branch preserves shared nodes and remaining conversation', () => {
   const { c, b, a } = fixture(); const child = fork(c, a.id); const reply = addMessage(c, child, 'assistant', '子回答'); reply.status = 'complete'; const grandchild = fork(c, reply.id);
@@ -284,7 +321,41 @@ test('message comparison sees every field the row renders', () => {
   assert.equal(changed(m => { m.attachments[0].markdown = '# 转换'; }), false);
   assert.equal(changed(m => { m.usage!.output = 6; }), false);
   assert.equal(changed(m => { m.usage!.cachedInput = undefined; }), false);
+  assert.equal(changed(m => { m.usage!.firstOutputMs = 999; }), false, '首 Token 生成时间显示在用量浮窗里，必须参与比较');
+  assert.equal(changed(m => { m.attachments[0].mime = 'image/webp'; }), false, 'mime 决定渲染成图片还是文件按钮');
   assert.equal(changed(m => { m.usage = undefined; }), false);
+});
+
+// sameMessage 是手写的逐字段比较，新字段忘了加进去的表现是"界面停在旧内容"而不是报错，
+// 人眼审查很容易漏。这里用运行时枚举兜底：Message 的每个字段都必须表态——要么改掉后
+// sameMessage 察觉（加进上面的测试），要么进白名单并写明为什么它不参与比较。
+test('every Message field is either compared by sameMessage or explicitly whitelisted', () => {
+  const state = initialState(), c = createConversation(state.settings), b = c.branches[0];
+  const base = addMessage(c, b, 'assistant', '正文');
+  base.status = 'complete'; base.edited = true; base.error = '失败'; base.created = 123;
+  base.reasoning = '推理'; base.reasoningMs = 1; base.segments = [{ type: 'text', text: '正文' }];
+  base.tools = [{ id: 't1', name: 'web_search', input: '{}', output: 'o', status: 'done', started: 1, elapsed: 1 }];
+  base.sources = [{ title: 's', url: 'https://example.com' }];
+  base.attachments = [{ id: uid(), name: 'a.png', mime: 'image/png', size: 3, data: 'x' }];
+  base.modelId = 'm1'; base.modelName = 'M'; base.connectionName = 'C'; base.parentId = 'p1';
+  base.config = { modelId: 'm1', system: '', search: 'off', effort: 'low', budget: 1 };
+  base.usage = { input: 1, output: 2, cachedInput: 3, elapsedMs: 4, generationMs: 5, firstTokenMs: 6, firstOutputMs: 7 };
+  base.raw = { protocol: 'chat', entries: [] }; base.streamRevision = 8;
+  // 有意忽略的字段：每个都要写清楚为什么渲染层不会因它变化而需要更新。
+  const ignored = new Map<string, string>([
+    ['config', '只在生成时用于请求；行里显示的思考等级与角色预设名由上层算好后作为独立 prop 传入，由 propsEqual 比较'],
+    ['raw', '协议原始载荷，只回传给服务端保持签名与工具连续性，界面从不渲染'],
+    ['streamRevision', '传输层的补丁序号，渲染层在 merge 里按 id 丢弃过期补丁，行本身不显示它']
+  ]);
+  for (const key of Object.keys(base)) {
+    if (ignored.has(key)) continue;
+    const copy = structuredClone(base) as unknown as Record<string, unknown>;
+    // 改成一个必然不同的值：对象/数组换成空，标量加后缀。
+    copy[key] = typeof base[key as keyof typeof base] === 'object' ? (Array.isArray(base[key as keyof typeof base]) ? [] : base[key as keyof typeof base] && { __probe: true }) : `${String(base[key as keyof typeof base])}改`;
+    assert.equal(sameMessage(base, copy as unknown as Message), false, `Message.${key} 变化后 sameMessage 必须返回 false；若它确实不参与比较，请加进本测试的白名单并写明理由`);
+  }
+  // 白名单本身也要盯着：字段被删掉后残留的白名单条目会让测试悄悄失去意义。
+  for (const key of ignored.keys()) assert.ok(key in base, `白名单里的 ${key} 已不是 Message 的字段，请删除`);
 }); 
 
 test('a model starts at the effort its service recommends', () => {

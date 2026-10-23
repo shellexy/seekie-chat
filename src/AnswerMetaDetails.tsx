@@ -6,7 +6,7 @@ import type { Usage } from './types';
 // One control for everything about a finished answer: which model answered, through which
 // connection, when, and what it cost. The popover keeps the usage metrics in the same
 // definition list the smoke tests and the docs already describe.
-export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage, effort, rolePresetName }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage; effort?: string; rolePresetName?: string }) {
+export default function AnswerMetaDetails({ modelName, connectionName, timestamp, usage, effort, rolePresetName, toolTokens }: { modelName: string; connectionName: string; timestamp: number; usage?: Usage; effort?: string; rolePresetName?: string; toolTokens?: number }) {
   const popover = usePopover();
   const count = (value?: number) => value === undefined ? '--' : `${value.toLocaleString()} token`;
   const totalDuration = usage?.elapsedMs === undefined ? '--' : `${(usage!.elapsedMs / 1000).toFixed(2)} s`;
@@ -34,6 +34,9 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
         <dl>
           <dt>输入：</dt><dd>{count(usage.input)}</dd>
           <dt>输入（缓存）：</dt><dd>{count(usage.cachedInput)}</dd>
+          {toolTokens !== undefined && toolTokens > 0 && <>
+            <dt>输入（工具结果）：</dt><dd>{count(toolTokens)}</dd>
+          </>}
           <dt>输出：</dt><dd>{count(usage.output)}</dd>
           <dt>总耗时：</dt><dd>{totalDuration}</dd>
           <dt>端对端速度：</dt><dd>{endToEndSpeed}</dd>
@@ -41,6 +44,7 @@ export default function AnswerMetaDetails({ modelName, connectionName, timestamp
           <dt>首 Token 生成时间：</dt><dd>{usage.firstOutputMs === undefined ? '--' : `${(usage.firstOutputMs / 1000).toFixed(2)} s`}</dd>
         </dl>
         <p>总耗时含工具等待；生成速度已扣除工具调用及首 Token 等待时间。服务端原生搜索无法单独计时时仍会计入。</p>
+        {toolTokens !== undefined && toolTokens > 0 && <p>「输入（工具结果）」是本地按字符估算的搜索/抓页结果，它已包含在上面的输入总量里，不额外计费。</p>}
       </>}
     </div>, document.body)}
   </>;

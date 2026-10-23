@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, assistantBody, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -522,7 +522,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                             {branchMenu && <div className="popover branch-popover">
                                   <div className="popover-heading">对话分支 · {conversation!.branches.length}
                                 </div>
-                                      {conversation!.branches.map(b => <div className="branch-option" key={b.id}>
+                                      {branchTree(conversation!.branches).map(({ branch: b, depth }) => <div className="branch-option" key={b.id} style={{ paddingLeft: `${8 + depth * 14}px` }}>
                                           <button onClick={() => switchBranch(b.id)}>
                                             <GitBranch size={14}/>
                                                 <span>
@@ -611,6 +611,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                                                       </button>}
                                                             {summaryOpen && <div className="summary-content">
                                                               <Markdown text={branch?.summary?.text || ''}/>
+                                                              {branch?.summary && summaryHasToolResults(conversation!, branch.summary) && <p className="summary-note">摘要只保留正文、附件与来源；被压缩消息中的搜索结果和网页原文不会出现在摘要里，模型也看不到它们——需要细节时请重新搜索。</p>}
                                                             </div>}
 {messages.map((m, i) => {
       const siblings = conversation!.messages.filter(x => x.role === m.role && x.parentId === m.parentId), versionIndex = siblings.findIndex(x => x.id === m.id);

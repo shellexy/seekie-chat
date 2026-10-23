@@ -996,6 +996,15 @@ summary {
   font-size: 12px;
   line-height: 1.7;
 }
+/* 提醒"工具结果不在摘要里"：与摘要正文区分开，弱化但不能看不见——它是压缩的代价说明。 */
+.summary-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 
 .edit-box {
   background: var(--bg);
