@@ -42,7 +42,7 @@ npm run dev
 
 `npm run dev` 启动 Vite 和 Electron。前端支持热更新，修改 `electron/` 中的主进程或 preload 后需要重启。关闭 Electron 窗口或在终端按 Ctrl+C，会关闭开发服务。当前无需打包。
 
-Electron 44 首次使用时可能下载桌面运行时。如果网络需要代理，可使用：
+Electron 45 首次使用时可能下载桌面运行时。如果网络需要代理，可使用：
 
 ```bash
 ELECTRON_GET_USE_PROXY=1 npm run dev
