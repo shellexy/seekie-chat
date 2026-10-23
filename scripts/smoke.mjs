@@ -300,14 +300,16 @@ try {
   assert.equal(await page.locator('.about-license').innerText(), '基于 MIT License 开源');
   assert.equal(await page.locator('.about-disclaimer').innerText(), 'Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。');
   assert.deepEqual(await page.locator('.about-runtime dd').allTextContents(), [runtime.chromium, runtime.electron, runtime.node], '应显示 Chromium / Electron / Node.js 的真实版本');
-  // 水平居中，但整块靠上：垂直正中在宽屏上离标题太远，看着发空。
+  // 与其余设置页同一条左对齐内容列，整块靠上。padding 由后置覆盖块决定（styles.css 尾部
+  // 的 .settings-content），这里读计算值而不是写死数字。
   const aboutLayout = await page.evaluate(() => {
-    const content = document.querySelector('.settings-content.about').getBoundingClientRect();
+    const content = document.querySelector('.settings-content.about');
+    const box = content.getBoundingClientRect();
     const logo = document.querySelector('.about-logo').getBoundingClientRect();
     const block = document.querySelector('.about-page').getBoundingClientRect();
-    return { offsetX: Math.abs((logo.left + logo.right) / 2 - (content.left + content.right) / 2), top: logo.top - content.top, height: content.height, blockCenter: (block.top + block.bottom) / 2 - content.top };
+    return { offsetX: logo.left - box.left, paddingLeft: parseFloat(getComputedStyle(content).paddingLeft), top: logo.top - box.top, height: box.height, blockCenter: (block.top + block.bottom) / 2 - box.top };
   });
-  assert.ok(aboutLayout.offsetX < 1, `关于页内容应水平居中，实际偏移 ${aboutLayout.offsetX}px`);
+  assert.ok(Math.abs(aboutLayout.offsetX - aboutLayout.paddingLeft) < 1, `关于页内容应左对齐（与其余设置页同一条内容列），实际距左 ${aboutLayout.offsetX}px、内容区 padding ${aboutLayout.paddingLeft}px`);
   assert.ok(aboutLayout.top > 0, `内容不应贴着顶边，实际 ${aboutLayout.top}px`);
   assert.ok(aboutLayout.blockCenter < aboutLayout.height * 0.5, `内容应位于中上方，实际中心在 ${Math.round(aboutLayout.blockCenter)}px / ${Math.round(aboutLayout.height)}px`);
   await page.screenshot({ path: join(directory, 'about.png') });

@@ -1635,14 +1635,14 @@ summary {
   font-weight: 550;
   margin-bottom: 10px;
 }
-/* 关于页：程序自己的信息居中，整块靠上一些——垂直正中在宽屏上离标题太远，看着发空。 */
+/* 关于页与其余设置页同一套左对齐内容列：居中排版是整套设置里唯一的例外，切换标签时
+视线落点会跳；而且免责声明限宽 32em，居中时两侧留白比左对齐更大，宽屏上更显空。 */
 .settings-content.about {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-start;
-  padding-top: clamp(28px, 10vh, 110px);
-  text-align: center;
+  text-align: left;
 }
 .about-logo {
   width: 96px;
