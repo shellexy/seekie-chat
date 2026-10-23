@@ -22,7 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # ubuntu-latest 正在迁往 26.04，固定 24.04，免得 deb/AppImage 的工具链跟着漂。
+          - os: ubuntu-24.04
             platform: linux
             args: --linux
           - os: windows-latest
@@ -33,8 +34,8 @@ jobs:
             # runner 本身是 arm64，x64 一起出 Intel Mac 才能用：没有原生运行时依赖，交叉打包是安全的。
             args: --mac --x64 --arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -51,7 +52,7 @@ jobs:
         run: npx electron-builder ${{ matrix.args }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
           if-no-files-found: error
@@ -67,13 +68,13 @@ jobs:
     # 手动触发只验证构建，不碰 Releases。
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           generate_release_notes: true

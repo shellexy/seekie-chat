@@ -22,8 +22,11 @@ test('request records survive in their own files', () => {
     saveRequests(root, message, entries);
     assert.deepEqual(loadRequests(root, message), entries);
     assert.deepEqual(loadRequests(root, id('missing1')), []);
-    assert.equal(statSync(join(root, 'requests')).mode & 0o777, 0o700, '记录目录只允许当前用户访问');
-    assert.equal(statSync(join(root, 'requests', `${message}.json`)).mode & 0o777, 0o600);
+    // Windows 的 stat.mode 是合成值（目录报 0o666），不反映 mkdir/writeFile 传入的 mode，权限位只在 POSIX 上有意义。
+    if (process.platform !== 'win32') {
+      assert.equal(statSync(join(root, 'requests')).mode & 0o777, 0o700, '记录目录只允许当前用户访问');
+      assert.equal(statSync(join(root, 'requests', `${message}.json`)).mode & 0o777, 0o600);
+    }
     saveRequests(root, message, []);
     assert.deepEqual(loadRequests(root, message), []);
     assert.deepEqual(readdirSync(join(root, 'requests')), [], '没有记录的消息不应留下空文件');
