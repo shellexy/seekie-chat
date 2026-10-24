@@ -4,7 +4,7 @@
 
 <sub>基于 MIT License 开源。Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。</sub>
 
-![version](https://img.shields.io/badge/version-0.2.2-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
+![version](https://img.shields.io/badge/version-0.2.3-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 
 ![主界面](docs/screenshots/main-window.webp)
 
