@@ -30,6 +30,11 @@ export default function Composer({ branch, model, models, connections, busy, pen
   const composing = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null), optionsPopoverRef = useRef<HTMLDivElement>(null);
   const [options, setOptions] = useState(false);
+  // 输入内容由本地状态驱动：App 不再为每次按键克隆整份状态并重渲染，所以 value 不能直接绑
+  // branch.draft（它在保存前是滞后的）。branch.draft 变化时同步过来——发消息后清空、切换分支、
+  // 程序化填充（点建议、加附件）都靠这一步。
+  const [text, setText] = useState(branch?.draft || '');
+  useEffect(() => { setText(branch?.draft || ''); }, [branch?.id, branch?.draft]);
   // 按钮上显示当前分支用的角色名：优先按提示词内容匹配角色库；角色被删了但用的是内置的
   // 鲸鱼娘提示词时，仍认得出她。
   const roleName = (() => {
@@ -72,7 +77,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   </button>
                 </div>)}
               </div>
-              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={branch.draft} onChange={e => onDraftChange(e.target.value)} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
+              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={text} onChange={e => { setText(e.target.value); onDraftChange(e.target.value); }} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
               <div className="composer-bottom">
                 <button className="icon-button" type="button" aria-label="添加图片或附件" title="添加图片或附件" onClick={() => fileRef.current?.click()}>
                   <ImagePlus size={20}/>
@@ -178,7 +183,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 </div>
                 {busy ? <button className="send-button stop" title="停止生成" onClick={onStop}>
                   <Square size={15} fill="currentColor"/>
-                </button> : <button className="send-button" title="发送消息" disabled={pending || !model || (!branch.draft.trim() && !branch.draftAttachments.length)} onClick={onSend}>
+                </button> : <button className="send-button" title="发送消息" disabled={pending || !model || (!text.trim() && !branch.draftAttachments.length)} onClick={onSend}>
                   <ArrowUp size={20}/>
                 </button>}
               </div>

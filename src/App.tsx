@@ -76,12 +76,23 @@ export default function App() {
   function toast(s: string) { setNotice(s); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 6500); }
   function openAttachmentPreview(attachment: Attachment) { setPreviewAttachment(attachment); }
   function closeAttachmentPreview() { setPreviewAttachment(null); }
+  // 草稿是唯一「高频产生、且只存在于渲染层」的状态：打字时只写 draftCache，不进 state。
+  // 因此任何从主进程回来的状态都要在入口处把本地草稿贴回去，否则一次广播就会把正在输入的内容冲掉。
+  function overlayDrafts(s: AppState) {
+    for (const c of s.conversations) for (const b of c.branches) {
+      const local = draftCache.current.get(b.id);
+      if (local) { b.draft = local.draft; b.draftAttachments = local.attachments; }
+    }
+  }
+  // 草稿的权威值在 draftCache 里，state 上那份可能还没跟上（见 draft）。
+  const draftOf = (b: Branch) => draftCache.current.get(b.id)?.draft ?? b.draft;
+  const attachmentsOf = (b: Branch) => draftCache.current.get(b.id)?.attachments ?? b.draftAttachments;
   function apply(incoming: AppState) {
     // A full state may have been produced before the newest streaming patch arrived; the newer text
     // wins so the answer never visibly moves backwards.
     const s = keepNewerStreaming(stateRef.current, incoming);
     normalizeSettings(s.settings);
-    for (const c of s.conversations) for (const b of c.branches) { const local = draftCache.current.get(b.id); if (local) { b.draft = local.draft; b.draftAttachments = local.attachments; } }
+    overlayDrafts(s);
     stateRef.current = s; setState(s);
   }
   // Streaming answers arrive as patches: replacing one message keeps every other object identity, so
@@ -112,7 +123,8 @@ export default function App() {
     apply(local);
   }
   async function commit(mutate: (s: AppState) => void): Promise<void> {
-    const next = structuredClone(stateRef.current); mutate(next); apply(next); const sequence = ++saveSequence.current; pendingWrites.current++;
+    // 草稿不在 state 里，落盘前必须贴回去，否则存下来的是上一次提交时的旧草稿。
+    const next = structuredClone(stateRef.current); mutate(next); overlayDrafts(next); apply(next); const sequence = ++saveSequence.current; pendingWrites.current++;
     const operation = queue.current.then(async () => { try { const saved = await api.save(next); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
     queue.current = operation.catch(e => toast(String(e instanceof Error ? e.message : e)));
     return operation;
@@ -274,7 +286,7 @@ export default function App() {
     const preset = state.settings.promptPresets.find(p => p.id === 'whale_lady');
     if (!preset) { toast('角色库里没有鲸鱼娘，请先在设置里重置预设角色'); return; }
     await commit(s => { const { b } = find(s); b.config = { ...b.config, system: preset.content }; }).catch(e => toast(String(e)));
-    draft('鲸鱼娘，来和我说说话吧。');
+    fillDraft('鲸鱼娘，来和我说说话吧。');
     textareaRef.current?.focus();
   }
   // Reads the state it is given, so a mutation that also changes selectedId sees its own change.
@@ -311,13 +323,20 @@ export default function App() {
     } catch { /* commit already reports save errors */ }
   }
   async function switchBranch(id: string) { await commit(s => { const { c, b } = find(s); if (scrollRef.current) b.scrollTop = scrollRef.current.scrollTop; c.activeBranchId = id; }); }
+  // 输入框每一次按键都走这里：只写本地草稿缓存并安排一次防抖保存。这里以前每次按键都要
+  // structuredClone 整份状态再全树重渲染，1 MB 的历史下就是 12 ms／键，打字快会明显发涩；
+  // 而草稿本来就只属于渲染层，没必要为它复制整个会话树。
   function draft(value: string, attachments?: Attachment[]) {
     if (!branch) return;
-    const local = { draft: value, attachments: attachments ?? branch.draftAttachments };
-    draftCache.current.set(branch.id, local);
-    const next = structuredClone(stateRef.current); const b = next.conversations.find(c => c.id === conversation!.id)!.branches.find(b => b.id === branch.id)!;
-    b.draft = local.draft; b.draftAttachments = local.attachments; apply(next);
-    clearTimeout(persistDraftTimer.current); persistDraftTimer.current = setTimeout(() => { void commit(() => {}).catch(() => {}); }, 450);
+    draftCache.current.set(branch.id, { draft: value, attachments: attachments ?? attachmentsOf(branch) });
+    clearTimeout(persistDraftTimer.current);
+    persistDraftTimer.current = setTimeout(() => { void commit(() => {}).catch(() => {}); }, 450);
+  }
+  // 程序化地填草稿（点建议、加删附件、鲸鱼娘）：都是离散动作，要立刻反映到界面并落盘。
+  function fillDraft(value: string, attachments?: Attachment[]) {
+    draft(value, attachments);
+    clearTimeout(persistDraftTimer.current);
+    void commit(() => {}).catch(() => {});
   }
   async function begin(id: string, branchId: string, messageId: string) {
     // Remember which answer is streaming, so its model can be promoted once the run really finishes.
@@ -327,12 +346,13 @@ export default function App() {
   }
   async function send() {
     if (!conversation || !branch || busy || pending) return;
-    if (!branch.draft.trim() && !branch.draftAttachments.length) return;
+    const text = draftOf(branch).trim(), attachments = attachmentsOf(branch);
+    if (!text && !attachments.length) return;
     if (!model) { toast('请先配置并选择聊天模型'); setShowSettings(true); return; }
 
     let messageId = '', branchId = branch.id, id = conversation.id;
     clearTimeout(persistDraftTimer.current); draftCache.current.delete(branch.id);
-    await commit(s => { const { c, b } = find(s); const m = addMessage(c, b, 'user', b.draft.trim()); m.attachments = b.draftAttachments; b.draft = ''; b.draftAttachments = []; const reply = addMessage(c, b, 'assistant', ''); messageId = reply.id; if (c.title === '新对话') c.title = m.text.slice(0, 24) || (m.attachments.length ? '附件对话' : '新对话'); });
+    await commit(s => { const { c, b } = find(s); const m = addMessage(c, b, 'user', text); m.attachments = attachments; b.draft = ''; b.draftAttachments = []; const reply = addMessage(c, b, 'assistant', ''); messageId = reply.id; if (c.title === '新对话') c.title = m.text.slice(0, 24) || (m.attachments.length ? '附件对话' : '新对话'); });
     setAtBottom(true); await begin(id, branchId, messageId);
   }
   async function regenerate(source: Message) {
@@ -397,7 +417,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       } catch (error) { toast(`无法读取附件“${f.name}”：${error instanceof Error ? error.message : String(error)}`); }
     }
     const current = stateRef.current.conversations.find(c => c.id === conversation!.id)?.branches.find(b => b.id === branch.id);
-    if (current) draft(current.draft, [...current.draftAttachments, ...items]);
+    if (current) fillDraft(draftOf(current), [...attachmentsOf(current), ...items]);
   }
   function resize(event: React.MouseEvent, side: 'left' | 'right', initial: number) {
     // Pressing on a non-text element still anchors a selection, so dragging a handle used to select
@@ -594,7 +614,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                             </> : !conversation ? <button className="primary" onClick={() => newChat()}>
                               <Plus size={16}/>开始新对话</button> : <>
                               <div className="starter-grid">
-                                  {['帮我梳理一个项目的实现思路', '解释一个我想深入了解的概念', '一起比较几个方案的优缺点'].map(t => <button key={t} onClick={() => { draft(t); textareaRef.current?.focus(); }}>
+                                  {['帮我梳理一个项目的实现思路', '解释一个我想深入了解的概念', '一起比较几个方案的优缺点'].map(t => <button key={t} onClick={() => { fillDraft(t); textareaRef.current?.focus(); }}>
                                       {t}
                                         <ArrowUp size={15}/>
                                         </button>)}
@@ -631,7 +651,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       hasExaKey={!!state.settings.exaKey} deepseekSearchConfigured={!!deepseekWebSearchKey(state.settings)} promptPresets={state.settings.promptPresets} backgroundUsage={conversation?.backgroundUsage}
       userTurnCount={messages.filter(m => m.role === 'user').length}
       favoriteModels={state.settings.favoriteModels} recentModels={state.settings.recentModels} defaultSearch={state.settings.defaultSearch} onToggleFavorite={toggleFavorite}
-      onHeightChange={setInputHeight} onDraftChange={text => draft(text)} onRemoveAttachment={attachment => { if (branch) draft(branch.draft, branch.draftAttachments.filter(item => item.id !== attachment.id)); }}
+      onHeightChange={setInputHeight} onDraftChange={text => draft(text)} onRemoveAttachment={attachment => { if (branch) fillDraft(draftOf(branch), attachmentsOf(branch).filter(item => item.id !== attachment.id)); }}
       onAttach={files => void attach(files)} onSend={() => void send().catch(error => toast(String(error)))} onStop={() => void api.cancel(conversation!.id)}
       onCompress={() => { if (conversation && branch) void api.compress(conversation.id, branch.id).catch(error => toast(String(error))); }}
       onUpdateConfig={updateConfig} onNewChat={() => void newChat()} onNotice={toast}
