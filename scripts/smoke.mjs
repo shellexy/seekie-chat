@@ -1571,30 +1571,49 @@ try {
   });
   await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount + 20);
   await page.locator('.conversation-group').first().waitFor();
-  const groupingHeaders = await page.locator('.conversation-group').allInnerTexts();
-  assert.deepEqual(groupingHeaders.slice(0, 4), ['今天', '昨天', '过去 7 天', '过去 30 天'], `分组顺序不对：${groupingHeaders}`);
-  assert.match(groupingHeaders.at(-1), /^(\d+月|\d{4}年)$/, `更早的会话应按月或年分组，实际：${groupingHeaders.at(-1)}`);
-  assert.equal(await page.locator('.conversation-item').count(), groupingOriginalCount + 20, '分组不应丢失或重复会话');
+  // 侧栏是虚拟列表：只有视口内的行在 DOM 里，所以「有几条会话」只能靠滚动收集，不能数节点。
+  const groupingCollect = async () => {
+    const titles = new Set();
+    // 按 id 收集：会话标题可能重名，按标题去重会少算。
+    const collect = async () => { for (const id of await page.locator('.conversation-item').evaluateAll(nodes => nodes.map(node => node.dataset.id))) if (id) titles.add(id); };
+    await page.evaluate(() => { document.querySelector('.conversation-list').scrollTop = 0; });
+    await page.waitForTimeout(60);
+    for (let guard = 0; guard < 40; guard++) {
+      await collect();
+      const done = await page.evaluate(() => { const list = document.querySelector('.conversation-list'); return list.scrollTop + list.clientHeight >= list.scrollHeight - 2; });
+      if (done) break;
+      await page.evaluate(() => { const list = document.querySelector('.conversation-list'); list.scrollTop += Math.max(120, list.clientHeight - 80); });
+      await page.waitForTimeout(40);
+    }
+    return { titles, headers: await page.locator('.conversation-group').allInnerTexts() };
+  };
+  const groupingAll = await groupingCollect();
+  await page.evaluate(() => { document.querySelector('.conversation-list').scrollTop = 0; });
+  await page.waitForTimeout(120);
+  // 只看真实分组行：吸顶覆盖层也带 .conversation-group，不能算进顺序里。
+  const groupingTop = await page.locator('.conversation-rows .conversation-group').allInnerTexts();
+  assert.deepEqual(groupingTop.slice(0, 4), ['今天', '昨天', '过去 7 天', '过去 30 天'], `分组顺序不对：${groupingTop}`);
+  assert.match(groupingAll.headers.at(-1), /^(\d+月|\d{4}年)$/, `更早的会话应按月或年分组，实际：${groupingAll.headers.at(-1)}`);
+  assert.equal(groupingAll.titles.size, groupingOriginalCount + 20, '分组不应丢失或重复会话');
   // 搜索时同样保留分组。
   const groupingSearch = page.getByRole('textbox', { name: '搜索对话' });
   await groupingSearch.fill('分组检查');
   await page.waitForTimeout(150);
-  assert.equal(await page.locator('.conversation-item').count(), 20);
+  assert.equal((await groupingCollect()).titles.size, 20, '搜索结果条数不对');
   assert.ok(await page.locator('.conversation-group').count() >= 2, '搜索结果仍应按时间分组');
   await groupingSearch.fill('');
-  const groupingPositions = await page.evaluate(() => {
-    const list = document.querySelector('.conversation-list');
-    const positions = [...document.querySelectorAll('.conversation-group')].map(header => getComputedStyle(header).position);
-    list.scrollTop = 150;
-    return positions;
-  });
   await page.waitForTimeout(100);
-  const groupingStuck = await page.evaluate(() => {
-    const list = document.querySelector('.conversation-list').getBoundingClientRect();
-    return [...document.querySelectorAll('.conversation-group')].map(header => Math.round(header.getBoundingClientRect().top - list.top));
+  await page.evaluate(() => { document.querySelector('.conversation-list').scrollTop = 150; });
+  await page.waitForTimeout(120);
+  const groupingPinned = await page.evaluate(() => {
+    const list = document.querySelector('.conversation-list');
+    const pinned = document.querySelector('.conversation-pinned');
+    if (!pinned) return null;
+    return { position: getComputedStyle(pinned).position, offset: Math.round(pinned.getBoundingClientRect().top - list.getBoundingClientRect().top), label: pinned.textContent };
   });
-  assert.ok(groupingPositions.every(position => position === 'sticky'), '分组标题应使用 sticky 定位');
-  assert.ok(groupingStuck.some(offset => Math.abs(offset) <= 1), `滚动后应有标题吸顶，实际偏移：${groupingStuck}`);
+  assert.equal(groupingPinned?.position, 'sticky', '吸顶标题应固定在列表顶部');
+  assert.ok(Math.abs(groupingPinned.offset) <= 1, `滚动后应有标题吸顶，实际偏移：${groupingPinned.offset}`);
+  assert.ok(groupingPinned.label, '吸顶标题不应为空');
   await page.screenshot({ path: join(directory, 'sidebar-groups.png') });
   // 复原状态，收尾断言仍看到原来的会话。
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);

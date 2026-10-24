@@ -357,6 +357,26 @@ p {
   border-radius: 7px;
   margin: 3px 0;
 }
+.conversation-rows {
+  /* 虚拟列表的撑高容器：真实行由 transform 定位，行高由脚本量出后按窗口渲染。 */
+  position: relative;
+}
+/* 窗口内的真实分组行不再靠 sticky 吸顶（父级有 transform，sticky 会失效），
+   改由 .conversation-pinned 单独画一条固定在列表顶部的标题。 */
+.conversation-rows .conversation-group {
+  position: static;
+}
+.conversation-pinned {
+  position: sticky;
+  top: 0;
+  /* 高度为零才不占位——它只负责把标题钉在视口顶部，不能把下面的行推下去。 */
+  height: 0;
+  z-index: 2;
+}
+.conversation-group.pinned {
+  position: static;
+  z-index: 2;
+}
 .conversation-item.active {
   background: var(--accent-bg);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
@@ -10,7 +10,7 @@ import Settings from './Settings';
 import { copyFlavors, elementHtml, hasSelectionInside, messageBodies, readableText, selectedHtml, selectedPlainText } from './clipboard';
 import Composer from './Composer';
 import OutlinePanel from './OutlinePanel';
-import Sidebar from './Sidebar';
+import Sidebar, { type MenuAnchor, type SidebarHandlers } from './Sidebar';
 import WindowControls from './WindowControls';
 import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
@@ -481,10 +481,36 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   function toggleFavorite(modelId: string) {
     void commit(s => { s.settings.favoriteModels = s.settings.favoriteModels.includes(modelId) ? s.settings.favoriteModels.filter(id => id !== modelId) : [...s.settings.favoriteModels, modelId]; }).catch(() => {});
   }
+  // 侧栏的回调依赖当前 state，直接内联的话每次渲染都是新引用，memo 永远命中不了。
+  // 这里把最新实现放进 ref，对外只给引用稳定的转发函数：既不破坏 memo，也不会读到旧闭包。
+  const sidebarHandlersRef = useRef({} as SidebarHandlers);
+  sidebarHandlersRef.current = {
+    onSelect: (id: string) => void switchChat(id),
+    onNewChat: () => void newChat(),
+    onArchiveView: () => { setShowArchived(!showArchived); setConversationMenu(null); },
+    onOpenSettings: () => setShowSettings(true),
+    onCollapse: () => setLeft(false),
+    onMenu: (id: string, anchor: MenuAnchor | null) => {
+      if (!anchor || conversationMenu === id) { setConversationMenu(null); setConversationMenuAnchor(null); setConversationMenuPosition(null); return; }
+      setConversationMenuAnchor(anchor); setConversationMenuPosition(null); setConversationMenu(id);
+    },
+    onResizeStart: (event: React.MouseEvent) => resize(event, 'left', leftWidth)
+  };
+  const sidebarHandlers = useMemo(() => {
+    const stable = {} as SidebarHandlers;
+    // 转发的签名是动态拼的，类型系统没法逐个对上，这里只保证键集合与 SidebarHandlers 一致。
+    for (const key of Object.keys(sidebarHandlersRef.current) as (keyof SidebarHandlers)[]) {
+      (stable as Record<string, (...args: any[]) => void>)[key] = (...args: any[]) => (sidebarHandlersRef.current[key] as (...values: any[]) => void)(...args);
+    }
+    return stable;
+  }, []);
   const menuConversation = state.conversations.find(c => c.id === conversationMenu);
   const archiveCount = state.conversations.filter(c => c.archived).length;
-  const conversationsForView = state.conversations.filter(c => !!c.archived === showArchived);
-  const grouped = conversationsForView.filter(c => c.title.toLowerCase().includes(query.toLowerCase())).sort((a,b) => b.updated - a.updated);
+  const conversationsForView = useMemo(() => state.conversations.filter(c => !!c.archived === showArchived), [state.conversations, showArchived]);
+  // 这两项每次渲染都重算的话，会话一多就全是白做的功：侧栏靠引用相等判断要不要重渲染，
+  // 缓存住之后，流式补丁这种与列表无关的更新就不会再让侧栏重算一遍。
+  const grouped = useMemo(() => conversationsForView.filter(c => c.title.toLowerCase().includes(query.toLowerCase())).sort((a,b) => b.updated - a.updated), [conversationsForView, query]);
+  const runningIds = useMemo(() => tasks.map(task => task.conversationId), [tasks]);
   // Same actions as the message toolbar, reachable by right clicking the question or the answer.
   // Callbacks handed to MessageRow. They are defined once per render so the row is a pure function
   // of its props, which is what lets the list memoise rows later.
@@ -532,14 +558,8 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   if (!loaded) return <div className="loading"><Sparkles size={28}/><p>正在打开 Seekie Chat…</p></div>;
   return <div className="app-shell">
     {left && <Sidebar width={leftWidth} conversations={grouped} selectedId={state.selectedId} query={query} showArchived={showArchived}
-      archiveCount={archiveCount} showSettings={showSettings} runningIds={tasks.map(task => task.conversationId)} openMenuId={conversationMenu}
-      onQueryChange={setQuery} onSelect={id => void switchChat(id)} onNewChat={() => void newChat()} onArchiveView={() => { setShowArchived(!showArchived); setConversationMenu(null); }}
-      onOpenSettings={() => setShowSettings(true)} onCollapse={() => setLeft(false)}
-      onMenu={(id, anchor) => {
-        if (!anchor || conversationMenu === id) { setConversationMenu(null); setConversationMenuAnchor(null); setConversationMenuPosition(null); return; }
-        setConversationMenuAnchor(anchor); setConversationMenuPosition(null); setConversationMenu(id);
-      }}
-      onResizeStart={event => resize(event, 'left', leftWidth)}/>}
+      archiveCount={archiveCount} showSettings={showSettings} runningIds={runningIds} openMenuId={conversationMenu}
+      onQueryChange={setQuery} {...sidebarHandlers}/>}
     {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
         <div className="header-start">
               {!left && <button className="icon-button" title="展开侧栏" onClick={() => setLeft(true)}>
