@@ -122,12 +122,17 @@ export default function App() {
     }
     apply(local);
   }
+  // 所有写入共享同一条队列：整份保存、保存设置、保存草稿必须按发起顺序到达主进程，
+  // 否则先发出去的整份保存会用旧设置盖掉刚保存的新设置。
+  function enqueue<T>(run: () => Promise<T>): Promise<T> {
+    const operation = queue.current.then(run);
+    queue.current = operation.then(() => undefined, error => { toast(String(error instanceof Error ? error.message : error)); });
+    return operation;
+  }
   async function commit(mutate: (s: AppState) => void): Promise<void> {
     // 草稿不在 state 里，落盘前必须贴回去，否则存下来的是上一次提交时的旧草稿。
     const next = structuredClone(stateRef.current); mutate(next); overlayDrafts(next); apply(next); const sequence = ++saveSequence.current; pendingWrites.current++;
-    const operation = queue.current.then(async () => { try { const saved = await api.save(next); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
-    queue.current = operation.catch(e => toast(String(e instanceof Error ? e.message : e)));
-    return operation;
+    return enqueue(async () => { try { const saved = await api.save(next); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
   }
   useEffect(() => {
     let alive = true;
@@ -328,9 +333,14 @@ export default function App() {
   // 而草稿本来就只属于渲染层，没必要为它复制整个会话树。
   function draft(value: string, attachments?: Attachment[]) {
     if (!branch) return;
-    draftCache.current.set(branch.id, { draft: value, attachments: attachments ?? attachmentsOf(branch) });
+    const id = branch.id;
+    draftCache.current.set(id, { draft: value, attachments: attachments ?? attachmentsOf(branch) });
     clearTimeout(persistDraftTimer.current);
-    persistDraftTimer.current = setTimeout(() => { void commit(() => {}).catch(() => {}); }, 450);
+    persistDraftTimer.current = setTimeout(() => {
+      // 落盘时再取一次最新文本：一次停顿时长里可能又敲了几个字。
+      const local = draftCache.current.get(id);
+      if (local) void enqueue(() => api.saveDraft(id, local.draft)).catch(() => {});
+    }, 450);
   }
   // 程序化地填草稿（点建议、加删附件、鲸鱼娘）：都是离散动作，要立刻反映到界面并落盘。
   function fillDraft(value: string, attachments?: Attachment[]) {
@@ -343,6 +353,19 @@ export default function App() {
     running.current.set(id, messageId);
     try { await api.run({ conversationId: id, branchId, messageId }); }
     catch (e) { toast(String(e instanceof Error ? e.message : e)); await commit(s => { const m = s.conversations.find(c => c.id === id)?.messages.find(m => m.id === messageId); if (m) { m.status = 'error'; m.error = String(e); } }); }
+  }
+  // 设置页每停一下就要写一次盘，而每次只有 settings 这一段变化；整份保存等于把全部会话
+  // 再搬一遍进 IPC。这里只写设置，并把主进程返回的权威字段（安全存储、凭据策略版本）收下。
+  function saveSettings(next: SettingsType): Promise<void> {
+    return enqueue(async () => {
+      pendingWrites.current++;
+      try {
+        const saved = await api.saveSettings(next);
+        normalizeSettings(saved);
+        stateRef.current = { ...stateRef.current, settings: saved };
+        setState(stateRef.current);
+      } finally { pendingWrites.current--; }
+    });
   }
   async function send() {
     if (!conversation || !branch || busy || pending) return;
@@ -517,7 +540,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
         setConversationMenuAnchor(anchor); setConversationMenuPosition(null); setConversationMenu(id);
       }}
       onResizeStart={event => resize(event, 'left', leftWidth)}/>}
-    {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => commit(s => { s.settings = settings; })} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
+    {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
         <div className="header-start">
               {!left && <button className="icon-button" title="展开侧栏" onClick={() => setLeft(true)}>
                 <PanelLeftOpen size={20}/>

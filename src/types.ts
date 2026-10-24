@@ -123,6 +123,9 @@ export interface RunRequest { conversationId: string; branchId: string; messageI
 export interface AppEvent { state?: AppState; patch?: MessagePatch; tasks?: { conversationId: string; branchId: string; kind: string }[]; task?: { conversationId: string; branchId: string; kind: string } | null; error?: string }
 export interface Bridge {
   load(): Promise<AppState>; save(state: AppState): Promise<AppState>;
+  // 高频、窄面的写入不必搬整份状态：草稿只写一个分支的文本，设置只写 settings。
+  saveDraft(branchId: string, draft: string): Promise<boolean>;
+  saveSettings(settings: Settings): Promise<Settings>;
   run(request: RunRequest): Promise<void>; cancel(conversationId: string): Promise<void>;
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<ServerModel[]>; title(conversationId: string): Promise<void>;

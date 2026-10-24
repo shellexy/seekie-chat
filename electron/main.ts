@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, net } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, SECRET_MARKER } from './store';
-import { validateState } from '../src/validation';
+import { settingsProblems, validateState } from '../src/validation';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
@@ -220,6 +220,31 @@ function register() {
       }
     }
     state = incoming; store.save(state); return store.public(state);
+  });
+  // 草稿是唯一的高频写入，而且它只落在某一个分支上。走整份 state 的话，每停 450 ms 都要
+  // 序列化一遍全部会话；这里只把文本写到主进程那份状态上再落盘（saveState 按行差量写）。
+  handle('draft', (branchId: string, draft: string) => {
+    if (typeof branchId !== 'string' || typeof draft !== 'string') throw new Error('草稿参数无效');
+    if (draft.length > 200_000) throw new Error('草稿过长');
+    for (const conversation of state.conversations) {
+      const position = conversation.branches.findIndex(b => b.id === branchId);
+      if (position < 0) continue;
+      const branch = conversation.branches[position];
+      branch.draft = draft;
+      store.saveDraft(conversation.id, position, branch);
+      return true;
+    }
+    // 分支可能刚被删掉：草稿丢了不算错误，不要因此打断用户输入。
+    return false;
+  });
+  // 设置同理：只有 settings 这一段会变，没必要为它往返整份状态。返回值带上主进程才知道的
+  // 字段（secureStorage、credentialStorageVersion），渲染层照单收下。
+  handle('settings', (incoming: AppState['settings']) => {
+    const problem = settingsProblems(incoming)[0];
+    if (problem) throw new Error(problem);
+    store.resolveSecrets({ settings: incoming });
+    state.settings = incoming; store.save(state);
+    return store.public(state).settings;
   });
   handle('run', runChat);
   handle('cancel', (id: string) => { tasks.get(id)?.controller.abort(); });

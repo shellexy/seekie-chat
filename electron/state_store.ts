@@ -72,6 +72,15 @@ export function saveMessage(db: StateDatabase, cache: StateCache, conversationId
   return true;
 }
 
+/** 草稿快速路径：只写一个分支行，不序列化其他内容。 */
+export function saveBranch(db: StateDatabase, cache: StateCache, conversationId: string, position: number, branch: Branch) {
+  const key = `b:${branch.id}`, payload = JSON.stringify(branch), current = signature(payload, position);
+  if (cache.get(key) === current) return false;
+  db.prepare('INSERT OR REPLACE INTO branches (id, conversation_id, position, payload) VALUES (?,?,?,?)').run(branch.id, conversationId, position, payload);
+  cache.set(key, current);
+  return true;
+}
+
 /** Seeds the cache from the stored rows so the first save after a load writes only real changes. */
 export function primeCache(db: StateDatabase, state: AppState, cache: StateCache) {
   cache.clear();

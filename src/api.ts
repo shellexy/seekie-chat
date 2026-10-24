@@ -4,6 +4,8 @@ import type { Bridge } from './types';
 let preview = initialState();
 export const api: Bridge = window.seekie || {
   async load() { return preview; }, async save(state) { preview = state; return structuredClone(state); },
+  async saveDraft(branchId, draft) { for (const c of preview.conversations) for (const b of c.branches) if (b.id === branchId) { b.draft = draft; return true; } return false; },
+  async saveSettings(settings) { preview.settings = settings; return structuredClone(settings); },
   async run() { throw new Error('浏览器仅用于界面预览，请通过 npm run dev 打开 Electron 桌面客户端发送消息'); },
   async cancel() {}, async compress() { throw new Error('历史压缩需要 Electron 桌面客户端'); },
   async title() { throw new Error('自动标题需要 Electron 桌面客户端'); }, async debug() { return []; }, async attachment() { return ''; }, async versions() { return { app: '', chromium: '', electron: '', node: '' }; },

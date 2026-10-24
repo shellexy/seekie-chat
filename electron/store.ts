@@ -3,9 +3,9 @@ import { safeStorage } from 'electron';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
-import type { AppState, Attachment, Conversation, Message, RequestRecord } from '../src/types';
+import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
-import { initStateSchema, loadState, primeCache, saveMessage, saveState, type StateCache } from './state_store';
+import { initStateSchema, loadState, primeCache, saveBranch, saveMessage, saveState, type StateCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
@@ -56,7 +56,8 @@ export class Store {
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
     return state;
   }
-  resolveSecrets(state: AppState) {
+  // 只碰 settings：设置页和草稿这类窄面写入就不必构造一份完整的 AppState。
+  resolveSecrets(state: { settings: AppState['settings'] }) {
     for (const c of state.settings.connections) {
       if (c.apiKey === SECRET_MARKER) c.apiKey = this.secrets.get(c.id) || '';
       const previous = JSON.parse(this.secrets.get('headers:' + c.id) || '{}');
@@ -95,6 +96,13 @@ export class Store {
     if (copy.settings.anysearchKey) copy.settings.anysearchKey = SECRET_MARKER;
     if (copy.settings.deepseekKey) copy.settings.deepseekKey = SECRET_MARKER;
     return copy;
+  }
+  /**
+   * 草稿只改一个分支行。它每次停顿都要写一次，走 save() 的话得把全部会话重新序列化一遍
+   * （一兆的状态就是几十毫秒），而这里只动那一行。
+   */
+  saveDraft(conversationId: string, position: number, branch: Branch) {
+    return saveBranch(this.db, this.cache, conversationId, position, branch);
   }
   save(state: AppState) {
     this.resolveSecrets(state);
