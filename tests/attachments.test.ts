@@ -42,9 +42,10 @@ test('only the converted Markdown is sent for attachments the model cannot read 
   // A plain text file needs no converter, and conversion must not run twice.
   const plain = attachment('notes.txt', 'text/plain', `data:text/plain;base64,${Buffer.from('纯文本内容').toString('base64')}`);
   const messages = [message([plain])];
-  await convertUnsupportedAttachments(messages, 'chat', model('chat'));
+  // 返回值是「实际转换了几个」，调用方靠它决定要不要补一次状态广播。
+  assert.equal(await convertUnsupportedAttachments(messages, 'chat', model('chat')), 1, '纯文本也算一次转换');
   assert.equal(messages[0].attachments[0].markdown, '纯文本内容');
-  await convertUnsupportedAttachments(messages, 'chat', model('chat'));
+  assert.equal(await convertUnsupportedAttachments(messages, 'chat', model('chat')), 0, '已转换过的不会再转，也就不会重复广播');
   assert.equal(messages[0].attachments[0].markdown, '纯文本内容');
   const missing = attachment('broken.docx', 'application/msword', '');
   await assert.rejects(convertUnsupportedAttachments([message([missing])], 'chat', model('chat')), /文件内容不可用/);

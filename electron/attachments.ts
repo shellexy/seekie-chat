@@ -39,7 +39,13 @@ export function canSendNative(protocol: Protocol | string, model: Model | undefi
   return false;
 }
 
-export async function convertUnsupportedAttachments(messages: Message[], protocol: Protocol, model: Model) {
+/**
+ * 把模型读不了的附件转成 Markdown，直接写回传入的消息对象。
+ * 返回实际转换的个数：调用方据此决定要不要补一次状态广播——转换结果挂在用户消息的附件上，
+ * 而生成期间只广播正在生成的那条回答，不广播就没人知道它变了。
+ */
+export async function convertUnsupportedAttachments(messages: Message[], protocol: Protocol, model: Model): Promise<number> {
+  let converted = 0;
   for (const message of messages) for (const attachment of message.attachments) {
     if (canSendNative(protocol, model, attachment) || attachment.markdown) continue;
     const data = attachmentBase64(attachment);
@@ -78,11 +84,13 @@ export async function convertUnsupportedAttachments(messages: Message[], protoco
       if (!markdown) throw new Error('转换器没有提取到可读内容');
       if (markdown.length > 1_000_000) throw new Error('转换结果超过 1 MB 文本限制');
       attachment.markdown = markdown;
+      converted++;
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`附件“${attachment.name}”不能由当前模型原生读取，也无法转换为 Markdown：${reason.slice(0, 500)}`);
     }
   }
+  return converted;
 }
 
 export function markdownForUnsupported(attachment: Attachment, protocol: Protocol | string, model?: Model) {
