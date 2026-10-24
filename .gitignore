@@ -8,3 +8,6 @@ dist-electron/
 seekie-debug/
 *.swp
 release/
+
+# 历史重写工具留下的 git 副本，不属于源码
+.git2/
