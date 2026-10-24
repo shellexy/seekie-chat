@@ -350,6 +350,40 @@ export function branchTree(branches: Branch[]): { branch: Branch; depth: number 
   for (const branch of branches) walk(branch, 0);
   return result;
 }
+/**
+ * 侧栏按"作息日"分组：日界线在早上 6 点，凌晨 3 点的对话在早上 8 点看仍属于昨天。
+ * 输入须已按 updated 倒序；分组顺序跟着第一次遇到的时间走，空分组自然不会产生。
+ */
+const SCHEDULE_DAY_OFFSET = 6 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+function scheduleDay(timestamp: number): number {
+  const local = new Date(timestamp - SCHEDULE_DAY_OFFSET);
+  // 本地年月日重新对齐到 UTC 零点再取天数差，跨夏令时也不会算错。
+  return Math.round(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()) / DAY_MS);
+}
+export type ConversationGroup = { key: string; label: string; conversations: Conversation[] };
+export function conversationGroups(conversations: Conversation[], now = Date.now()): ConversationGroup[] {
+  const today = scheduleDay(now), thisYear = new Date(now - SCHEDULE_DAY_OFFSET).getFullYear();
+  const groups: ConversationGroup[] = [], byKey = new Map<string, ConversationGroup>();
+  const add = (key: string, label: string, conversation: Conversation) => {
+    let group = byKey.get(key);
+    if (!group) { group = { key, label, conversations: [] }; byKey.set(key, group); groups.push(group); }
+    group.conversations.push(conversation);
+  };
+  for (const conversation of conversations) {
+    const age = today - scheduleDay(conversation.updated);
+    if (age <= 0) add('today', '今天', conversation);
+    else if (age === 1) add('yesterday', '昨天', conversation);
+    else if (age < 7) add('last7', '过去 7 天', conversation);
+    else if (age < 30) add('last30', '过去 30 天', conversation);
+    else {
+      const date = new Date(conversation.updated - SCHEDULE_DAY_OFFSET), year = date.getFullYear();
+      if (year === thisYear) add(`month-${year}-${date.getMonth()}`, `${date.getMonth() + 1}月`, conversation);
+      else add(`year-${year}`, `${year}年`, conversation);
+    }
+  }
+  return groups;
+}
 // A deleted model must not turn every historical answer into "未知模型": the message keeps the
 // names it was answered with, so history still explains itself.
 export function modelLabel(model: Model | undefined, connections: Connection[]): string {

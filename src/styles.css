@@ -339,6 +339,17 @@ p {
   overflow-y: auto;
   overflow-x: hidden;
 }
+.conversation-group {
+  position: sticky;
+  top: 0;
+  /* 列表本身就是滚动容器；标题要盖住下面滚过的会话，背景必须不透明，否则会透出文字。 */
+  z-index: 1;
+  padding: 7px 11px 5px;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  background: var(--panel);
+}
 .conversation-item {
   display: flex;
   align-items: center;

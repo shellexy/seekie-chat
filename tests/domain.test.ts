@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
-import type { Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
+import type { Conversation, Message, Settings } from '../src/types';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -761,4 +761,46 @@ test('the whale prompt is a built-in constant that outlives the role library', a
   const withoutRole = defaultPromptPresets().filter(p => p.id !== 'whale_lady');
   assert.ok(!withoutRole.some(p => p.content === WHALELADY_SYSTEM_PROMPT), '删掉角色后库里不该再有它');
   assert.equal(resetBuiltInPresets(withoutRole).find(p => p.id === 'whale_lady')!.content, WHALELADY_SYSTEM_PROMPT, '重置预设角色会把它按内置提示词补回');
+});
+
+// 侧栏分组：日界线在早上 6 点，输入已按 updated 倒序。
+const localTime = (year: number, month: number, day: number, hour = 12, minute = 0) => new Date(year, month - 1, day, hour, minute).getTime();
+const conversationUpdatedAt = (updated: number): Conversation => ({ ...createConversation(initialState().settings), title: 't', updated });
+
+test('sidebar groups put messages before 06:00 on the previous day', () => {
+  const now = localTime(2026, 10, 24, 8);
+  const groups = conversationGroups([
+    conversationUpdatedAt(localTime(2026, 10, 24, 6)),
+    conversationUpdatedAt(localTime(2026, 10, 24, 5, 59)),
+    conversationUpdatedAt(localTime(2026, 10, 23, 22)),
+  ], now);
+  assert.deepEqual(groups.map(group => [group.label, group.conversations.length]), [['今天', 1], ['昨天', 2]]);
+  assert.equal(groups[0].conversations[0].updated, localTime(2026, 10, 24, 6), '06:00 属于新的一天');
+});
+
+test('sidebar groups cover 7 and 30 day buckets, then months', () => {
+  const now = localTime(2026, 10, 24, 12);
+  const daysAgo = (days: number) => localTime(2026, 10, 24 - days);
+  const groups = conversationGroups([
+    conversationUpdatedAt(daysAgo(0)), conversationUpdatedAt(daysAgo(1)), conversationUpdatedAt(daysAgo(2)),
+    conversationUpdatedAt(daysAgo(6)), conversationUpdatedAt(daysAgo(7)), conversationUpdatedAt(daysAgo(29)),
+    conversationUpdatedAt(daysAgo(30)),
+  ], now);
+  assert.deepEqual(groups.map(group => group.label), ['今天', '昨天', '过去 7 天', '过去 30 天', '9月']);
+  assert.deepEqual(groups.map(group => group.conversations.length), [1, 1, 2, 2, 1], '空分组不应出现');
+});
+
+test('older sidebar groups use month labels this year and year labels before', () => {
+  const now = localTime(2026, 2, 10, 12);
+  const groups = conversationGroups([
+    conversationUpdatedAt(localTime(2026, 1, 5)),
+    conversationUpdatedAt(localTime(2025, 12, 15)),
+  ], now);
+  assert.deepEqual(groups.map(group => group.label), ['1月', '2025年']);
+});
+
+test('future timestamps stay under today and empty lists have no groups', () => {
+  const now = localTime(2026, 10, 24, 12);
+  assert.deepEqual(conversationGroups([conversationUpdatedAt(now + 60_000)], now).map(group => group.label), ['今天']);
+  assert.deepEqual(conversationGroups([], now), []);
 });

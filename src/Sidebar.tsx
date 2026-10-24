@@ -1,5 +1,7 @@
+import { Fragment } from 'react';
 import { Archive, MessageSquare, MoreHorizontal, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
 import type { Conversation } from './types';
+import { conversationGroups } from './domain';
 
 export type MenuAnchor = { top: number; bottom: number; right: number };
 
@@ -18,16 +20,19 @@ export default function Sidebar({ width, conversations, selectedId, query, showA
       <div className="search-input"><Search size={15}/><input aria-label="搜索对话" placeholder="搜索对话" value={query} onChange={e => onQueryChange(e.target.value)}/></div>
       <div className="sidebar-label">{showArchived ? '已归档' : '你的对话'} <span>{conversations.length}</span></div>
       <div className="conversation-list" onScroll={() => { if (openMenuId) onMenu(openMenuId, null); }}>
-        {conversations.map(conversation => <div key={conversation.id} className={`conversation-item ${conversation.id === selectedId && !showSettings ? 'active' : ''}`}
-          onContextMenu={event => { event.preventDefault(); onMenu(conversation.id, { top: event.clientY, bottom: event.clientY, right: event.clientX }); }}>
-          <button className="conversation-select" onClick={() => onSelect(conversation.id)} title={conversation.title}>
-            <MessageSquare size={15}/><span>{conversation.title}</span>{runningIds.includes(conversation.id) && <i className="status-dot"/>}
-          </button>
-          <button className="conversation-more icon-button" title="会话操作" aria-haspopup="menu" aria-expanded={openMenuId === conversation.id}
-            onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(conversation.id, { top: rect.top, bottom: rect.bottom, right: rect.right }); }}>
-            <MoreHorizontal size={16}/>
-          </button>
-        </div>)}
+        {conversationGroups(conversations).map(group => <Fragment key={group.key}>
+          <div className="conversation-group">{group.label}</div>
+          {group.conversations.map(conversation => <div key={conversation.id} className={`conversation-item ${conversation.id === selectedId && !showSettings ? 'active' : ''}`}
+            onContextMenu={event => { event.preventDefault(); onMenu(conversation.id, { top: event.clientY, bottom: event.clientY, right: event.clientX }); }}>
+            <button className="conversation-select" onClick={() => onSelect(conversation.id)} title={conversation.title}>
+              <MessageSquare size={15}/><span>{conversation.title}</span>{runningIds.includes(conversation.id) && <i className="status-dot"/>}
+            </button>
+            <button className="conversation-more icon-button" title="会话操作" aria-haspopup="menu" aria-expanded={openMenuId === conversation.id}
+              onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(conversation.id, { top: rect.top, bottom: rect.bottom, right: rect.right }); }}>
+              <MoreHorizontal size={16}/>
+            </button>
+          </div>)}
+        </Fragment>)}
         {!conversations.length && <p className="sidebar-empty">{query ? '没有找到对话' : showArchived ? '暂无已归档对话' : '开始你的第一段对话'}</p>}
       </div>
       <div className="sidebar-bottom">

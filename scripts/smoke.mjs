@@ -1543,8 +1543,64 @@ try {
   assert.equal(await page.getByRole('textbox', { name: '消息输入' }).inputValue(), '鲸鱼娘，来和我说说话吧。', '点击后应把开场白填进输入框');
   assert.equal(await page.locator('.header-title .role-preset').innerText(), '鲸鱼娘', '顶栏应显示当前角色是鲸鱼娘');
   await page.screenshot({ path: join(directory, 'whale-lady.png') });
+  console.log('stage: sidebar time groups');
+  // 侧栏按作息日分组（凌晨 6 点换日）：准备跨分组的会话，验证顺序、搜索分组与吸顶。
+  const groupingSnapshot = await page.evaluate(async () => JSON.stringify(await window.seekie.load()));
+  const groupingOriginalCount = await page.evaluate(async () => (await window.seekie.load()).conversations.length);
+  await page.evaluate(async () => {
+    const state = await window.seekie.load();
+    const template = state.conversations.find(conversation => conversation.messages.length) || state.conversations[0];
+    // 用"作息日中午"构造时间：脚本在凌晨跑时也不会因为 now-24h 落进别的分组。
+    const scheduledNoon = daysAgo => {
+      const shifted = new Date(Date.now() - 6 * 3600e3);
+      shifted.setDate(shifted.getDate() - daysAgo); shifted.setHours(12, 0, 0, 0);
+      return shifted.getTime() + 6 * 3600e3;
+    };
+    // 20 条足够让列表溢出，吸顶断言才有意义。
+    const offsets = [0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 29, 35, 40, 50, 60];
+    const extra = offsets.map((days, index) => {
+      const updated = scheduledNoon(days);
+      const branch = { ...structuredClone(template.branches[0]), id: crypto.randomUUID(), name: '主线', parentBranchId: null, originId: null, leafId: null, summary: undefined, updated };
+      return { ...structuredClone(template), id: crypto.randomUUID(), title: `分组检查 ${index}`, manualTitle: true, titleState: 'done', archived: false, created: updated, updated, activeBranchId: branch.id, branches: [branch], messages: [], backgroundUsage: [] };
+    });
+    // 保留原会话：它们引用的附件文件不能被这次保存当成孤儿删掉，否则恢复快照会失败。
+    state.conversations.forEach((conversation, index) => { conversation.updated = scheduledNoon(offsets[index % offsets.length]); });
+    state.conversations.push(...extra);
+    state.selectedId = extra[0].id;
+    await window.seekie.save(state); window.dispatchEvent(new Event('seekie-reload'));
+  });
+  await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount + 20);
+  await page.locator('.conversation-group').first().waitFor();
+  const groupingHeaders = await page.locator('.conversation-group').allInnerTexts();
+  assert.deepEqual(groupingHeaders.slice(0, 4), ['今天', '昨天', '过去 7 天', '过去 30 天'], `分组顺序不对：${groupingHeaders}`);
+  assert.match(groupingHeaders.at(-1), /^(\d+月|\d{4}年)$/, `更早的会话应按月或年分组，实际：${groupingHeaders.at(-1)}`);
+  assert.equal(await page.locator('.conversation-item').count(), groupingOriginalCount + 20, '分组不应丢失或重复会话');
+  // 搜索时同样保留分组。
+  const groupingSearch = page.getByRole('textbox', { name: '搜索对话' });
+  await groupingSearch.fill('分组检查');
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('.conversation-item').count(), 20);
+  assert.ok(await page.locator('.conversation-group').count() >= 2, '搜索结果仍应按时间分组');
+  await groupingSearch.fill('');
+  const groupingPositions = await page.evaluate(() => {
+    const list = document.querySelector('.conversation-list');
+    const positions = [...document.querySelectorAll('.conversation-group')].map(header => getComputedStyle(header).position);
+    list.scrollTop = 150;
+    return positions;
+  });
+  await page.waitForTimeout(100);
+  const groupingStuck = await page.evaluate(() => {
+    const list = document.querySelector('.conversation-list').getBoundingClientRect();
+    return [...document.querySelectorAll('.conversation-group')].map(header => Math.round(header.getBoundingClientRect().top - list.top));
+  });
+  assert.ok(groupingPositions.every(position => position === 'sticky'), '分组标题应使用 sticky 定位');
+  assert.ok(groupingStuck.some(offset => Math.abs(offset) <= 1), `滚动后应有标题吸顶，实际偏移：${groupingStuck}`);
+  await page.screenshot({ path: join(directory, 'sidebar-groups.png') });
+  // 复原状态，收尾断言仍看到原来的会话。
+  await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);
+  await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

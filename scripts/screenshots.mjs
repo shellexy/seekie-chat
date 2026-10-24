@@ -42,6 +42,8 @@ await shot('first-run');
 await page.evaluate(async () => {
   const state = await window.seekie.load();
   const now = Date.now(), day = 86_400_000;
+  // 侧栏按作息日分组（早上 6 点换日）：用"分组日中午"排时间，截图里才能稳定出现昨天、更早等分组。
+  const scheduledNoon = daysAgo => { const shifted = new Date(now - 6 * 3600e3); shifted.setDate(shifted.getDate() - daysAgo); shifted.setHours(12, 0, 0, 0); return shifted.getTime() + 6 * 3600e3; };
   const uuid = () => crypto.randomUUID();
   const deepseek = { id: uuid(), name: 'DeepSeek', protocol: 'anthropic', baseUrl: 'https://api.deepseek.com/anthropic', apiKey: 'sk-demo-key', headers: {}, timeout: 120, proxy: '' };
   const openai = { id: uuid(), name: 'OpenAI', protocol: 'responses', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-demo-key', headers: {}, timeout: 120, proxy: '', responsesForGpt: true };
@@ -113,12 +115,12 @@ await page.evaluate(async () => {
     modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config,
     usage: { input: 2600, output: 320, cachedInput: 2100, elapsedMs: 5400, generationMs: 4700, firstTokenMs: 700, firstOutputMs: 650 }
   };
-  const weeklyBranch = { id: uuid(), name: '主线', leafId: weeklyAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - 2 * 60_000 };
-  const weekly = { id: uuid(), title: '把调研整理成周报', manualTitle: true, titleState: 'done', created: now - 3 * 60_000, updated: now - 2 * 60_000, activeBranchId: weeklyBranch.id, branches: [weeklyBranch], messages: [weeklyQuestion, weeklyAnswer] };
+  const weeklyBranch = { id: uuid(), name: '主线', leafId: weeklyAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: scheduledNoon(1) };
+  const weekly = { id: uuid(), title: '把调研整理成周报', manualTitle: true, titleState: 'done', created: scheduledNoon(1), updated: scheduledNoon(1), activeBranchId: weeklyBranch.id, branches: [weeklyBranch], messages: [weeklyQuestion, weeklyAnswer] };
 
   const others = ['整理 Electron 主进程的启动流程', '把这段 SQL 改写成窗口函数', '周报：本周进展与下周计划', '给鲸鱼娘写一段角色设定'].map((title, index) => {
-    const branchId = uuid();
-    return { id: uuid(), title, manualTitle: true, titleState: 'done', created: now - (index + 2) * day, updated: now - (index + 2) * day, activeBranchId: branchId, branches: [{ id: branchId, name: '主线', leafId: null, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now - (index + 2) * day }], messages: [] };
+    const branchId = uuid(), at = scheduledNoon([2, 3, 4, 40][index]);
+    return { id: uuid(), title, manualTitle: true, titleState: 'done', created: at, updated: at, activeBranchId: branchId, branches: [{ id: branchId, name: '主线', leafId: null, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: at }], messages: [] };
   });
 
   state.settings.connections = [deepseek, openai];
