@@ -82,6 +82,11 @@ export class Store {
     // Attachment bytes stay in the main process: the renderer asks for one by id when it needs to
     // show it. Otherwise every broadcast would copy and transfer every image in the conversation.
     for (const a of attachments(copy)) a.data = '';
+    // message.raw 存的是协议原生的 assistant 条目，只有主进程用得到（compatibleRaw 在多轮
+    // 工具调用时重放历史）；渲染层从没读过它。每次广播都带着它等于白做一次深拷贝和 IPC
+    // 序列化，所以出口处统一剔掉。保存时渲染层送回的是去掉 raw 的状态，主进程在 save
+    // 处理器里会用自己那份消息对象覆盖回去，所以 raw 不会因此丢失。
+    for (const c of copy.conversations) for (const m of c.messages) delete m.raw;
     for (const c of copy.settings.connections) { if (c.apiKey) c.apiKey = SECRET_MARKER; for (const name of Object.keys(c.headers)) c.headers[name] = SECRET_MARKER; }
     if (copy.settings.exaKey) copy.settings.exaKey = SECRET_MARKER;
     if (copy.settings.ollamaKey) copy.settings.ollamaKey = SECRET_MARKER;

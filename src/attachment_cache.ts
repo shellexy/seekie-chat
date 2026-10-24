@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
+import { createLruCache } from './lru';
 import type { Attachment } from './types';
 
 // Attachment payloads stay in the main process and never travel with a state broadcast: the renderer
-// asks for one by id the first time it has to show it and remembers it for the rest of the session.
+// asks for one by id the first time it has to show it and remembers it for a while. The cache is
+// bounded — scrolling a long conversation past dozens of images would otherwise keep every byte in
+// memory until the app restarts.
 // Attachments the user just added already carry their own payload, so drafts never need a round trip.
-const payloads = new Map<string, string>();
+const payloads = createLruCache(40, 64 * 1024 * 1024);
 const inflight = new Map<string, Promise<void>>();
 
 export function attachmentPayload(attachment?: Attachment | null) {
