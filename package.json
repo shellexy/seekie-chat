@@ -17,6 +17,7 @@
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "test:desktop": "npm run build && node scripts/smoke.mjs",
     "test:dev": "node scripts/check-dev.mjs",
+    "record": "node scripts/record.mjs",
     "check": "npm run typecheck && npm test",
     "dist:deb": "npm run build && electron-builder --linux deb",
     "dist:appimage": "npm run build && electron-builder --linux AppImage",

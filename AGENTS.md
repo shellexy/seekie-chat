@@ -15,6 +15,7 @@
 | `npm run dist:appimage` | 打 Linux AppImage 到 `release/` | 发布前 |
 | `npm run dist:win` | 打 Windows NSIS 安装包；在 Linux 上交叉构建需要 wine | 发布前 |
 | `npm run dist:mac` | 打 macOS dmg；必须在 macOS 上运行 | 发布前 |
+| `npm run record` | 用 ffmpeg 录一段 1440×900 的界面演示到 `release/seekie-chat-demo.mp4`；无显示器时套 `xvfb-run -a -s "-screen 0 1440x900x24"` | 需要更新演示视频时 |
 
 - 类型检查通过**不代表**改对了：`check` 里还有一百多个单测，`test:desktop` 覆盖真实窗口。
 - `test:desktop` 与 `test:dev` 都要能创建窗口。有显示器就直接跑；纯 SSH / CI 才需要 `xvfb-run -a`。
