@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
-import { initStateSchema, loadState, primeCache, saveBranch, saveMessage, saveState, type StateCache } from './state_store';
+import { initStateSchema, loadState, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveState, type StateCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
@@ -104,6 +104,11 @@ export class Store {
   saveDraft(conversationId: string, position: number, branch: Branch) {
     return saveBranch(this.db, this.cache, conversationId, position, branch);
   }
+
+  // 选择、改名、归档、切换分支都只动单个实体的几个标量字段，同样只写那一行。
+  saveSelection(selectedId: string | null) { return saveSelectedId(this.db, this.cache, selectedId); }
+  saveConversation(conversation: Conversation, position: number) { return saveConversationRow(this.db, this.cache, conversation, position); }
+  saveBranchOf(conversationId: string, position: number, branch: Branch) { return saveBranch(this.db, this.cache, conversationId, position, branch); }
   save(state: AppState) {
     this.resolveSecrets(state);
     state.settings.credentialStorageVersion = 1;

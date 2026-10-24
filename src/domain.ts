@@ -627,3 +627,37 @@ export function compressionCut(path: Message[], contextWindow: number, maxRetain
   }
   return cut;
 }
+
+// 只改标量字段的小更新（选择、切换分支、改名、归档）。这类操作以前要连同全部会话一起保存，
+// 会话一多就是几百毫秒；现在两端共用同一个应用函数：渲染层拿它更新界面，主进程拿它落盘。
+export type StateChange =
+  | { kind: 'selected'; id: string | null }
+  | { kind: 'conversation'; id: string; fields: { title?: string; manualTitle?: boolean; titleState?: 'idle' | 'pending' | 'done'; archived?: boolean; activeBranchId?: string } }
+  | { kind: 'branch'; conversationId: string; id: string; fields: { name?: string; scrollTop?: number } };
+
+const definedFields = <T extends object>(fields: T) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Partial<T>;
+
+/** 返回新对象，未涉及的会话与分支保持原引用，便于 memo 判断。 */
+export function applyStateChanges(state: AppState, changes: StateChange[]): AppState {
+  let selectedId = state.selectedId;
+  const grouped = new Map<string, StateChange[]>();
+  for (const change of changes) {
+    if (change.kind === 'selected') { selectedId = change.id; continue; }
+    const key = change.kind === 'conversation' ? change.id : change.conversationId;
+    const list = grouped.get(key) ?? [];
+    list.push(change);
+    grouped.set(key, list);
+  }
+  if (!grouped.size) return selectedId === state.selectedId ? state : { ...state, selectedId };
+  const conversations = state.conversations.map(conversation => {
+    const list = grouped.get(conversation.id);
+    if (!list) return conversation;
+    let next = conversation;
+    for (const change of list) {
+      if (change.kind === 'conversation') next = { ...next, ...definedFields(change.fields) };
+      else if (change.kind === 'branch') next = { ...next, branches: next.branches.map(branch => branch.id === change.id ? { ...branch, ...definedFields(change.fields) } : branch) };
+    }
+    return next;
+  });
+  return { ...state, conversations, selectedId };
+}

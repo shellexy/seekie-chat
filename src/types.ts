@@ -126,6 +126,8 @@ export interface Bridge {
   // 高频、窄面的写入不必搬整份状态：草稿只写一个分支的文本，设置只写 settings。
   saveDraft(branchId: string, draft: string): Promise<boolean>;
   saveSettings(settings: Settings): Promise<Settings>;
+  // 选择、切换分支、改名、归档：只传被改的标量字段，不搬整份状态。
+  saveFields(changes: import('./domain').StateChange[]): Promise<boolean>;
   run(request: RunRequest): Promise<void>; cancel(conversationId: string): Promise<void>;
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<ServerModel[]>; title(conversationId: string): Promise<void>;

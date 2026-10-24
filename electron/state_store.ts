@@ -81,6 +81,25 @@ export function saveBranch(db: StateDatabase, cache: StateCache, conversationId:
   return true;
 }
 
+/** 选择项只有一行，单独写，不必为切个会话序列化全部会话。 */
+export function saveSelectedId(db: StateDatabase, cache: StateCache, selectedId: string | null) {
+  const key = 'meta:selectedId', payload = JSON.stringify(selectedId ?? null), current = signature(payload);
+  if (cache.get(key) === current) return false;
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)').run('selectedId', payload);
+  cache.set(key, current);
+  return true;
+}
+
+/** 会话头一行（不含分支与消息）：改名、归档、切换当前分支都只动它。 */
+export function saveConversationRow(db: StateDatabase, cache: StateCache, conversation: Conversation, position: number) {
+  const { branches, messages, ...header } = conversation;
+  const key = `c:${conversation.id}`, payload = JSON.stringify(header), current = signature(payload, position);
+  if (cache.get(key) === current) return false;
+  db.prepare('INSERT OR REPLACE INTO conversations (id, position, payload) VALUES (?,?,?)').run(conversation.id, position, payload);
+  cache.set(key, current);
+  return true;
+}
+
 /** Seeds the cache from the stored rows so the first save after a load writes only real changes. */
 export function primeCache(db: StateDatabase, state: AppState, cache: StateCache) {
   cache.clear();

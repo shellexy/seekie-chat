@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, SECRET_MARKER } from './store';
 import { settingsProblems, validateState } from '../src/validation';
+import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
@@ -245,6 +246,25 @@ function register() {
     store.resolveSecrets({ settings: incoming });
     state.settings = incoming; store.save(state);
     return store.public(state).settings;
+  });
+  // 选择、切换分支、改名、归档：只写被改到的行（一个 meta、一个会话头、或一个分支），
+  // 会话再多也不用把整份状态序列化一遍。字段白名单在 applyStateChanges 里，两端共用一份。
+  handle('fields', (changes: StateChange[]) => {
+    if (!Array.isArray(changes) || changes.length > 16) throw new Error('状态更新参数无效');
+    const next = applyStateChanges(state, changes);
+    for (const change of changes) {
+      if (change.kind === 'selected') { store.saveSelection(next.selectedId); continue; }
+      const conversationId = change.kind === 'conversation' ? change.id : change.conversationId;
+      const position = next.conversations.findIndex(c => c.id === conversationId);
+      if (position < 0) continue;
+      const conversation = next.conversations[position];
+      store.saveConversation(conversation, position);
+      if (change.kind !== 'branch') continue;
+      const branchPosition = conversation.branches.findIndex(b => b.id === change.id);
+      if (branchPosition >= 0) store.saveBranchOf(conversation.id, branchPosition, conversation.branches[branchPosition]);
+    }
+    state = next;
+    return true;
   });
   handle('run', runChat);
   handle('cancel', (id: string) => { tasks.get(id)?.controller.abort(); });

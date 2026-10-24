@@ -57,6 +57,7 @@
 - 设置页是"草稿 + 自动保存"：`dirty` / `version` 两个 ref 管有没有未写盘的改动；导入备份必须置 `skipSave`，否则页面里的旧草稿会覆盖刚恢复的数据。
 - `scripts/smoke.mjs` 是单个约 1500 行的文件，所有断言在同一个作用域里。别用 `layout` / `tools` / `state` / `input` 这类常见名——撞名会直接语法错误、整个冒烟跑不起来。加新断言用带前缀的名字（如 `aboutLayout`）。
 - 侧栏是**虚拟列表**：只有视口内（上下各多渲染 8 行）的会话在 DOM 里。断言别去数 `.conversation-item` 节点，按 `data-id` 滚动收集；`.conversation-group` 里还混着吸顶用的覆盖层，检查分组顺序要限定在 `.conversation-rows .conversation-group`。行距是运行时量出来的，改侧栏样式后不必调常量，但**别把行高写死**。
+- 改「选择 / 切换分支 / 改名 / 归档」这类标量状态时，把字段加进 `src/domain.ts` 的 `applyStateChanges` 白名单并走 `saveFields`，别退回整份保存——那会把整个会话树搬两遍。删除类操作反过来：它要连带清理附件与请求记录，仍然走整份保存。
 - 冒烟脚本中途会关掉应用再重启。**重启前抓的 locator 会失效**，之后必须从 `page` 重新取，不能复用之前的 `const`。
 - `.chat-header` 与 `.settings-header` 的高度要彼此对齐，也和窗口控件对齐；改一个记得看另外两个。
 - `package.json` 的 `dependencies` 只放**运行时真加载**的包（目前只有 `undici` 与 `@firecrawl/anydoc`）。electron-builder 会把 `dependencies` 整包复制进 asar，而渲染层用的库已经被 Vite 打进 `dist/`、`defuddle`/`linkedom` 已被 esbuild 内联进 `main.cjs`——把它们留在 `dependencies` 就是白带几十 MB。往 `scripts/build-electron.mjs` 的 `external` 里加包之前，先确认它同时在 `dependencies` 里。

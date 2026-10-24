@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -803,4 +803,32 @@ test('future timestamps stay under today and empty lists have no groups', () => 
   const now = localTime(2026, 10, 24, 12);
   assert.deepEqual(conversationGroups([conversationUpdatedAt(now + 60_000)], now).map(group => group.label), ['今天']);
   assert.deepEqual(conversationGroups([], now), []);
+});
+
+test('state changes only touch the entities they name and keep the rest by reference', () => {
+  const state = initialState();
+  const first = createConversation(state.settings), second = createConversation(state.settings);
+  state.conversations = [first, second]; state.selectedId = first.id;
+  const original = state.conversations;
+
+  const selected = applyStateChanges(state, [{ kind: 'selected', id: second.id }]);
+  assert.equal(selected.selectedId, second.id);
+  assert.equal(selected.conversations, original, '只换选择时不应重建会话数组');
+
+  const renamed = applyStateChanges(state, [{ kind: 'conversation', id: first.id, fields: { title: '新标题', manualTitle: true, titleState: 'done' } }]);
+  assert.equal(renamed.conversations[0].title, '新标题');
+  assert.equal(renamed.conversations[0].manualTitle, true);
+  assert.equal(renamed.conversations[1], second, '未涉及的会话应保持原引用');
+  assert.equal(first.title, first.title, '不应就地修改旧状态');
+
+  const branchId = first.branches[0].id;
+  const branched = applyStateChanges(state, [{ kind: 'branch', conversationId: first.id, id: branchId, fields: { name: '改名分支', scrollTop: 42 } }]);
+  assert.equal(branched.conversations[0].branches[0].name, '改名分支');
+  assert.equal(branched.conversations[0].branches[0].scrollTop, 42);
+  assert.equal(state.conversations[0].branches[0].name, first.branches[0].name, '原状态不应被改动');
+
+  // 指向不存在的会话/分支时静默跳过，不能把整个状态弄坏。
+  const missing = applyStateChanges(state, [{ kind: 'branch', conversationId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', fields: { name: 'x' } }]);
+  assert.equal(missing.conversations.length, 2);
+  assert.equal(missing.conversations[0], first, '找不到目标时什么都不应改');
 });

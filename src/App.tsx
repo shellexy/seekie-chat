@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, summaryHasToolResults, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -18,6 +18,7 @@ import MessageRow from './MessageRow';
 import { welcomeMask } from './brand';
 import { prepareImage } from './imageEncode';
 type Task = { conversationId: string; branchId: string; kind: string };
+type StateChange = Parameters<typeof applyStateChanges>[1][number];
 function searchableParts(message: Message) {
   if (message.role === 'user') return [{ kind: '提问', text: message.text }];
   const parts: { kind: string; text: string }[] = [];
@@ -128,6 +129,11 @@ export default function App() {
     const operation = queue.current.then(run);
     queue.current = operation.then(() => undefined, error => { toast(String(error instanceof Error ? error.message : error)); });
     return operation;
+  }
+  // 只改标量字段的小操作：本地用同一份纯函数更新界面，写盘只发这几个字段。
+  async function saveFields(changes: StateChange[]): Promise<void> {
+    apply(applyStateChanges(stateRef.current, changes));
+    await enqueue(() => api.saveFields(changes));
   }
   async function commit(mutate: (s: AppState) => void): Promise<void> {
     // 草稿不在 state 里，落盘前必须贴回去，否则存下来的是上一次提交时的旧草稿。
@@ -296,23 +302,28 @@ export default function App() {
   }
   // Reads the state it is given, so a mutation that also changes selectedId sees its own change.
   function find(s: AppState): { c: Conversation; b: Branch } { const id = s.selectedId || stateRef.current.selectedId; const c = s.conversations.find(c => c.id === id) || s.conversations[0]; const b = c.branches.find(b => b.id === c.activeBranchId)!; return { c, b }; }
-  async function switchChat(id: string) { if (scrollRef.current && branch) branch.scrollTop = scrollRef.current.scrollTop; await commit(s => { s.selectedId = id; }); setShowSettings(false); }
+  async function switchChat(id: string) {
+    const changes: StateChange[] = [];
+    // 离开前先把当前阅读位置写进它所属的分支，再切会话。
+    if (scrollRef.current && branch && conversation) changes.push({ kind: 'branch', conversationId: conversation.id, id: branch.id, fields: { scrollTop: scrollRef.current.scrollTop } });
+    changes.push({ kind: 'selected', id });
+    await saveFields(changes);
+    setShowSettings(false);
+  }
   async function toggleArchive(source: Conversation) {
     const archive = !source.archived;
     setConversationMenu(null);
-    await commit(s => {
-      const target = s.conversations.find(c => c.id === source.id);
-      if (!target) return;
-      target.archived = archive;
-      if (archive && s.selectedId === source.id) s.selectedId = s.conversations.find(c => c.id !== source.id && !c.archived)?.id || null;
-    });
+    const changes: StateChange[] = [{ kind: 'conversation', id: source.id, fields: { archived: archive } }];
+    // 归档掉当前会话时要顺带换一个选中的，否则会停在一个已经不在列表里的会话上。
+    if (archive && state.selectedId === source.id) changes.push({ kind: 'selected', id: state.conversations.find(c => c.id !== source.id && !c.archived)?.id ?? null });
+    await saveFields(changes);
     if (!archive) setShowArchived(false);
   }
   async function saveConversationRename() {
     const id = renamingConversation, title = renameValue.trim();
     if (!id || !title) { if (id) toast('对话标题不能为空'); return; }
     try {
-      await commit(s => { const target = s.conversations.find(c => c.id === id); if (target) { target.title = title; target.manualTitle = true; target.titleState = 'done'; } });
+      await saveFields([{ kind: 'conversation', id, fields: { title, manualTitle: true, titleState: 'done' } }]);
       setRenamingConversation(null);
     } catch { /* commit already reports save errors */ }
   }
@@ -320,14 +331,17 @@ export default function App() {
     const target = renamingBranch, name = renameBranchValue.trim();
     if (!target || !name) { if (target) toast('分支名称不能为空'); return; }
     try {
-      await commit(s => {
-        const branch = s.conversations.find(c => c.id === target.conversationId)?.branches.find(b => b.id === target.branchId);
-        if (branch) branch.name = name;
-      });
+      await saveFields([{ kind: 'branch', conversationId: target.conversationId, id: target.branchId, fields: { name } }]);
       setRenamingBranch(null);
     } catch { /* commit already reports save errors */ }
   }
-  async function switchBranch(id: string) { await commit(s => { const { c, b } = find(s); if (scrollRef.current) b.scrollTop = scrollRef.current.scrollTop; c.activeBranchId = id; }); }
+  async function switchBranch(id: string) {
+    if (!conversation || !branch) return;
+    const changes: StateChange[] = [];
+    if (scrollRef.current) changes.push({ kind: 'branch', conversationId: conversation.id, id: branch.id, fields: { scrollTop: scrollRef.current.scrollTop } });
+    changes.push({ kind: 'conversation', id: conversation.id, fields: { activeBranchId: id } });
+    await saveFields(changes);
+  }
   // 输入框每一次按键都走这里：只写本地草稿缓存并安排一次防抖保存。这里以前每次按键都要
   // structuredClone 整份状态再全树重渲染，1 MB 的历史下就是 12 ms／键，打字快会明显发涩；
   // 而草稿本来就只属于渲染层，没必要为它复制整个会话树。
