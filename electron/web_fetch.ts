@@ -1,7 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { Defuddle } from 'defuddle/node';
-import { parseHTML } from 'linkedom';
+import { htmlToMarkdown } from './html';
 import { externalSearchKey } from '../src/domain';
 import type { Settings, WebFetchMode } from '../src/types';
 
@@ -99,11 +98,6 @@ async function readBody(response: Response): Promise<string> {
 function trimContent(content: string) {
   const clean = content.trim();
   return { content: clean.length > MAX_CONTENT_CHARS ? `${clean.slice(0, MAX_CONTENT_CHARS)}\n\n[内容已截断]` : clean, truncated: clean.length > MAX_CONTENT_CHARS };
-}
-async function htmlToMarkdown(source: string, url: string) {
-  const { document } = parseHTML(source);
-  const result = await Defuddle(document, url, { markdown: true, useAsync: false });
-  return { title: String(result.title || document.title || '').trim(), content: String(result.content || '').trim() };
 }
 function looksLikeHtml(source: string) { return /^\s*(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/i.test(source); }
 

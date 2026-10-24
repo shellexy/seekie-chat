@@ -162,6 +162,7 @@ Base URL 规范化及实际请求路径必须明确，不重复拼接 `/v1`；�
 - 模型设置可分别配置图片、视频、音频和 PDF 输入能力。支持的类型按协议原生编码后发送。
 - 当前模型不支持的附件尝试用 `@firecrawl/anydoc` 从内存转换为 Markdown，再连同用户提问发送给模型；转换文本受长度上限约束，纳入上下文预算。纯文本直接输入。
 - `@firecrawl/anydoc` 在本地支持 PDF、Word、PowerPoint、Excel、OpenDocument、RTF、EPUB 和 CSV，不支持视频或音频转换；扫描版 PDF 需要 OCR，本地转换失败时清楚报错，不默默丢弃附件，也不会默认将文件上传到 Firecrawl。
+- HTML 附件不再当纯文本直传——那样整份标签、样式与脚本都会进请求体。改为先用 Defuddle 抽取正文转 Markdown（剥离导航、页脚、脚本），抽不到正文时退回原始 HTML，宁可多花 token 也不丢内容（单页应用导出的 HTML，正文就在 script 里）。MHTML（`multipart/related`）先按 boundary 拆出主体 `text/html` 部分——解 quoted-printable / base64、按声明的 charset 解码（含 gb2312/gbk）——再走同一条转换；`cid:` 内嵌资源不解析，因为转 Markdown 时本来也不保留内嵌图片。
 - 附件原文件保存在本地，转换出的 Markdown 随消息保存；导出、备份及删除需正确处理附件引用。
 
 ## 5. 推理信息、工具与联网搜索

@@ -270,7 +270,7 @@ xvfb-run -a npm run test:desktop
 
 - 不含自动更新、账号、云同步、任意插件或命令执行、本地模型部署。
 - 暂未实现 SOCKS 代理、系统代理自动探测、可独立展开的完整分支树面板（分支切换菜单已按树形缩进展示父子关系）和全文搜索。
-- 按模型能力原生发送图片、视频、音频和 PDF；模型不支持的文件类型尝试由 `@firecrawl/anydoc` 在本地转成 Markdown，支持 Word、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV 和 PDF，纯文本直接输入。转换默认不上传文件；扫描版 PDF 需要 OCR，视频和音频不支持转换，不支持或无法提取内容的格式会提示失败。
+- 按模型能力原生发送图片、视频、音频和 PDF；模型不支持的文件类型尝试在本地转成 Markdown：`@firecrawl/anydoc` 负责 Word、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV 和 PDF；HTML 与 MHTML（Chrome / Firefox / Edge 的“另存为单个文件”）先取出网页正文再转 Markdown，抽不到正文时退回原文，不会只留空壳；纯文本直接输入。转换默认不上传文件；扫描版 PDF 需要 OCR，视频和音频不支持转换，不支持或无法提取内容的格式会提示失败。
 - 不自动重发已经接收内容的流式请求；明确重试会产生新请求。
 
 完整产品要求见 [需求文档](docs/product-requirements.md)。
