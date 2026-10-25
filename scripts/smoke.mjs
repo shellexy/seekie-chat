@@ -1378,6 +1378,9 @@ try {
   // 撤销窗口里什么都还没真删：附件文件和请求记录都该在，提示条上那个按钮点得动。
   assert.ok(existsSync(ghostAttachment) && existsSync(ghostRecord), '撤销窗口没关掉前不该删掉附件与请求记录');
   assert.equal((await page.locator('.toast-action').innerText()).trim(), '撤销');
+  // 撤销窗口不该被普通保存关掉：流式落盘、发消息、编辑都会走整份保存，删完紧接着就可能有一次。
+  // 这条断言拦的是「12 秒可撤销」在下一次保存时悄悄失效——界面看着还能点，点了却没反应。
+  await page.evaluate(async () => { await window.seekie.save(await window.seekie.load()); });
   await page.locator('.toast-action').click();
   await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.some(c => c.id === id)) && s.conversations.length === 6; }, batchIds);
   assert.match(await page.locator('.toast').innerText(), /已恢复 2 个对话/);
