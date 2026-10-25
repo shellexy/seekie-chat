@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppEvent, Bridge } from '../src/types';
 const bridge: Bridge = {
-  load: () => ipcRenderer.invoke('load'), save: state => ipcRenderer.invoke('save', state),
+  load: () => ipcRenderer.invoke('load'), save: (state, undoIds) => ipcRenderer.invoke('save', state, undoIds), undoDelete: () => ipcRenderer.invoke('undo-delete'),
   saveDraft: (branchId, draft) => ipcRenderer.invoke('draft', branchId, draft), saveSettings: settings => ipcRenderer.invoke('settings', settings), saveFields: changes => ipcRenderer.invoke('fields', changes),
   run: request => ipcRenderer.invoke('run', request), cancel: id => ipcRenderer.invoke('cancel', id),
   compress: (id, branch) => ipcRenderer.invoke('compress', id, branch), test: c => ipcRenderer.invoke('test', c), title: id => ipcRenderer.invoke('title', id), debug: id => ipcRenderer.invoke('debug', id), attachment: id => ipcRenderer.invoke('attachment', id), versions: () => ipcRenderer.invoke('versions'),

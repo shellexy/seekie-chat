@@ -131,7 +131,12 @@ export interface MessagePatch { conversationId: string; message: Message }
 export interface RunRequest { conversationId: string; branchId: string; messageId: string }
 export interface AppEvent { state?: AppState; patch?: MessagePatch; tasks?: { conversationId: string; branchId: string; kind: string }[]; task?: { conversationId: string; branchId: string; kind: string } | null; error?: string }
 export interface Bridge {
-  load(): Promise<AppState>; save(state: AppState): Promise<AppState>;
+  load(): Promise<AppState>;
+  // undoIds 是「这次保存里被删掉的会话」：主进程会把它们留一个短期撤销窗口，行、附件和请求记录
+  // 都先不动，窗口关掉的那一次保存才真删。
+  save(state: AppState, undoIds?: string[]): Promise<AppState>;
+  // 撤销窗口还开着就把删除收回来；窗口已经关掉就返回 false，让界面说清楚为什么撤不回来。
+  undoDelete(): Promise<string[] | false>;
   // 高频、窄面的写入不必搬整份状态：草稿只写一个分支的文本，设置只写 settings。
   saveDraft(branchId: string, draft: string): Promise<boolean>;
   saveSettings(settings: Settings): Promise<Settings>;

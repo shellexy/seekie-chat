@@ -9,7 +9,9 @@ type Props = {
   width: number; conversations: Conversation[]; selectedId: string | null; query: string; showArchived: boolean; archiveCount: number; showSettings: boolean;
   runningIds: string[]; openMenuId: string | null;
   // 多选模式：图标位换成复选框，底部只剩批量归档与删除。勾选是界面上的临时状态，不进 AppState。
-  selecting: boolean; selectedIds: string[];
+  selecting: boolean; selectedIds: string[]; allSelected: boolean;
+  // 全选只作用于当前这一列（搜索过滤后的可见项），所以按钮放在这里而不是头部。
+  onSelectAll: () => void;
   onQueryChange: (query: string) => void; onSelect: (id: string) => void; onToggleSelect: (id: string) => void; onNewChat: () => void; onArchiveView: () => void; onOpenSettings: () => void; onCollapse: () => void;
   onMenu: (id: string, anchor: MenuAnchor | null) => void; onResizeStart: (event: React.MouseEvent) => void; onBatchArchive: () => void; onBatchDelete: () => void;
 };
@@ -19,13 +21,13 @@ type Props = {
 // 而是在挂载后量一次真实占据的高度（含外边距），量到之后整个窗口按它计算。
 const OVERSCAN = 8;
 
-export type SidebarHandlers = Pick<Props, 'onSelect' | 'onToggleSelect' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart' | 'onBatchArchive' | 'onBatchDelete'>;
+export type SidebarHandlers = Pick<Props, 'onSelect' | 'onToggleSelect' | 'onSelectAll' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart' | 'onBatchArchive' | 'onBatchDelete'>;
 
 type Row = { kind: 'group'; key: string; label: string } | { kind: 'item'; key: string; conversation: Conversation };
 
 // The conversation list column: new chat, search, the list itself with its per item menu, the
 // archive view entry, settings, and the resize handle that belongs to this edge of the window.
-function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, selecting, selectedIds, onQueryChange, onSelect, onToggleSelect, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart, onBatchArchive, onBatchDelete }: Props) {
+function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, selecting, selectedIds, allSelected, onQueryChange, onSelect, onToggleSelect, onSelectAll, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart, onBatchArchive, onBatchDelete }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -127,7 +129,10 @@ function Sidebar({ width, conversations, selectedId, query, showArchived, archiv
       </div>
       <div className="sidebar-bottom">
         {selecting ? <div className="sidebar-selection" role="group" aria-label="批量操作">
-            <span className="selection-count">已选 {selectedIds.length}</span>
+            {/* 计数就是全选按钮：底部这条只有 242px 的可用宽度，多一个元素就挤出侧栏了。
+                计数和动作共用一句文案，全选完再点变成清空。 */}
+            <button className="selection-count" onClick={onSelectAll} disabled={!conversations.length}
+              title={allSelected ? '取消勾选这一列的全部对话' : '勾选这一列的全部对话'}>{allSelected ? '清空' : '全选'}<i>已选 {selectedIds.length}</i></button>
             {/* 归档视图里这一项的语义是反过来的，单条菜单同样这么写，别在这里变成空操作。 */}
             <button className="selection-action" onClick={onBatchArchive} disabled={!selectedIds.length}><Archive size={15}/>{showArchived ? '取消归档' : '归档'}</button>
             <button className="selection-action danger" onClick={onBatchDelete} disabled={!selectedIds.length}><Trash2 size={15}/>删除</button>

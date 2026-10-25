@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, ListChecks, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
-import { api } from './api';
+import { api, isDesktop } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
 import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
@@ -58,6 +58,7 @@ export default function App() {
   // 多选模式与勾选集合。只活在界面里，不进 AppState——重启后还停在「多选」状态反而莫名其妙。
   const [selecting, setSelecting] = useState(false), [checkedIds, setCheckedIds] = useState(NO_SELECTION);
   const [tasks, setTasks] = useState<Task[]>([]), [notice, setNotice] = useState(''), noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [noticeAction, setNoticeAction] = useState<{ label: string; run: () => void } | undefined>(undefined);
   const [branchMenu, setBranchMenu] = useState(false), [conversationMenu, setConversationMenu] = useState<string | null>(null);
   const [chatSearchOpen, setChatSearchOpen] = useState(false), [chatSearchQuery, setChatSearchQuery] = useState(''), [chatSearchIndex, setChatSearchIndex] = useState(0), [searchHighlightMessage, setSearchHighlightMessage] = useState('');
   const [conversationMenuAnchor, setConversationMenuAnchor] = useState<{ top: number; bottom: number; right: number } | null>(null);
@@ -78,7 +79,12 @@ export default function App() {
   const running = useRef(new Map<string, string>());
   const draftCache = useRef(new Map<string, { draft: string; attachments: Attachment[] }>());
   const persistDraftTimer = useRef<ReturnType<typeof setTimeout>>(undefined), queue = useRef(Promise.resolve()), saveSequence = useRef(0), pendingWrites = useRef(0);
-  function toast(s: string) { setNotice(s); clearTimeout(noticeTimer.current); noticeTimer.current = setTimeout(() => setNotice(''), 6500); }
+  function dismissToast() { clearTimeout(noticeTimer.current); setNotice(''); setNoticeAction(undefined); }
+  // 带按钮的提示（撤销删除）要多留几秒：主进程那边的撤销窗口是 15s，按钮不该在窗口还开着时先消失。
+  function toast(s: string, action?: { label: string; run: () => void }) {
+    setNotice(s); setNoticeAction(action); clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(dismissToast, action ? 12000 : 6500);
+  }
   function openAttachmentPreview(attachment: Attachment) { setPreviewAttachment(attachment); }
   function closeAttachmentPreview() { setPreviewAttachment(null); }
   // 草稿是唯一「高频产生、且只存在于渲染层」的状态：打字时只写 draftCache，不进 state。
@@ -139,10 +145,10 @@ export default function App() {
     apply(applyStateChanges(stateRef.current, changes));
     await enqueue(() => api.saveFields(changes));
   }
-  async function commit(mutate: (s: AppState) => void): Promise<void> {
+  async function commit(mutate: (s: AppState) => void, undoIds?: string[]): Promise<void> {
     // 草稿不在 state 里，落盘前必须贴回去，否则存下来的是上一次提交时的旧草稿。
     const next = structuredClone(stateRef.current); mutate(next); overlayDrafts(next); apply(next); const sequence = ++saveSequence.current; pendingWrites.current++;
-    return enqueue(async () => { try { const saved = await api.save(next); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
+    return enqueue(async () => { try { const saved = await api.save(next, undoIds); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
   }
   useEffect(() => {
     let alive = true;
@@ -328,6 +334,21 @@ export default function App() {
   /** 从某一行的菜单进入多选时先把那一行勾上：调出菜单通常就是想对它做点什么。 */
   function startSelection(id: string) { setSelecting(true); setCheckedIds([id]); }
   function toggleChecked(id: string) { setCheckedIds(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]); }
+  /**
+   * 全选只算这一列现在看得见的：搜索框过滤掉的、另一个视图里的都不该被顺手勾上——批量按钮
+   * 会去动看不见的会话，那比漏选更糟。全选了再点就是清空。
+   */
+  function toggleSelectAll() {
+    const visible = grouped.map(c => c.id);
+    if (!visible.length) return;
+    setCheckedIds(visible.every(id => selectedIds.includes(id)) ? NO_SELECTION : visible);
+  }
+  /** 批量删除：确认框里报出条数，删除本身与单条共用一条路（含短期撤销）。 */
+  async function deleteSelection() {
+    const ids = selectedIds;
+    if (!ids.length) return;
+    await deleteConversations(ids, `删除选中的 ${ids.length} 个对话及其全部分支？`);
+  }
   async function archiveSelection() {
     const ids = selectedIds;
     endSelection();
@@ -336,17 +357,29 @@ export default function App() {
     await saveFields(selectionChanges(stateRef.current, ids, !showArchived));
     toast(showArchived ? `已取消归档 ${ids.length} 个对话` : `已归档 ${ids.length} 个对话`);
   }
-  async function deleteSelection() {
-    const ids = selectedIds;
-    if (!ids.length) return;
-    // 和单条删除一样：正在生成的会话不能删，否则落盘会覆盖掉流式写入。
-    if (ids.some(id => tasks.some(task => task.conversationId === id))) { toast('选中里有对话正在生成，请先停止任务'); return; }
+  /**
+   * 删除会话，单条与多选走同一条路。要连带清理附件与请求记录，所以仍是整份保存而不是字段级命令；
+   * 把被删的 id 一起交给主进程，它会给这些会话留一个短期撤销窗口（窗口里什么都不真的删）。
+   */
+  async function deleteConversations(ids: string[], question: string) {
+    const targets = ids.filter(id => state.conversations.some(c => c.id === id));
+    if (!targets.length) return;
+    if (targets.some(id => tasks.some(task => task.conversationId === id))) { toast('选中里有对话正在生成，请先停止任务'); return; }
     // 取消确认框时模式和勾选都留着：退出去重勾一遍是白罚人。
-    if (!confirm(`删除选中的 ${ids.length} 个对话及其全部分支？`)) return;
+    if (!confirm(question)) return;
     endSelection();
-    // 删除要连带清理附件与请求记录，所以仍走整份保存，不学归档那样走字段级快捷通道。
-    await commit(s => { s.conversations = s.conversations.filter(c => !ids.includes(c.id)); if (s.selectedId && ids.includes(s.selectedId)) s.selectedId = s.conversations[0]?.id || null; });
-    toast(`已删除 ${ids.length} 个对话`);
+    await commit(s => { s.conversations = s.conversations.filter(c => !targets.includes(c.id)); if (s.selectedId && targets.includes(s.selectedId)) s.selectedId = s.conversations[0]?.id || null; }, isDesktop ? targets : undefined);
+    const label = targets.length > 1 ? `已删除 ${targets.length} 个对话` : '已删除对话';
+    // 浏览器预览没有主进程，也就没有可撤销的窗口：干脆不给这个按钮，别让人点了才发现撤不回。
+    if (isDesktop) toast(label, { label: '撤销', run: () => void undoDelete() }); else toast(label);
+  }
+  /** 撤销删除：主进程把会话放回状态再广播一次，界面就整批回来了。 */
+  async function undoDelete() {
+    try {
+      const restored = await enqueue(() => api.undoDelete());
+      if (!restored) { toast('撤销窗口已经关闭，这次删除没法恢复了'); return; }
+      toast(restored.length > 1 ? `已恢复 ${restored.length} 个对话` : '已恢复删除的对话');
+    } catch (e) { toast(String(e)); }
   }
   async function toggleArchive(source: Conversation) {
     const archive = !source.archived;
@@ -545,7 +578,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   const sidebarHandlersRef = useRef({} as SidebarHandlers);
   sidebarHandlersRef.current = {
     onSelect: (id: string) => void switchChat(id),
-    onToggleSelect: toggleChecked, onBatchArchive: () => void archiveSelection(), onBatchDelete: () => void deleteSelection(),
+    onToggleSelect: toggleChecked, onSelectAll: toggleSelectAll, onBatchArchive: () => void archiveSelection(), onBatchDelete: () => void deleteSelection(),
     onNewChat: () => void newChat(),
     onArchiveView: () => { setShowArchived(!showArchived); setConversationMenu(null); },
     onOpenSettings: () => setShowSettings(true),
@@ -622,7 +655,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   return <div className="app-shell">
     {left && <Sidebar width={leftWidth} conversations={grouped} selectedId={state.selectedId} query={query} showArchived={showArchived}
       archiveCount={archiveCount} showSettings={showSettings} runningIds={runningIds} openMenuId={conversationMenu}
-      selecting={selecting} selectedIds={selectedIds}
+      selecting={selecting} selectedIds={selectedIds} allSelected={selectedIds.length > 0 && grouped.length > 0 && grouped.every(c => selectedIds.includes(c.id))}
       onQueryChange={setQuery} {...sidebarHandlers}/>}
     {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
         <div className="header-start">
@@ -777,7 +810,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                     <button role="menuitem" onClick={() => { setConversationMenu(null); if (selecting) endSelection(); else startSelection(menuConversation.id); }}>
                         <ListChecks size={14}/> {selecting ? '取消多选' : '多选'}
                     </button>
-                            <button role="menuitem" className="danger" onClick={async () => { setConversationMenu(null); if (tasks.some(t => t.conversationId === menuConversation.id)) { toast('请先停止该会话的任务'); return; } if (confirm(`删除“${menuConversation.title}”及其全部分支？`)) await commit(s => { s.conversations = s.conversations.filter(x => x.id !== menuConversation.id); if (s.selectedId === menuConversation.id) s.selectedId = s.conversations[0]?.id || null; }); setConversationMenu(null); }}>
+                            <button role="menuitem" className="danger" onClick={() => { setConversationMenu(null); void deleteConversations([menuConversation.id], `删除“${menuConversation.title}”及其全部分支？`).catch(e => toast(String(e))); }}>
                             <Trash2 size={14}/>删除会话</button>
 </div>, document.body)}
           {renamingConversation && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setRenamingConversation(null); }}>
@@ -804,6 +837,6 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
 </div>}
     <AttachmentViewer attachment={previewAttachment} onClose={closeAttachmentPreview} onNotice={toast}/>
     {debugView && <RequestDebugView messageLabel={debugView.label} records={debugView.records} onClose={() => setDebugView(null)}/>}
-    {notice && <div role="status" className="toast">{notice}<button className="icon-button" title="关闭提示" onClick={() => setNotice('')}><X size={14}/></button></div>}
+    {notice && <div role="status" className="toast">{notice}{noticeAction && <button className="toast-action" onClick={noticeAction.run}>{noticeAction.label}</button>}<button className="icon-button" title="关闭提示" onClick={dismissToast}><X size={14}/></button></div>}
   </div>;
 }

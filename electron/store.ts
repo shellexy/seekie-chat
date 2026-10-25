@@ -14,6 +14,10 @@ export class Store {
   private cache: StateCache = new Map();
   // 窗口布局单独一份缓存：它写得比会话勤（拖动窗口就是一次），不该惊动会话状态的增量判断。
   private windowCache: WindowLayoutCache = {};
+  // 删除宽限期：渲染层已经不要这几条会话了，但它们的行、附件文件和请求记录得留着，撤销窗口关掉
+  // 的那一次保存才真删。写盘时把它们当作仍然存在的会话带上——「留着」和「删掉」在这一层只由
+  // 「状态里还有没有它们」决定，所以不需要另一套删除路径。
+  private held = new Map<string, Conversation>();
   secure = false;
   constructor(public directory: string) {}
   init() {
@@ -117,6 +121,8 @@ export class Store {
   saveSelection(selectedId: string | null) { return saveSelectedId(this.db, this.cache, selectedId); }
   saveConversation(conversation: Conversation, position: number) { return saveConversationRow(this.db, this.cache, conversation, position); }
   saveBranchOf(conversationId: string, position: number, branch: Branch) { return saveBranch(this.db, this.cache, conversationId, position, branch); }
+  hold(conversations: Conversation[]) { for (const conversation of conversations) this.held.set(conversation.id, conversation); }
+  unhold(ids: string[]) { for (const id of ids) this.held.delete(id); }
   save(state: AppState) {
     this.resolveSecrets(state);
     state.settings.credentialStorageVersion = 1;
@@ -125,6 +131,10 @@ export class Store {
     // no blob to send and providers answer with an opaque 400).
     for (const a of attachments(state)) if (validId(a.id) && !a.data) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     const copy = structuredClone(state);
+    // 带着宽限期里的会话一起写：saveState 的删行循环和下面的附件清理都只看这份拷贝里有什么。
+    // 必须再克隆一份：下面的附件循环会把写盘副本里的 data 就地清空，而宽限期那边还要指着同一个
+    // 对象把附件内容端给界面（撤销回来后到下一次保存之前，主进程内存里那份就是唯一的一份）。
+    for (const [id, conversation] of this.held) if (!copy.conversations.some(c => c.id === id)) copy.conversations.push(structuredClone(conversation));
     this.secrets.clear(); this.db.exec('DELETE FROM secrets');
     for (const c of copy.settings.connections) { this.saveSecret(c.id, c.apiKey, copy.settings.secretPolicy); this.saveSecret('headers:' + c.id, JSON.stringify(c.headers), copy.settings.secretPolicy); c.apiKey = ''; c.headers = {}; }
     this.saveSecret('exa', copy.settings.exaKey, copy.settings.secretPolicy); copy.settings.exaKey = '';

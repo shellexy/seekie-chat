@@ -18,6 +18,12 @@ let win: BrowserWindow | null = null, state: AppState, store: Store;
 // 大纲栏那一项。
 let windowLayout: WindowLayout = { ...DEFAULT_WINDOW_SIZE, maximized: false, outline: true };
 let layoutTimer: ReturnType<typeof setTimeout> | undefined;
+// 删除的宽限期：渲染层删掉的会话先只解绑、不落刀，窗口内可以整批拿回来。行、附件文件和请求记录
+// 都原样留着，所以撤销不需要恢复任何数据——它们根本没被删过。
+let grace: { conversations: Map<string, Conversation>; selectedId: string | null } | null = null;
+let graceTimer: ReturnType<typeof setTimeout> | undefined;
+// 比渲染层那条带「撤销」按钮的提示（12s）多留 3s，免得按钮点到一个刚刚关掉的窗口上。
+const DELETE_GRACE_MS = 15000;
 const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
 // Per-message request log for the in-app debug view. Memory only: never persisted, never exported,
@@ -80,6 +86,20 @@ function rememberWindowLayout() {
 }
 /** 关掉窗口前补写一次：防抖还没到点的话，最后那次拖动就只剩内存里知道了。 */
 function flushWindowLayout() { clearTimeout(layoutTimer); layoutTimer = undefined; snapshotWindowLayout(); }
+/**
+ * 关掉撤销窗口，把留着的东西真删掉。persist=false 用在「正好有一次保存要跑」的场合：解绑之后那次
+ * 保存就会把行和附件清掉，不必再存一遍；超时和退出前用 true，自己补一次保存。
+ */
+function closeGrace(persist: boolean) {
+  clearTimeout(graceTimer); graceTimer = undefined;
+  const lost = grace ? [...grace.conversations.values()] : [];
+  grace = null;
+  if (!lost.length) return;
+  store.unhold(lost.map(conversation => conversation.id));
+  // 请求记录不进数据库，只能自己删；附件文件交给下一次保存的 keep 集合。
+  store.deleteRequests(lost.flatMap(conversation => conversation.messages.map(message => message.id)));
+  if (persist) try { store.save(state); } catch (e) { notify(redact(e)); }
+}
 function resolve(modelId: string): { connection: Connection; model: Model } {
   const model = state.settings.models.find(m => m.id === modelId);
   const connection = state.settings.connections.find(c => c.id === model?.connectionId);
@@ -215,8 +235,10 @@ function register() {
     return fn(...args);
   });
   handle('load', () => store.public(state));
-  handle('save', (incoming: AppState) => {
+  handle('save', (incoming: AppState, undoIds?: string[]) => {
     validateState(incoming); store.resolveSecrets(incoming);
+    // 撤销窗口一次只留一个：上一个窗口里的会话先解绑，它们不在 incoming 里，下面那次保存就真删了。
+    closeGrace(false);
     for (const [id, task] of tasks) {
       const old = state.conversations.find(c => c.id === id), next = incoming.conversations.find(c => c.id === id);
       if (!old || !next || !next.branches.some(b => b.id === task.branchId)) throw new Error('请先停止任务再删除会话或分支');
@@ -226,7 +248,19 @@ function register() {
     }
     for (const old of state.conversations) {
       const next = incoming.conversations.find(c => c.id === old.id);
-      if (!next) { titles.get(old.id)?.abort(); store.deleteRequests(old.messages.map(m => m.id)); continue; }
+      if (!next) {
+        titles.get(old.id)?.abort();
+        // 这次删除是「可撤销」的：只解绑，不动行、附件和请求记录，等窗口关掉那次保存再清。
+        if (undoIds?.includes(old.id)) {
+          grace ??= { conversations: new Map(), selectedId: null };
+          grace.conversations.set(old.id, old);
+          if (state.selectedId === old.id) grace.selectedId = old.id;
+          store.hold([old]);
+          clearTimeout(graceTimer); graceTimer = setTimeout(() => closeGrace(true), DELETE_GRACE_MS);
+          continue;
+        }
+        store.deleteRequests(old.messages.map(m => m.id)); continue;
+      }
       next.backgroundUsage = old.backgroundUsage;
       next.messages = next.messages.map(m => { const existing = old.messages.find(x => x.id === m.id); return existing && (tasks.has(old.id) || existing.status !== 'streaming') ? existing : m; });
       if (next.manualTitle) next.titleState = 'done';
@@ -316,6 +350,18 @@ function register() {
   handle('window-toggle-maximize', () => { if (!win) return false; if (win.isMaximized()) win.unmaximize(); else win.maximize(); return win.isMaximized(); });
   handle('window-is-maximized', () => !!win?.isMaximized());
   handle('window-close', () => win?.close());
+  // 撤销删除：把这些会话放回状态再广播一次就完了——数据库里的行、附件和请求记录一直没动过。
+  handle('undo-delete', () => {
+    if (!grace || !grace.conversations.size) return false;
+    const back = [...grace.conversations.values()], selection = grace.selectedId;
+    clearTimeout(graceTimer); graceTimer = undefined; grace = null;
+    store.unhold(back.map(conversation => conversation.id));
+    state.conversations = [...back, ...state.conversations];
+    // 删掉的正是当下看着的那条时，撤销要连位置一起还回来。
+    if (selection && !state.conversations.some(c => c.id === state.selectedId)) state.selectedId = selection;
+    emit(true);
+    return back.map(conversation => conversation.id);
+  });
   // 渲染层只关心大纲栏：窗口尺寸、是否最大化由主进程自己看着办，不必绕一圈回来。
   handle('window-layout', () => ({ outline: windowLayout.outline }));
   handle('window-outline', (open: boolean) => { windowLayout = { ...windowLayout, outline: !!open }; return store.saveWindowLayout(windowLayout); });
@@ -333,6 +379,8 @@ function register() {
     const backup = JSON.parse(readFileSync(file.filePaths[0], 'utf8')); if (backup.version !== 1) throw new Error('不支持的备份版本'); validateState(backup.state);
     const choice = await dialog.showMessageBox(win!, { type: 'warning', message: '用备份替换当前会话和配置？', detail: '建议先导出当前备份。导入的连接不包含密钥，需要重新填写。', buttons: ['取消', '替换'], defaultId: 0, cancelId: 0 }); if (choice.response !== 1) return null;
     for (const controller of titles.values()) controller.abort();
+    // 导入会换掉整个状态，撤销窗口带着它走会让已删的会话在下次保存时复活，先关掉。
+    closeGrace(false);
     state = backup.state; requestLog.clear(); store.clearRequests(); for (const c of state.settings.connections) { c.apiKey = ''; c.headers = {}; } state.settings.exaKey = ''; state.settings.ollamaKey = ''; state.settings.tavilyKey = ''; state.settings.firecrawlKey = ''; state.settings.anysearchKey = ''; state.settings.deepseekKey = ''; state.settings.secretPolicy = 'file'; state.settings.credentialStorageVersion = 1; state.settings.secureStorage = store.secure;
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; }
     store.save(state); emit(true); return store.public(state);
@@ -386,5 +434,7 @@ else {
   app.on('window-all-closed', () => app.quit());
   // 布局要在 store.close() 之前落盘：防抖还没到点又赶上退出（例如快捷键 Ctrl+Q 先走 before-quit）
   // 时，数据库已经关了，那时再写就只剩报错。
-  app.on('before-quit', () => { clearTimeout(persistTimer); if (store) flushWindowLayout(); if (state && store) { store.save(state); store.close(); } });
+  // 宽限期里没点撤销就算确定要删：先解绑，紧接着那次 store.save 才会真的把行和附件清掉。
+  // （被强杀时留着的行还在，下次启动这些会话会回来——宁可多留一份，也不要误删。）
+  app.on('before-quit', () => { clearTimeout(persistTimer); if (store) { flushWindowLayout(); closeGrace(false); } if (state && store) { store.save(state); store.close(); } });
 }

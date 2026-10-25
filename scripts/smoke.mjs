@@ -2,7 +2,7 @@ import { _electron as electron } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import electronPath from 'electron';
 import { createServer } from 'node:http';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
@@ -204,9 +204,9 @@ async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
-  // 只有角色相关的确认框、以及批量删除那句「删除选中的 N 个对话」接受，其余（删除连接、删除分支、
-  // 删除会话）保持 Playwright 原先的默认拒绝，免得把测试没打算执行的破坏性操作放行。
-  page.on('dialog', dialog => { if (acceptDialogs && /角色|删除选中的/.test(dialog.message())) void dialog.accept(); else void dialog.dismiss(); });
+  // 只有角色相关的确认框和删掉整条会话那句（单条与批量都带着「及其全部分支」）放行，其余（删除连接、
+  // 删除分支）保持 Playwright 原先的默认拒绝，免得把测试没打算执行的破坏性操作放行。
+  page.on('dialog', dialog => { if (acceptDialogs && /角色|删除.*及其全部分支/.test(dialog.message())) void dialog.accept(); else void dialog.dismiss(); });
   await page.locator('.window-controls').waitFor(); return page;
 }
 try {
@@ -1269,6 +1269,8 @@ try {
   assert.equal(batchIds.length, 2, '应当刚建出两条一次性对话');
   const batchMenu = page.locator('.conversation-popover'), batchActions = page.locator('.selection-action');
   const rowOf = id => page.locator(`.conversation-item[data-id="${id}"]`);
+  // 计数与全选共用一个按钮，所以按节点取，别靠 innerText 里的空白拼接。
+  const selectionLabel = () => page.locator('.selection-count').evaluate(el => ({ action: el.firstChild.textContent.trim(), count: el.querySelector('i').textContent.trim() }));
   await rowOf(batchIds[0]).click({ button: 'right' });
   await batchMenu.waitFor();
   const batchMenuItems = (await batchMenu.innerText()).split('\n').map(text => text.trim()).filter(Boolean);
@@ -1282,7 +1284,7 @@ try {
   // 多选时点整行就是勾选，不是切会话：连着点列表时不该被换来换去。
   await rowOf(batchIds[1]).locator('.conversation-select').click();
   assert.equal(await rowOf(batchIds[1]).locator('.conversation-check').isChecked(), true);
-  assert.equal((await page.locator('.selection-count').innerText()).trim(), '已选 2');
+  assert.equal((await selectionLabel()).count, '已选 2');
   assert.equal(await page.evaluate(async () => (await window.seekie.load()).selectedId), batchKeep, '多选里点行不该换掉当前会话');
   assert.deepEqual((await batchActions.allInnerTexts()).map(text => text.trim()), ['归档', '删除'], '列表底部就是这两个按钮');
   assert.equal(await page.locator('.sidebar-bottom .settings-entry').count(), 0, '批量操作时底部那两行让位');
@@ -1301,17 +1303,46 @@ try {
   await rowOf(batchIds[0]).click({ button: 'right' });
   await batchMenu.getByRole('menuitem', { name: '多选' }).click();
   await rowOf(batchIds[1]).locator('.conversation-select').click();
-  assert.equal((await page.locator('.selection-count').innerText()).trim(), '已选 2');
+  assert.equal((await selectionLabel()).count, '已选 2');
   assert.equal((await batchActions.first().innerText()).trim(), '取消归档', '归档视图里批量按钮要反过来，不能是个空操作');
   await batchActions.first().click();
   await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.find(c => c.id === id)?.archived === false); }, batchIds);
   assert.equal((await page.locator('.sidebar-empty').innerText()).trim(), '暂无已归档对话', '取消归档后归档视图就空了');
   await page.locator('.archive-entry').click();
   assert.equal((await page.locator('.local-badge').first().innerText()).trim(), '0', '归档计数回到 0');
+  // 撤销删除要连带留下附件与请求记录，先给两条一次性会话之一挂上「只有它引用」的附件，并留下一条
+  // 请求记录。附件走整份保存写进磁盘，请求记录照应用自己的格式摆一个文件：这里只查它在不在。
+  const ghost = await page.evaluate(async id => {
+    const s = await window.seekie.load(), c = s.conversations.find(x => x.id === id);
+    const branch = c.branches.find(b => b.id === c.activeBranchId);
+    const messageId = crypto.randomUUID(), attachmentId = crypto.randomUUID();
+    c.messages.push({ id: messageId, parentId: branch.leafId, role: 'user', text: '撤销窗口测试', reasoning: '', attachments: [{ id: attachmentId, name: 'ghost.txt', mime: 'text/plain', size: 15, data: `data:text/plain;base64,${btoa('undo window fixture')}` }], tools: [], sources: [], status: 'complete', created: Date.now() });
+    branch.leafId = messageId;
+    await window.seekie.save(s);
+    window.dispatchEvent(new Event('seekie-reload'));
+    return { messageId, attachmentId };
+  }, batchIds[1]);
+  const ghostAttachment = join(directory, 'attachments', `${ghost.attachmentId}.txt`), ghostRecord = join(directory, 'requests', `${ghost.messageId}.json`);
+  mkdirSync(join(directory, 'requests'), { recursive: true });
+  writeFileSync(ghostRecord, JSON.stringify([{ id: crypto.randomUUID(), at: Date.now(), kind: 'user', label: '撤销窗口测试', model: 'mock', status: 200, durationMs: 1 }]));
+  await waitFor(page, async id => (await window.seekie.load()).conversations.find(c => c.id === id)?.messages.length === 1, batchIds[1]);
+  assert.ok(existsSync(ghostAttachment), '附件内容应已经写进磁盘');
+
   // 批量删除：先确认「取消确认框」什么都不动、模式与勾选都还在；再两条一起删掉，本阶段结束时
   // 会话数量与归档状态都回到原样。删掉的是当前会话，所以还要看着选择被交还给剩下那条。
   await rowOf(batchIds[0]).click({ button: 'right' });
   await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  // 全选只勾这一列现在看得见的（原来 4 条 + 两条一次性会话），再点一次是清空，模式本身不退出。
+  assert.equal((await selectionLabel()).action, '全选'); assert.equal((await selectionLabel()).count, '已选 1');
+  await page.locator('.selection-count').click();
+  assert.equal(await page.locator('.conversation-item .conversation-check:checked').count(), await page.locator('.conversation-item').count(), '全选该把这一列都勾上');
+  assert.equal((await selectionLabel()).count, '已选 6'); assert.equal((await selectionLabel()).action, '清空');
+  // 这条栏是全靠侧栏宽度排的，最宽的一档（全选 + 已选四位数以外的最大文案）也不该溢出。
+  assert.equal(await page.locator('.sidebar-selection').evaluate(el => el.scrollWidth - el.clientWidth), 0, '全选加两个批量按钮要挤得进侧栏');
+  await page.locator('.selection-count').click();
+  assert.equal(await page.locator('.conversation-item .conversation-check:checked').count(), 0, '再点一次清空勾选');
+  assert.equal(await page.locator('.conversation-check').count(), await page.locator('.conversation-item').count(), '清空只该去掉勾，不该退出多选');
+  await rowOf(batchIds[0]).locator('.conversation-select').click();
   await rowOf(batchIds[1]).locator('.conversation-select').click();
   acceptDialogs = false;
   await batchActions.nth(1).click();
@@ -1323,6 +1354,35 @@ try {
   await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => !s.conversations.some(c => c.id === id)) && s.conversations.length === 4; }, batchIds);
   assert.equal(await page.locator('.conversation-check').count(), 0, '删除完成后退出多选');
   assert.equal((await page.locator('.conversation-item').count()), 4, '剩下的就是原来那 4 条');
+  // 撤销窗口里什么都还没真删：附件文件和请求记录都该在，提示条上那个按钮点得动。
+  assert.ok(existsSync(ghostAttachment) && existsSync(ghostRecord), '撤销窗口没关掉前不该删掉附件与请求记录');
+  assert.equal((await page.locator('.toast-action').innerText()).trim(), '撤销');
+  await page.locator('.toast-action').click();
+  await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.some(c => c.id === id)) && s.conversations.length === 6; }, batchIds);
+  assert.match(await page.locator('.toast').innerText(), /已恢复 2 个对话/);
+  // 回来的是原样：消息还在，附件内容也还取得到（撤销不是把界面画回去、底下悄悄删了）。
+  assert.ok(await page.evaluate(async ({ id, messageId, attachmentId }) => {
+    const s = await window.seekie.load(), c = s.conversations.find(x => x.id === id);
+    if (!c || c.messages[0]?.id !== messageId || c.messages[0].attachments[0]?.id !== attachmentId) return false;
+    return (await window.seekie.attachment(attachmentId)) === `data:text/plain;base64,${btoa('undo window fixture')}`;
+  }, { ...ghost, id: batchIds[1] }), '撤销后消息、附件与内容都该原样回来');
+  assert.ok(existsSync(ghostRecord), '撤销回来的那条会话，请求记录不该被删过');
+  // 再删一次并且不撤销：窗口自己关掉（15s）之后那次保存才真删，那时撤不回，文件也不该留着。
+  await rowOf(batchIds[1]).click({ button: 'right' });
+  await batchMenu.getByRole('menuitem', { name: '删除会话' }).click();
+  await waitFor(page, async id => !(await window.seekie.load()).conversations.some(c => c.id === id), batchIds[1]);
+  assert.ok(existsSync(ghostAttachment), '窗口还开着，附件文件不该被删');
+  for (let deadline = Date.now() + 30000; Date.now() < deadline && (existsSync(ghostAttachment) || existsSync(ghostRecord)); ) await page.waitForTimeout(250);
+  assert.ok(!existsSync(ghostAttachment) && !existsSync(ghostRecord), '撤销窗口关掉后，附件与请求记录才真被删掉');
+  assert.equal(await page.evaluate(async () => await window.seekie.undoDelete()), false, '窗口关掉后就撤不回来了');
+  assert.ok(await page.evaluate(async id => !(await window.seekie.load()).conversations.some(c => c.id === id), batchIds[1]), '撤不回时那条会话不该复活');
+  // 剩下那条一次性会话也删掉，本阶段回到原样。
+  await rowOf(batchIds[0]).click({ button: 'right' });
+  await batchMenu.getByRole('menuitem', { name: '删除会话' }).click();
+  await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => !s.conversations.some(c => c.id === id)) && s.conversations.length === 4; }, batchIds);
+  // 带撤销按钮的提示会比平时多留几秒，别让它在后面的阶段里挡住窗口中间。
+  await page.locator('.toast .icon-button').click();
+  await page.locator('.toast').waitFor({ state: 'hidden' });
   // 选择权交还给本阶段开始前的那条，后面的阶段都假定还停在它上面。
   await page.evaluate(async id => { const s = await window.seekie.load(); s.selectedId = id; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, batchOrigin);
   await waitFor(page, async id => (await window.seekie.load()).selectedId === id, batchOrigin);
@@ -1723,7 +1783,7 @@ try {
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);
   await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery, window layout restore (size, maximized, outline) and sidebar multi select with batch archive/delete. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery, window layout restore (size, maximized, outline) and sidebar multi select with batch archive/delete, select all and undoable delete. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

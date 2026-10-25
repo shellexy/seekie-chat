@@ -3,8 +3,10 @@ import type { Bridge } from './types';
 // Browser mode is a layout preview. API requests and secrets are desktop-only.
 let preview = initialState();
 let previewOutline = true;
+// 浏览器预览只画界面：没有主进程，删除也就没有撤销窗口可言。
+export const isDesktop = !!window.seekie;
 export const api: Bridge = window.seekie || {
-  async load() { return preview; }, async save(state) { preview = state; return structuredClone(state); },
+  async load() { return preview; }, async save(state) { preview = state; return structuredClone(state); }, async undoDelete() { return false; },
   async saveDraft(branchId, draft) { for (const c of preview.conversations) for (const b of c.branches) if (b.id === branchId) { b.draft = draft; return true; } return false; },
   async saveSettings(settings) { preview.settings = settings; return structuredClone(settings); },
   async saveFields(changes) { preview = applyStateChanges(preview, changes); return true; },
