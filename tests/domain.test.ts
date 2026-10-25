@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -831,4 +831,35 @@ test('state changes only touch the entities they name and keep the rest by refer
   const missing = applyStateChanges(state, [{ kind: 'branch', conversationId: 'ffffffff-ffff-ffff-ffff-ffffffffffff', id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', fields: { name: 'x' } }]);
   assert.equal(missing.conversations.length, 2);
   assert.equal(missing.conversations[0], first, '找不到目标时什么都不应改');
+});
+
+test('批量归档只写被勾到的会话，并按需换掉当前会话', () => {
+  const state = initialState();
+  const first = createConversation(state.settings), second = createConversation(state.settings), third = createConversation(state.settings);
+  state.conversations = [first, second, third]; state.selectedId = second.id;
+
+  // 勾的不是当前会话：只有两条字段级改动，不碰选择。
+  assert.deepEqual(selectionChanges(state, [first.id, third.id], true), [
+    { kind: 'conversation', id: first.id, fields: { archived: true } },
+    { kind: 'conversation', id: third.id, fields: { archived: true } }
+  ]);
+
+  // 当前会话被归档走，就换到第一个还留在列表里的未归档会话上。
+  const moved = selectionChanges(state, [first.id, second.id], true);
+  assert.deepEqual(moved.at(-1), { kind: 'selected', id: third.id });
+  // 换过去时也别挑中一个已归档的：那种会话在当前视图里根本看不见。
+  third.archived = true;
+  assert.deepEqual(selectionChanges(state, [first.id, second.id], true).at(-1), { kind: 'selected', id: null });
+  third.archived = false;
+
+  // 取消归档不挑：它不会把谁从视图里挪走。
+  const restored = selectionChanges({ ...state, conversations: [{ ...first, archived: true }, second, third] }, [first.id], false);
+  assert.deepEqual(restored, [{ kind: 'conversation', id: first.id, fields: { archived: false } }]);
+  // 列表里没有的 id（刚被别处删掉）忽略，不产生空改动。
+  assert.deepEqual(selectionChanges(state, ['ffffffff-ffff-ffff-ffff-ffffffffffff'], true), []);
+  // 改动交给 applyStateChanges 后，落盘的正是归档本身。
+  const applied = applyStateChanges(state, selectionChanges(state, [first.id, second.id], true));
+  assert.equal(applied.conversations[0].archived, true);
+  assert.equal(applied.conversations[2].archived, false, '没勾到的会话不该被顺手改掉');
+  assert.equal(applied.selectedId, third.id);
 });

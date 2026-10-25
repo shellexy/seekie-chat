@@ -204,9 +204,9 @@ async function launch() {
   console.log('stage: launch');
   desktop = await electron.launch({ executablePath: electronPath, args: ['.'], cwd: process.cwd(), env, timeout: 30000 });
   const page = await desktop.firstWindow(); page.on('pageerror', e => logs.push(e.message));
-  // 只有角色相关的确认框接受，其余（删除连接、删除分支、删除会话）保持 Playwright 原先的
-  // 默认拒绝，免得把测试没打算执行的破坏性操作放行。
-  page.on('dialog', dialog => { if (acceptDialogs && /角色/.test(dialog.message())) void dialog.accept(); else void dialog.dismiss(); });
+  // 只有角色相关的确认框、以及批量删除那句「删除选中的 N 个对话」接受，其余（删除连接、删除分支、
+  // 删除会话）保持 Playwright 原先的默认拒绝，免得把测试没打算执行的破坏性操作放行。
+  page.on('dialog', dialog => { if (acceptDialogs && /角色|删除选中的/.test(dialog.message())) void dialog.accept(); else void dialog.dismiss(); });
   await page.locator('.window-controls').waitFor(); return page;
 }
 try {
@@ -1256,6 +1256,76 @@ try {
   await page.keyboard.press('Escape'); await messageMenu.waitFor({ state: 'hidden' });
   assert.match(await page.locator('.message.user .message-time').last().innerText(), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   console.log('stage: context menus');
+  console.log('stage: sidebar multi select');
+  // 侧栏多选：从右键菜单进入，勾两条一次性对话，用底部的批量按钮归档、取消归档、删除。
+  // 结束时数量和归档状态都回到原样，后面的重启阶段照旧面对 4 条会话。
+  const batchBefore = await page.evaluate(async () => (await window.seekie.load()).conversations.map(c => c.id));
+  const batchOrigin = await page.evaluate(async () => (await window.seekie.load()).selectedId);
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  await page.getByRole('button', { name: /新建对话/ }).first().click();
+  // 新建对话本身会切会话，所以「不该换」的基线取建完之后那一次，而不是本阶段开始前。
+  const batchKeep = await page.evaluate(async () => (await window.seekie.load()).selectedId);
+  const batchIds = await page.evaluate(async ({ before }) => (await window.seekie.load()).conversations.map(c => c.id).filter(id => !before.includes(id)), { before: batchBefore });
+  assert.equal(batchIds.length, 2, '应当刚建出两条一次性对话');
+  const batchMenu = page.locator('.conversation-popover'), batchActions = page.locator('.selection-action');
+  const rowOf = id => page.locator(`.conversation-item[data-id="${id}"]`);
+  await rowOf(batchIds[0]).click({ button: 'right' });
+  await batchMenu.waitFor();
+  const batchMenuItems = (await batchMenu.innerText()).split('\n').map(text => text.trim()).filter(Boolean);
+  const archivedAt = batchMenuItems.indexOf('归档'), multiAt = batchMenuItems.indexOf('多选');
+  assert.ok(archivedAt >= 0 && multiAt === archivedAt + 1, `多选应紧跟在归档下面，实际菜单：${batchMenuItems.join(' / ')}`);
+  assert.equal(batchMenuItems[multiAt + 1], '删除会话', '多选插在归档与删除之间');
+  await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  await batchMenu.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.conversation-check').count(), await page.locator('.conversation-item').count(), '每一行左边都该换成复选框');
+  assert.equal(await rowOf(batchIds[0]).locator('.conversation-check').isChecked(), true, '从谁那里进入多选就先勾上谁');
+  // 多选时点整行就是勾选，不是切会话：连着点列表时不该被换来换去。
+  await rowOf(batchIds[1]).locator('.conversation-select').click();
+  assert.equal(await rowOf(batchIds[1]).locator('.conversation-check').isChecked(), true);
+  assert.equal((await page.locator('.selection-count').innerText()).trim(), '已选 2');
+  assert.equal(await page.evaluate(async () => (await window.seekie.load()).selectedId), batchKeep, '多选里点行不该换掉当前会话');
+  assert.deepEqual((await batchActions.allInnerTexts()).map(text => text.trim()), ['归档', '删除'], '列表底部就是这两个按钮');
+  assert.equal(await page.locator('.sidebar-bottom .settings-entry').count(), 0, '批量操作时底部那两行让位');
+  // Esc 退出多选，再进来一次准备批量归档。
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.conversation-check').count(), 0, 'Esc 应退出多选');
+  await rowOf(batchIds[0]).click({ button: 'right' });
+  await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  await rowOf(batchIds[1]).locator('.conversation-select').click();
+  await batchActions.first().click();
+  await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.find(c => c.id === id)?.archived === true); }, batchIds);
+  assert.equal(await page.locator('.conversation-check').count(), 0, '批量操作完成后退出多选');
+  assert.equal(await page.locator('.sidebar-bottom .settings-entry').count(), 2, '底部恢复成已归档与设置');
+  await page.locator('.archive-entry').click();
+  assert.equal(await page.locator('.conversation-item').count(), 2, '归档视图里应正好是这两条');
+  await rowOf(batchIds[0]).click({ button: 'right' });
+  await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  await rowOf(batchIds[1]).locator('.conversation-select').click();
+  assert.equal((await page.locator('.selection-count').innerText()).trim(), '已选 2');
+  assert.equal((await batchActions.first().innerText()).trim(), '取消归档', '归档视图里批量按钮要反过来，不能是个空操作');
+  await batchActions.first().click();
+  await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.find(c => c.id === id)?.archived === false); }, batchIds);
+  assert.equal((await page.locator('.sidebar-empty').innerText()).trim(), '暂无已归档对话', '取消归档后归档视图就空了');
+  await page.locator('.archive-entry').click();
+  assert.equal((await page.locator('.local-badge').first().innerText()).trim(), '0', '归档计数回到 0');
+  // 批量删除：先确认「取消确认框」什么都不动、模式与勾选都还在；再两条一起删掉，本阶段结束时
+  // 会话数量与归档状态都回到原样。删掉的是当前会话，所以还要看着选择被交还给剩下那条。
+  await rowOf(batchIds[0]).click({ button: 'right' });
+  await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  await rowOf(batchIds[1]).locator('.conversation-select').click();
+  acceptDialogs = false;
+  await batchActions.nth(1).click();
+  await page.waitForTimeout(300);
+  assert.ok(await page.evaluate(async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.some(c => c.id === id)); }, batchIds), '取消确认框后不该删任何东西');
+  assert.equal(await page.locator('.conversation-check').count(), await page.locator('.conversation-item').count(), '取消确认框后仍留在多选里，勾选别丢');
+  acceptDialogs = true;
+  await batchActions.nth(1).click();
+  await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => !s.conversations.some(c => c.id === id)) && s.conversations.length === 4; }, batchIds);
+  assert.equal(await page.locator('.conversation-check').count(), 0, '删除完成后退出多选');
+  assert.equal((await page.locator('.conversation-item').count()), 4, '剩下的就是原来那 4 条');
+  // 选择权交还给本阶段开始前的那条，后面的阶段都假定还停在它上面。
+  await page.evaluate(async id => { const s = await window.seekie.load(); s.selectedId = id; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, batchOrigin);
+  await waitFor(page, async id => (await window.seekie.load()).selectedId === id, batchOrigin);
   saved = await page.evaluate(() => window.seekie.load());
   assert.equal(saved.conversations.length, 4);
   assert.equal(logs.length, 0, logs.join('\n'));
@@ -1653,7 +1723,7 @@ try {
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);
   await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery and window layout restore (size, maximized, outline). Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery, window layout restore (size, maximized, outline) and sidebar multi select with batch archive/delete. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

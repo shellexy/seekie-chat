@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Archive, MessageSquare, MoreHorizontal, PanelLeftClose, Plus, Search, Settings as SettingsIcon } from 'lucide-react';
+import { Archive, MessageSquare, MoreHorizontal, PanelLeftClose, Plus, Search, Settings as SettingsIcon, Trash2 } from 'lucide-react';
 import type { Conversation } from './types';
 import { conversationGroups } from './domain';
 
@@ -8,8 +8,10 @@ export type MenuAnchor = { top: number; bottom: number; right: number };
 type Props = {
   width: number; conversations: Conversation[]; selectedId: string | null; query: string; showArchived: boolean; archiveCount: number; showSettings: boolean;
   runningIds: string[]; openMenuId: string | null;
-  onQueryChange: (query: string) => void; onSelect: (id: string) => void; onNewChat: () => void; onArchiveView: () => void; onOpenSettings: () => void; onCollapse: () => void;
-  onMenu: (id: string, anchor: MenuAnchor | null) => void; onResizeStart: (event: React.MouseEvent) => void;
+  // 多选模式：图标位换成复选框，底部只剩批量归档与删除。勾选是界面上的临时状态，不进 AppState。
+  selecting: boolean; selectedIds: string[];
+  onQueryChange: (query: string) => void; onSelect: (id: string) => void; onToggleSelect: (id: string) => void; onNewChat: () => void; onArchiveView: () => void; onOpenSettings: () => void; onCollapse: () => void;
+  onMenu: (id: string, anchor: MenuAnchor | null) => void; onResizeStart: (event: React.MouseEvent) => void; onBatchArchive: () => void; onBatchDelete: () => void;
 };
 
 // 会话上千条时，一次性铺开就是上千个节点：每次筛选、每次父组件重渲染都在为看不见的行付钱。
@@ -17,13 +19,13 @@ type Props = {
 // 而是在挂载后量一次真实占据的高度（含外边距），量到之后整个窗口按它计算。
 const OVERSCAN = 8;
 
-export type SidebarHandlers = Pick<Props, 'onSelect' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart'>;
+export type SidebarHandlers = Pick<Props, 'onSelect' | 'onToggleSelect' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart' | 'onBatchArchive' | 'onBatchDelete'>;
 
 type Row = { kind: 'group'; key: string; label: string } | { kind: 'item'; key: string; conversation: Conversation };
 
 // The conversation list column: new chat, search, the list itself with its per item menu, the
 // archive view entry, settings, and the resize handle that belongs to this edge of the window.
-function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, onQueryChange, onSelect, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart }: Props) {
+function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, selecting, selectedIds, onQueryChange, onSelect, onToggleSelect, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart, onBatchArchive, onBatchDelete }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -104,10 +106,15 @@ function Sidebar({ width, conversations, selectedId, query, showArchived, archiv
           <div style={{ transform: `translateY(${layout.offset}px)` }}>
             {rows.slice(layout.start, layout.end).map(row => row.kind === 'group'
               ? <div key={row.key} className="conversation-group">{row.label}</div>
-              : <div key={row.key} data-id={row.conversation.id} className={`conversation-item ${row.conversation.id === selectedId && !showSettings ? 'active' : ''}`}
+              : <div key={row.key} data-id={row.conversation.id} className={`conversation-item ${row.conversation.id === selectedId && !showSettings ? 'active' : ''} ${selecting ? 'selecting' : ''}`}
                   onContextMenu={event => { event.preventDefault(); onMenu(row.conversation.id, { top: event.clientY, bottom: event.clientY, right: event.clientX }); }}>
-                  <button className="conversation-select" onClick={() => onSelect(row.conversation.id)} title={row.conversation.title}>
-                    <MessageSquare size={15}/><span>{row.conversation.title}</span>{runningIds.includes(row.conversation.id) && <i className="status-dot"/>}
+                  {/* 复选框放在按钮外面：input 嵌在 button 里不是合法的 HTML，也没法单独聚焦。
+                      占位与那枚消息图标同宽，标题因此不会左右跳。 */}
+                  {selecting && <input type="checkbox" className="conversation-check" checked={selectedIds.includes(row.conversation.id)}
+                    onChange={() => onToggleSelect(row.conversation.id)} aria-label={`选择对话：${row.conversation.title}`}/>}
+                  {/* 多选时点整行就是勾选/取消，不再切会话：手在列表里连着点，切走又切回来很吵。 */}
+                  <button className="conversation-select" onClick={() => (selecting ? onToggleSelect : onSelect)(row.conversation.id)} title={row.conversation.title}>
+                    {!selecting && <MessageSquare size={15}/>}<span>{row.conversation.title}</span>{runningIds.includes(row.conversation.id) && <i className="status-dot"/>}
                   </button>
                   <button className="conversation-more icon-button" title="会话操作" aria-haspopup="menu" aria-expanded={openMenuId === row.conversation.id}
                     onClick={event => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(row.conversation.id, { top: rect.top, bottom: rect.bottom, right: rect.right }); }}>
@@ -119,8 +126,15 @@ function Sidebar({ width, conversations, selectedId, query, showArchived, archiv
         {!conversations.length && <p className="sidebar-empty">{query ? '没有找到对话' : showArchived ? '暂无已归档对话' : '开始你的第一段对话'}</p>}
       </div>
       <div className="sidebar-bottom">
+        {selecting ? <div className="sidebar-selection" role="group" aria-label="批量操作">
+            <span className="selection-count">已选 {selectedIds.length}</span>
+            {/* 归档视图里这一项的语义是反过来的，单条菜单同样这么写，别在这里变成空操作。 */}
+            <button className="selection-action" onClick={onBatchArchive} disabled={!selectedIds.length}><Archive size={15}/>{showArchived ? '取消归档' : '归档'}</button>
+            <button className="selection-action danger" onClick={onBatchDelete} disabled={!selectedIds.length}><Trash2 size={15}/>删除</button>
+          </div> : <>
         <button className={`settings-entry archive-entry ${showArchived ? 'active' : ''}`} onClick={onArchiveView}><Archive size={17}/><span>{showArchived ? '返回对话' : '已归档'}</span><span className="local-badge">{archiveCount}</span></button>
         <button className={`settings-entry ${showSettings ? 'active' : ''}`} onClick={onOpenSettings}><SettingsIcon size={17}/><span>设置</span><span className="local-badge">本地</span></button>
+          </>}
       </div>
     </aside>
     <div className="resize-handle" onMouseDown={onResizeStart}/>

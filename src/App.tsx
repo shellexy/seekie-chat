@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, ListChecks, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, summaryHasToolResults, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -48,11 +48,15 @@ function searchMessages(messages: Message[], query: string): ChatSearchMatch[] {
   }
   return matches;
 }
+// 空勾选共用一个引用：每次渲染都新建一个 [] 的话，侧栏的 memo 白做。
+const NO_SELECTION: string[] = [];
 export default function App() {
   const [state, setState] = useState<AppState>(initialState), stateRef = useRef(state);
   const [loaded, setLoaded] = useState(false), [showSettings, setShowSettings] = useState(false);
   const [left, setLeft] = useState(true), [right, setRight] = useState(true), [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  // 多选模式与勾选集合。只活在界面里，不进 AppState——重启后还停在「多选」状态反而莫名其妙。
+  const [selecting, setSelecting] = useState(false), [checkedIds, setCheckedIds] = useState(NO_SELECTION);
   const [tasks, setTasks] = useState<Task[]>([]), [notice, setNotice] = useState(''), noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [branchMenu, setBranchMenu] = useState(false), [conversationMenu, setConversationMenu] = useState<string | null>(null);
   const [chatSearchOpen, setChatSearchOpen] = useState(false), [chatSearchQuery, setChatSearchQuery] = useState(''), [chatSearchIndex, setChatSearchIndex] = useState(0), [searchHighlightMessage, setSearchHighlightMessage] = useState('');
@@ -291,6 +295,12 @@ export default function App() {
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [showSettings, previewAttachment, renamingConversation, renamingBranch]);
+  // Esc 退出多选。菜单开着时不抢它的 Esc：那样按一次 Esc 就同时关掉了菜单和整个模式。
+  useEffect(() => {
+    if (!selecting) return;
+    const key = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape' && !conversationMenu) endSelection(); };
+    window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
+  }, [selecting, conversationMenu]);
   async function newChat() { await commit(s => { const c = createConversation(s.settings); s.conversations.unshift(c); s.selectedId = c.id; }); setShowArchived(false); setShowSettings(false); setAtBottom(true); textareaRef.current?.focus(); }
   /** 欢迎页的一键添加：不需要 API Key 的免费体验模型，加好就能直接开始聊。 */
   async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了\n免费体验模型有使用量限制\n日常使用建议添加 DeepSeek 等 API')).catch(e => toast(String(e))); }
@@ -311,6 +321,32 @@ export default function App() {
     changes.push({ kind: 'selected', id });
     await saveFields(changes);
     setShowSettings(false);
+  }
+  // 换视图就把勾选清空：留着另一边的勾选项，底部那两个按钮会去动这一列里根本看不见的会话。
+  useEffect(() => { setCheckedIds(NO_SELECTION); }, [showArchived]);
+  function endSelection() { setSelecting(false); setCheckedIds(NO_SELECTION); }
+  /** 从某一行的菜单进入多选时先把那一行勾上：调出菜单通常就是想对它做点什么。 */
+  function startSelection(id: string) { setSelecting(true); setCheckedIds([id]); }
+  function toggleChecked(id: string) { setCheckedIds(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]); }
+  async function archiveSelection() {
+    const ids = selectedIds;
+    endSelection();
+    if (!ids.length) return;
+    // 归档视图里勾的都是已归档的，按钮写的是「取消归档」，方向跟着视图走。
+    await saveFields(selectionChanges(stateRef.current, ids, !showArchived));
+    toast(showArchived ? `已取消归档 ${ids.length} 个对话` : `已归档 ${ids.length} 个对话`);
+  }
+  async function deleteSelection() {
+    const ids = selectedIds;
+    if (!ids.length) return;
+    // 和单条删除一样：正在生成的会话不能删，否则落盘会覆盖掉流式写入。
+    if (ids.some(id => tasks.some(task => task.conversationId === id))) { toast('选中里有对话正在生成，请先停止任务'); return; }
+    // 取消确认框时模式和勾选都留着：退出去重勾一遍是白罚人。
+    if (!confirm(`删除选中的 ${ids.length} 个对话及其全部分支？`)) return;
+    endSelection();
+    // 删除要连带清理附件与请求记录，所以仍走整份保存，不学归档那样走字段级快捷通道。
+    await commit(s => { s.conversations = s.conversations.filter(c => !ids.includes(c.id)); if (s.selectedId && ids.includes(s.selectedId)) s.selectedId = s.conversations[0]?.id || null; });
+    toast(`已删除 ${ids.length} 个对话`);
   }
   async function toggleArchive(source: Conversation) {
     const archive = !source.archived;
@@ -509,6 +545,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   const sidebarHandlersRef = useRef({} as SidebarHandlers);
   sidebarHandlersRef.current = {
     onSelect: (id: string) => void switchChat(id),
+    onToggleSelect: toggleChecked, onBatchArchive: () => void archiveSelection(), onBatchDelete: () => void deleteSelection(),
     onNewChat: () => void newChat(),
     onArchiveView: () => { setShowArchived(!showArchived); setConversationMenu(null); },
     onOpenSettings: () => setShowSettings(true),
@@ -533,6 +570,9 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   // 这两项每次渲染都重算的话，会话一多就全是白做的功：侧栏靠引用相等判断要不要重渲染，
   // 缓存住之后，流式补丁这种与列表无关的更新就不会再让侧栏重算一遍。
   const grouped = useMemo(() => conversationsForView.filter(c => c.title.toLowerCase().includes(query.toLowerCase())).sort((a,b) => b.updated - a.updated), [conversationsForView, query]);
+  // 勾选项按当前列表过滤一遍再用：会话在别处被删掉（或改了归档状态）时，留下的 id 不该继续
+  // 参与计数，更不该被批量按钮动到。
+  const selectedIds = useMemo(() => selecting ? checkedIds.filter(id => state.conversations.some(c => c.id === id)) : NO_SELECTION, [selecting, checkedIds, state.conversations]);
   const runningIds = useMemo(() => tasks.map(task => task.conversationId), [tasks]);
   // Same actions as the message toolbar, reachable by right clicking the question or the answer.
   // Callbacks handed to MessageRow. They are defined once per render so the row is a pure function
@@ -582,6 +622,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   return <div className="app-shell">
     {left && <Sidebar width={leftWidth} conversations={grouped} selectedId={state.selectedId} query={query} showArchived={showArchived}
       archiveCount={archiveCount} showSettings={showSettings} runningIds={runningIds} openMenuId={conversationMenu}
+      selecting={selecting} selectedIds={selectedIds}
       onQueryChange={setQuery} {...sidebarHandlers}/>}
     {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
         <div className="header-start">
@@ -733,6 +774,9 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                     <button role="menuitem" onClick={() => void toggleArchive(menuConversation).catch(e => toast(String(e)))}>
                         {menuConversation.archived ? <ArchiveRestore size={14}/> : <Archive size={14}/>} {menuConversation.archived ? '取消归档' : '归档'}
                         </button>
+                    <button role="menuitem" onClick={() => { setConversationMenu(null); if (selecting) endSelection(); else startSelection(menuConversation.id); }}>
+                        <ListChecks size={14}/> {selecting ? '取消多选' : '多选'}
+                    </button>
                             <button role="menuitem" className="danger" onClick={async () => { setConversationMenu(null); if (tasks.some(t => t.conversationId === menuConversation.id)) { toast('请先停止该会话的任务'); return; } if (confirm(`删除“${menuConversation.title}”及其全部分支？`)) await commit(s => { s.conversations = s.conversations.filter(x => x.id !== menuConversation.id); if (s.selectedId === menuConversation.id) s.selectedId = s.conversations[0]?.id || null; }); setConversationMenu(null); }}>
                             <Trash2 size={14}/>删除会话</button>
 </div>, document.body)}

@@ -661,3 +661,18 @@ export function applyStateChanges(state: AppState, changes: StateChange[]): AppS
   });
   return { ...state, conversations, selectedId };
 }
+
+/**
+ * 多选批量归档要改的字段：一条会话一个改动，走的是单条归档同一条字段级通道。
+ * 归档掉当前会话时另挑一个还留在当前视图里的，否则会停在一个已经看不见的会话上；
+ * 取消归档不用挑——它本来就不会把谁从视图里挪走。
+ */
+export function selectionChanges(state: AppState, ids: string[], archive: boolean): StateChange[] {
+  const picked = new Set(ids);
+  const changes: StateChange[] = state.conversations.filter(conversation => picked.has(conversation.id))
+    .map(conversation => ({ kind: 'conversation', id: conversation.id, fields: { archived: archive } }));
+  if (archive && state.selectedId && picked.has(state.selectedId)) {
+    changes.push({ kind: 'selected', id: state.conversations.find(conversation => !picked.has(conversation.id) && !conversation.archived)?.id ?? null });
+  }
+  return changes;
+}

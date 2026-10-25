@@ -440,6 +440,67 @@ p {
   border-radius: 4px;
   font-size: 10px;
 }
+/* 多选。复选框占掉的正是会话图标那 15px + 8px 间距，所以标题不会左右跳；
+   它必须是 .conversation-item 的直接子元素——input 嵌在 button 里既不合法也没法单独聚焦。
+   自绘而不是 accent-color 涂原生框：应用没声明 color-scheme，深色主题下原生复选框会被画成
+   白底方块，在深色侧栏里像贴了张便利贴。 */
+.conversation-check {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.conversation-check:hover {
+  border-color: var(--accent);
+}
+.conversation-check:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.conversation-check::before {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border: solid #fff;
+  border-width: 0 0 2px 2px;
+  transform: rotate(-45deg) translate(0.5px, -1px);
+  opacity: 0;
+}
+.conversation-check:checked::before {
+  opacity: 1;
+}
+.conversation-item.selecting {
+  /* 整行都是勾选区，光标跟着改口。 */
+  cursor: pointer;
+}
+/* 批量操作条：顶掉已归档/设置那两行，位置就在列表下面，动手不离视线。 */
+.sidebar-selection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+}
+.selection-count {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.selection-action {
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+}
 .local-note {
   display: flex;
   align-items: center;
