@@ -237,8 +237,10 @@ function register() {
   handle('load', () => store.public(state));
   handle('save', (incoming: AppState, undoIds?: string[]) => {
     validateState(incoming); store.resolveSecrets(incoming);
-    // 撤销窗口一次只留一个：上一个窗口里的会话先解绑，它们不在 incoming 里，下面那次保存就真删了。
-    closeGrace(false);
+    // 撤销窗口一次只留一个：只有**新的可撤销删除**才解绑上一个窗口，它们不在 incoming 里，
+    // 下面那次保存就真删了。普通保存（流式落盘、发消息、编辑）不能碰它——否则「12 秒可撤销」
+    // 会在下一次保存时悄悄失效。
+    if (undoIds?.length) closeGrace(false);
     for (const [id, task] of tasks) {
       const old = state.conversations.find(c => c.id === id), next = incoming.conversations.find(c => c.id === id);
       if (!old || !next || !next.branches.some(b => b.id === task.branchId)) throw new Error('请先停止任务再删除会话或分支');
