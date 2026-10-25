@@ -4,6 +4,9 @@ import type { Conversation } from './types';
 import { conversationGroups } from './domain';
 
 export type MenuAnchor = { top: number; bottom: number; right: number };
+// 列表空白处的右键菜单不对应任何一条会话，借一个撞不上的伪 id 走同一套定位与关闭逻辑：那里只放
+// 「多选 / 取消多选」，因为在空白处右键的人想开始批量操作，而不是动某一条。
+export const LIST_MENU = 'list';
 
 type Props = {
   width: number; conversations: Conversation[]; selectedId: string | null; query: string; showArchived: boolean; archiveCount: number; showSettings: boolean;
@@ -102,7 +105,14 @@ function Sidebar({ width, conversations, selectedId, query, showArchived, archiv
       <button className="new-chat" onClick={onNewChat}><Plus size={18}/>新建对话<span>Ctrl N</span></button>
       <div className="search-input"><Search size={15}/><input aria-label="搜索对话" placeholder="搜索对话" value={query} onChange={e => onQueryChange(e.target.value)}/></div>
       <div className="sidebar-label">{showArchived ? '已归档' : '你的对话'} <span>{conversations.length}</span></div>
-      <div className="conversation-list" ref={listRef} onScroll={handleScroll}>
+      {/* 空白处也吃右键：想多选时不必先瞄准某一行。行上的右键由它自己处理（会冒泡到这里，所以先让位）。
+          一条会话都没有时不弹菜单——那时点「多选」只会得到一排禁用按钮。 */}
+      <div className="conversation-list" ref={listRef} onScroll={handleScroll} onContextMenu={event => {
+        if (event.target instanceof Element && event.target.closest('.conversation-item')) return;
+        if (!conversations.length && !selecting) return;
+        event.preventDefault();
+        onMenu(LIST_MENU, { top: event.clientY, bottom: event.clientY, right: event.clientX });
+      }}>
         {layout.pinned && <div className="conversation-pinned"><div className="conversation-group pinned">{layout.pinned}</div></div>}
         <div className="conversation-rows" style={{ height: layout.total }}>
           <div style={{ transform: `translateY(${layout.offset}px)` }}>

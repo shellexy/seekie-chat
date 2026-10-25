@@ -57,6 +57,7 @@
 - 设置页是"草稿 + 自动保存"：`dirty` / `version` 两个 ref 管有没有未写盘的改动；导入备份必须置 `skipSave`，否则页面里的旧草稿会覆盖刚恢复的数据。
 - `scripts/smoke.mjs` 是单个约 1500 行的文件，所有断言在同一个作用域里。别用 `layout` / `tools` / `state` / `input` 这类常见名——撞名会直接语法错误、整个冒烟跑不起来。加新断言用带前缀的名字（如 `aboutLayout`）。
 - 侧栏是**虚拟列表**：只有视口内（上下各多渲染 8 行）的会话在 DOM 里。断言别去数 `.conversation-item` 节点，按 `data-id` 滚动收集；`.conversation-group` 里还混着吸顶用的覆盖层，检查分组顺序要限定在 `.conversation-rows .conversation-group`。行距是运行时量出来的，改侧栏样式后不必调常量，但**别把行高写死**。
+- 侧栏列表空白处的右键菜单复用会话菜单那套状态与定位，只把 id 换成 `Sidebar.tsx` 导出的 `LIST_MENU` 伪 id（`menuConversation` 查不到就是它）。加新菜单项时记得那个三元分支；行上的右键靠 `closest('.conversation-item')` 让位，别改成 `stopPropagation`——`.conversation-more` 的按钮也在行里。
 - 侧栏多选：勾选集合是渲染层的临时状态（不进 `AppState`、不进备份，切换归档视图时清空）。批量归档走 `selectionChanges` + `saveFields`，批量删除仍走整份保存。复选框必须是 `.conversation-item` 的直接子元素——`input` 嵌在 `button` 里不合法；它按会话图标那 15px + 8px 间距对齐，所以标题不会左右跳，改这一列的样式要连着看虚拟列表量出来的行高。
 - 删除会话的「短期撤销」整个放在主进程里，别在渲染层做快照：`handle('save')` 收到 `undoIds` 时只把那些会话 `store.hold()` 起来 + 15 秒计时，`closeGrace()` 里补的那一次保存才真删行、删附件文件、删请求记录。`Store.save` 写盘前会把 held 里的会话并进副本，所以宽限期内的**任何**一次保存（流式落盘也算）都不会把它们清掉。撤销提示是 12 秒，比窗口短 3 秒——改一个必须改另一个。`import` 与 `before-quit` 都要先 `closeGrace(false)`，否则已删的会话会跟着导入的状态或下次启动复活（被强杀时留一份比误删一份好）。`undo-delete` 只改内存再 `emit(true)`，不保存。
 - 窗口布局（尺寸、是否最大化、大纲栏开合）不走 `AppState`：它存在数据库单独的 `window_layout` 一行里，由主进程读写，渲染层只借 `window-layout` / `window-outline` 两个通道拿大纲栏那一项。别把它塞进 `Settings`——那样备份导出会把本机窗口尺寸带到另一台机器上，恢复备份还会顺手改掉你的窗口，而布局本身也不必跟着每次广播跑一遍。

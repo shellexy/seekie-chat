@@ -10,7 +10,7 @@ import Settings from './Settings';
 import { copyFlavors, elementHtml, hasSelectionInside, messageBodies, readableText, selectedHtml, selectedPlainText } from './clipboard';
 import Composer from './Composer';
 import OutlinePanel from './OutlinePanel';
-import Sidebar, { type MenuAnchor, type SidebarHandlers } from './Sidebar';
+import Sidebar, { LIST_MENU, type MenuAnchor, type SidebarHandlers } from './Sidebar';
 import WindowControls from './WindowControls';
 import AttachmentViewer from './AttachmentViewer';
 import RequestDebugView from './RequestDebugView';
@@ -331,8 +331,8 @@ export default function App() {
   // 换视图就把勾选清空：留着另一边的勾选项，底部那两个按钮会去动这一列里根本看不见的会话。
   useEffect(() => { setCheckedIds(NO_SELECTION); }, [showArchived]);
   function endSelection() { setSelecting(false); setCheckedIds(NO_SELECTION); }
-  /** 从某一行的菜单进入多选时先把那一行勾上：调出菜单通常就是想对它做点什么。 */
-  function startSelection(id: string) { setSelecting(true); setCheckedIds([id]); }
+  /** 从某一行的菜单进入多选时先把那一行勾上：调出菜单通常就是想对它做点什么。从空白处进来则什么都不勾。 */
+  function startSelection(id?: string) { setSelecting(true); setCheckedIds(id ? [id] : NO_SELECTION); }
   function toggleChecked(id: string) { setCheckedIds(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id]); }
   /**
    * 全选只算这一列现在看得见的：搜索框过滤掉的、另一个视图里的都不该被顺手勾上——批量按钮
@@ -799,7 +799,8 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     </section>{right && <OutlinePanel width={rightWidth} messages={messages} turnNumbers={turnNumbers} activeMessage={activeMessage} branchName={branch?.name}
       onResizeStart={event => resize(event, 'right', rightWidth)} onJump={id => { document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveMessage(id); }}/>}</div></main>}
     {messageMenu && messageContextMenu(conversation!.messages.find(m => m.id === messageMenu.id)!)}
-          {conversationMenu && menuConversation && conversationMenuAnchor && createPortal(<div ref={conversationMenuRef} className="popover conversation-popover" role="menu" style={{ position: 'fixed', top: conversationMenuPosition?.top ?? conversationMenuAnchor.bottom, left: conversationMenuPosition?.left ?? Math.max(8, conversationMenuAnchor.right - 140), right: 'auto' }}>
+          {conversationMenu && conversationMenuAnchor && (menuConversation || conversationMenu === LIST_MENU) && createPortal(<div ref={conversationMenuRef} className="popover conversation-popover" role="menu" style={{ position: 'fixed', top: conversationMenuPosition?.top ?? conversationMenuAnchor.bottom, left: conversationMenuPosition?.left ?? Math.max(8, conversationMenuAnchor.right - 140), right: 'auto' }}>
+          {menuConversation ? <>
               <button role="menuitem" onClick={() => { setRenameValue(menuConversation.title); setRenamingConversation(menuConversation.id); setConversationMenu(null); }}>
               <Pencil size={14}/>重命名</button>
                   <button role="menuitem" onClick={() => { setConversationMenu(null); if (menuConversation.manualTitle && !confirm("用 AI 重新生成标题，替换手动标题？")) return; void api.title(menuConversation.id).catch(e => toast(String(e))); }}>
@@ -812,6 +813,9 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                     </button>
                             <button role="menuitem" className="danger" onClick={() => { setConversationMenu(null); void deleteConversations([menuConversation.id], `删除“${menuConversation.title}”及其全部分支？`).catch(e => toast(String(e))); }}>
                             <Trash2 size={14}/>删除会话</button>
+          </> : <button role="menuitem" onClick={() => { setConversationMenu(null); if (selecting) endSelection(); else startSelection(); }}>
+            <ListChecks size={14}/> {selecting ? '取消多选' : '多选'}
+          </button>}
 </div>, document.body)}
           {renamingConversation && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setRenamingConversation(null); }}>
               <form className="rename-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-dialog-title" onMouseDown={e => e.stopPropagation()} onSubmit={e => { e.preventDefault(); void saveConversationRename(); }}>

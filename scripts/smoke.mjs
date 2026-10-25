@@ -1308,6 +1308,9 @@ try {
   await batchActions.first().click();
   await waitFor(page, async ids => { const s = await window.seekie.load(); return ids.every(id => s.conversations.find(c => c.id === id)?.archived === false); }, batchIds);
   assert.equal((await page.locator('.sidebar-empty').innerText()).trim(), '暂无已归档对话', '取消归档后归档视图就空了');
+  // 列表空着的时候「多选」只会给出一排禁用按钮，所以那种空白处不弹菜单。
+  await page.locator('.conversation-list').click({ button: 'right', position: { x: 130, y: 400 } });
+  assert.equal(await batchMenu.count(), 0, '空列表的空白处不该弹菜单');
   await page.locator('.archive-entry').click();
   assert.equal((await page.locator('.local-badge').first().innerText()).trim(), '0', '归档计数回到 0');
   // 撤销删除要连带留下附件与请求记录，先给两条一次性会话之一挂上「只有它引用」的附件，并留下一条
@@ -1337,11 +1340,29 @@ try {
   await page.locator('.selection-count').click();
   assert.equal(await page.locator('.conversation-item .conversation-check:checked').count(), await page.locator('.conversation-item').count(), '全选该把这一列都勾上');
   assert.equal((await selectionLabel()).count, '已选 6'); assert.equal((await selectionLabel()).action, '清空');
-  // 这条栏是全靠侧栏宽度排的，最宽的一档（全选 + 已选四位数以外的最大文案）也不该溢出。
+  // 这条栏是全靠侧栏宽度排的，最宽的一档（「清空 已选 6」加两个动作按钮）也不该溢出。
   assert.equal(await page.locator('.sidebar-selection').evaluate(el => el.scrollWidth - el.clientWidth), 0, '全选加两个批量按钮要挤得进侧栏');
   await page.locator('.selection-count').click();
   assert.equal(await page.locator('.conversation-item .conversation-check:checked').count(), 0, '再点一次清空勾选');
   assert.equal(await page.locator('.conversation-check').count(), await page.locator('.conversation-item').count(), '清空只该去掉勾，不该退出多选');
+  // 列表空白处的右键：想开始批量操作时不必先瞄准某一行。菜单里只有「多选 / 取消多选」那一项，
+  // 点它不动已勾选项。取行下方 18px 那个点，避开行自己的右键。
+  const blankList = await page.locator('.conversation-list').boundingBox(), blankRows = await page.locator('.conversation-rows').boundingBox();
+  assert.ok(blankList && blankRows, '侧栏列表容器应在');
+  const blankSpot = { x: 130, y: Math.max(12, Math.min(blankList.height - 12, blankRows.y + blankRows.height - blankList.y + 18)) };
+  await page.locator('.conversation-list').click({ button: 'right', position: blankSpot });
+  await batchMenu.waitFor();
+  assert.deepEqual((await batchMenu.innerText()).split('\n').map(text => text.trim()).filter(Boolean), ['取消多选'], '多选开着时空白处只给“取消多选”');
+  await batchMenu.getByRole('menuitem', { name: '取消多选' }).click();
+  await batchMenu.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.conversation-check').count(), 0, '空白处点“取消多选”退出模式');
+  await page.locator('.conversation-list').click({ button: 'right', position: blankSpot });
+  await batchMenu.waitFor();
+  assert.deepEqual((await batchMenu.innerText()).split('\n').map(text => text.trim()).filter(Boolean), ['多选'], '没开多选时空白处只给“多选”');
+  await batchMenu.getByRole('menuitem', { name: '多选' }).click();
+  await batchMenu.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.conversation-check').count(), await page.locator('.conversation-item').count(), '空白处进入多选：每行都换成复选框');
+  assert.equal((await selectionLabel()).count, '已选 0', '从空白处进入不该顺手勾上谁');
   await rowOf(batchIds[0]).locator('.conversation-select').click();
   await rowOf(batchIds[1]).locator('.conversation-select').click();
   acceptDialogs = false;
@@ -1783,7 +1804,7 @@ try {
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);
   await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery, window layout restore (size, maximized, outline) and sidebar multi select with batch archive/delete, select all and undoable delete. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery, window layout restore (size, maximized, outline) and sidebar multi select with batch archive/delete, select all, blank-area context menu and undoable delete. Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.
