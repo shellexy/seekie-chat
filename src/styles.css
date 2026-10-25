@@ -445,7 +445,7 @@ p {
    自绘而不是 accent-color 涂原生框：应用没声明 color-scheme，深色主题下原生复选框会被画成
    白底方块，在深色侧栏里像贴了张便利贴。 */
 .conversation-check {
-  appearance: none;
+  appearance: auto;
   width: 15px;
   height: 15px;
   flex-shrink: 0;
