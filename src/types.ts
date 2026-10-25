@@ -98,6 +98,15 @@ export interface Conversation {
   created: number; updated: number; backgroundUsage?: { kind: 'title' | 'compression'; modelId: string; usage: Usage; created: number }[]; activeBranchId: string; branches: Branch[]; messages: Message[];
 }
 export interface AppState { settings: Settings; conversations: Conversation[]; selectedId: string | null }
+/**
+ * 上次关闭时的窗口样子：尺寸与位置存的是「还原」那一档（是否最大化另记一笔），加上大纲栏开没开。
+ * 它跟着窗口走而不是跟着会话走，所以不进 AppState——备份是给人换机器用的，不该把另一台机器上的
+ * 显示器坐标和窗口尺寸一起搬过来。
+ */
+export interface WindowLayout {
+  x?: number; y?: number; width?: number; height?: number;
+  maximized: boolean; outline: boolean;
+}
 // Runtime versions shown on the About page. The main process reports them because the sandboxed
 // renderer has no access to `process`.
 export interface Versions { app: string; chromium: string; electron: string; node: string }
@@ -140,6 +149,8 @@ export interface Bridge {
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;
   minimizeWindow(): Promise<void>; toggleMaximizeWindow(): Promise<boolean>; isWindowMaximized(): Promise<boolean>; closeWindow(): Promise<void>;
+  // 窗口布局存在主进程，渲染层只读写大纲栏这一项——尺寸和最大化归主进程管。
+  windowLayout(): Promise<{ outline: boolean }>; setOutlineOpen(open: boolean): Promise<void>;
   onWindowState(callback: (maximized: boolean) => void): () => void;
   onEvent(callback: (event: AppEvent) => void): () => void;
 }

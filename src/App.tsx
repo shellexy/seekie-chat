@@ -142,7 +142,9 @@ export default function App() {
   }
   useEffect(() => {
     let alive = true;
-    void api.load().then(s => { if (alive) { apply(s); setLoaded(true); } }).catch(e => toast(String(e)));
+    // 大纲栏开没开要和状态一起等到第一帧：先按默认值画出来再收起来，用户看到的是一次没道理的闪动。
+    const layout = api.windowLayout().then(value => { if (alive) setRight(value.outline); }).catch(() => {});
+    void Promise.all([api.load(), layout]).then(([s]) => { if (alive) { apply(s); setLoaded(true); } }).catch(e => toast(String(e)));
     const off = api.onEvent(event => { if (event.patch) applyPatch(event.patch); else if (event.state) receive(event.state); if (event.tasks) setTasks(event.tasks); if (event.error) toast(event.error); });
     const reload = () => { draftCache.current.clear(); void api.load().then(apply); }; window.addEventListener('seekie-reload', reload);
     return () => { alive = false; off(); window.removeEventListener('seekie-reload', reload); };
@@ -456,6 +458,13 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     const current = stateRef.current.conversations.find(c => c.id === conversation!.id)?.branches.find(b => b.id === branch.id);
     if (current) fillDraft(draftOf(current), [...attachmentsOf(current), ...items]);
   }
+  // 大纲栏开没开跟着窗口布局一起存：界面立刻改，落盘只写那一个布尔。写失败要说一声，不然「这次
+  // 没记住」得等下次重启才会被发现。
+  function toggleOutline() {
+    const next = !right;
+    setRight(next);
+    void api.setOutlineOpen(next).catch(e => toast(String(e)));
+  }
   function resize(event: React.MouseEvent, side: 'left' | 'right', initial: number) {
     // Pressing on a non-text element still anchors a selection, so dragging a handle used to select
     // whatever it passed over. Suppressing selection for the drag only keeps normal selection intact.
@@ -654,7 +663,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
           </div>}
         </div>}
         {conversation && <button className="icon-button" title="导出当前会话 Markdown" onClick={() => api.exportData('markdown', conversation.id).catch(e => toast(String(e)))}><Download size={18}/></button>}
-        <button className={'icon-button ' + (right ? 'selected' : '')} title="切换对话大纲" onClick={() => setRight(!right)}><List size={20}/></button><WindowControls maximized={windowMaximized} onMaximizedChange={setWindowMaximized} onError={toast}/>
+        <button className={'icon-button ' + (right ? 'selected' : '')} title="切换对话大纲" onClick={toggleOutline}><List size={20}/></button><WindowControls maximized={windowMaximized} onMaximizedChange={setWindowMaximized} onError={toast}/>
       </div>
     </header>
     <div className="workspace-body"><section className="chat-panel" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void attach([...e.dataTransfer.files]); }}>

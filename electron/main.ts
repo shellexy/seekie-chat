@@ -1,18 +1,23 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, net, screen } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Store, SECRET_MARKER } from './store';
+import { DEFAULT_WINDOW_SIZE, MINIMUM_WINDOW_SIZE, restoreWindow } from './window_state';
 import { settingsProblems, validateState } from '../src/validation';
 import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
 import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
-import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest } from '../src/types';
+import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest, WindowLayout } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
 import { broadcastDelay } from './broadcast';
 let win: BrowserWindow | null = null, state: AppState, store: Store;
+// 上次关闭时的窗口布局：尺寸、是否最大化、大纲栏开没开。主进程是唯一写它的人，渲染层只读写
+// 大纲栏那一项。
+let windowLayout: WindowLayout = { ...DEFAULT_WINDOW_SIZE, maximized: false, outline: true };
+let layoutTimer: ReturnType<typeof setTimeout> | undefined;
 const webFetch: WebFetch = (url, signal, settings, mode) => fetchWebPageWithProviders(url, signal, settings, mode, (input, init) => net.fetch(input, init));
 const tasks = new Map<string, { controller: AbortController; branchId: string; messageId?: string; kind: string }>();
 // Per-message request log for the in-app debug view. Memory only: never persisted, never exported,
@@ -57,6 +62,24 @@ function emit(immediate = false, streamingChars = 0) {
   }, 800);
 }
 function notify(error: string) { win?.webContents.send('event', { error }); }
+/**
+ * 记下窗口现在的样子，好让下次打开时原样恢复。尺寸取 getNormalBounds 而不是 getBounds：最大化时
+ * 后者是整块屏幕，照它存的话下次点「还原」会跳到一个谁也没设过的尺寸。
+ */
+function snapshotWindowLayout() {
+  if (!win || win.isDestroyed()) return;
+  windowLayout = { ...win.getNormalBounds(), maximized: win.isMaximized(), outline: windowLayout.outline };
+  // 布局存档不值得拦住拖动或退出，下次改动还会再写一遍，所以这里连报错都不提示。
+  try { store.saveWindowLayout(windowLayout); } catch { /* best effort */ }
+}
+function rememberWindowLayout() {
+  if (layoutTimer || !win || win.isDestroyed()) return;
+  // 拖动和缩放是连珠炮，攒 400ms 再写一次。闹钟只起一次、不因新事件续期：续期的话一直拖着就永远
+  // 不落盘，不续期最坏也只丢 400ms 内的位移。
+  layoutTimer = setTimeout(() => { layoutTimer = undefined; snapshotWindowLayout(); }, 400);
+}
+/** 关掉窗口前补写一次：防抖还没到点的话，最后那次拖动就只剩内存里知道了。 */
+function flushWindowLayout() { clearTimeout(layoutTimer); layoutTimer = undefined; snapshotWindowLayout(); }
 function resolve(modelId: string): { connection: Connection; model: Model } {
   const model = state.settings.models.find(m => m.id === modelId);
   const connection = state.settings.connections.find(c => c.id === model?.connectionId);
@@ -293,6 +316,9 @@ function register() {
   handle('window-toggle-maximize', () => { if (!win) return false; if (win.isMaximized()) win.unmaximize(); else win.maximize(); return win.isMaximized(); });
   handle('window-is-maximized', () => !!win?.isMaximized());
   handle('window-close', () => win?.close());
+  // 渲染层只关心大纲栏：窗口尺寸、是否最大化由主进程自己看着办，不必绕一圈回来。
+  handle('window-layout', () => ({ outline: windowLayout.outline }));
+  handle('window-outline', (open: boolean) => { windowLayout = { ...windowLayout, outline: !!open }; return store.saveWindowLayout(windowLayout); });
   handle('export', async (format: string, id?: string) => {
     const copy = structuredClone(state); copy.conversations = id ? copy.conversations.filter(c => c.id === id) : copy.conversations;
     for (const c of copy.settings.connections) { c.apiKey = ''; c.headers = {}; } copy.settings.exaKey = ''; copy.settings.ollamaKey = ''; copy.settings.tavilyKey = ''; copy.settings.firecrawlKey = ''; copy.settings.anysearchKey = ''; copy.settings.deepseekKey = '';
@@ -313,18 +339,34 @@ function register() {
   });
 }
 async function openWindow() {
-  win = new BrowserWindow({ width: 1440, height: 720, minWidth: 800, minHeight: 560, title: 'Seekie Chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
+  // 上次的布局要先换算成建窗口参数才能建窗口：存档里的尺寸可能来自已经拔掉的显示器，也可能大过
+  // 现在的屏幕，restoreWindow 负责把它拉回够得着的地方。
+  const saved = store.loadWindowLayout();
+  const restored = restoreWindow(saved, screen.getAllDisplays());
+  windowLayout = { ...restored, outline: saved?.outline ?? true };
+  win = new BrowserWindow({ ...(restored.x === undefined || restored.y === undefined ? {} : { x: restored.x, y: restored.y }), width: restored.width, height: restored.height, minWidth: MINIMUM_WINDOW_SIZE.width, minHeight: MINIMUM_WINDOW_SIZE.height, title: 'Seekie Chat', frame: false, hasShadow: true, transparent: false, backgroundColor: '#ffffff', autoHideMenuBar: true,
+    // 先把窗口摆成上次的尺寸、该最大化就先最大化，再让它上屏：否则用户会看到窗口先以默认尺寸
+    // 出现、下一帧才跳到恢复后的样子。
+    show: false,
     // Electron 不会替我们从 package.json 取图标；构建时把 build/icon.png 复制到主进程旁边，
     // 这样无论从哪个工作目录启动都能按 __dirname 找到。
     icon: join(__dirname, 'icon.png'),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  if (restored.maximized) win.maximize();
   const sendWindowState = () => { if (win && !win.isDestroyed()) win.webContents.send('window-state', { maximized: win.isMaximized() }); };
-  win.on('maximize', sendWindowState); win.on('unmaximize', sendWindowState);
+  win.on('maximize', () => { sendWindowState(); rememberWindowLayout(); }); win.on('unmaximize', () => { sendWindowState(); rememberWindowLayout(); });
+  win.on('resize', rememberWindowLayout); win.on('move', rememberWindowLayout);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => { if (url !== win?.webContents.getURL()) event.preventDefault(); });
+  win.once('ready-to-show', () => { if (win && !win.isDestroyed()) win.show(); });
   const devUrl = process.env.SEEKIE_DEV_URL;
   if (devUrl) await win.loadURL(devUrl); else await win.loadFile(join(__dirname, '../dist/index.html'));
+  // 兜底：上屏这件事交给了 ready-to-show，万一它不来（某些显卡驱动或合成器下会），用户看到的
+  // 就是「程序在跑但窗口看不见」。走到这里页面已经加载完，多 show 一次最多是一帧空白。
+  if (!win.isDestroyed() && !win.isVisible()) win.show();
+  // 关掉窗口前先认下最后的尺寸和大纲栏状态：放在问不问那句之前，因为「继续使用」会把这次关闭取消掉。
   win.on('close', event => {
+    flushWindowLayout();
     if (!tasks.size && !titles.size) return;
     const choice = dialog.showMessageBoxSync(win!, { type: 'question', message: '仍有生成或后台任务，停止并退出？', buttons: ['继续使用', '停止并退出'], defaultId: 0, cancelId: 0 });
     if (choice === 0) event.preventDefault(); else { for (const task of tasks.values()) task.controller.abort(); for (const task of titles.values()) task.abort(); for (const c of state.conversations) for (const m of c.messages) if (m.status === 'streaming') m.status = 'interrupted'; store.save(state); }
@@ -342,5 +384,7 @@ else {
     const directory = process.env.SEEKIE_DATA_DIR || join(app.getPath('userData'), 'data');
     store = new Store(directory); await store.init(); state = store.load(); register(); await openWindow(); }).catch(error => { console.error('启动失败：', error.message); dialog.showErrorBox('Seekie Chat 启动失败', error.message); app.quit(); });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { clearTimeout(persistTimer); if (state && store) { store.save(state); store.close(); } });
+  // 布局要在 store.close() 之前落盘：防抖还没到点又赶上退出（例如快捷键 Ctrl+Q 先走 before-quit）
+  // 时，数据库已经关了，那时再写就只剩报错。
+  app.on('before-quit', () => { clearTimeout(persistTimer); if (store) flushWindowLayout(); if (state && store) { store.save(state); store.close(); } });
 }

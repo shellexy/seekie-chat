@@ -1,4 +1,5 @@
-import type { AppState, Branch, Conversation, Message } from '../src/types';
+import { normalizeWindowLayout } from './window_state';
+import type { AppState, Branch, Conversation, Message, WindowLayout } from '../src/types';
 
 // The database is one row per entity instead of one document per application, so a save writes only
 // what actually changed: during streaming that is a single message row rather than the whole state.
@@ -9,7 +10,29 @@ export interface StateDatabase { exec(sql: string): unknown; prepare(sql: string
 const SCHEMA = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, position INTEGER NOT NULL, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS branches (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL);`;
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, position INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS window_layout (key TEXT PRIMARY KEY, value TEXT NOT NULL);`;
+
+// 窗口布局另存一张表，不挤进 meta：loadState 会把 meta 的每一行无条件 JSON.parse，一条写坏的布局
+// 记录不该让整个应用起不来；而且布局不参与备份导出与导入，混在会话状态里反而会被备份盖掉。
+const WINDOW_LAYOUT_KEY = 'layout';
+export type WindowLayoutCache = { payload?: string };
+
+/** 读出上次存的窗口布局，并把缓存对齐到它，好让第一次保存只写真改动。读不懂就当没存过。 */
+export function loadWindowRow(db: StateDatabase, cache: WindowLayoutCache): WindowLayout | undefined {
+  const row = db.prepare('SELECT value FROM window_layout WHERE key = ?').get(WINDOW_LAYOUT_KEY) as { value: unknown } | undefined;
+  if (!row) return undefined;
+  const payload = String(row.value);
+  try { const layout = normalizeWindowLayout(JSON.parse(payload)); cache.payload = payload; return layout; } catch { return undefined; }
+}
+
+export function saveWindowRow(db: StateDatabase, cache: WindowLayoutCache, layout: WindowLayout) {
+  const payload = JSON.stringify(layout);
+  if (cache.payload === payload) return false;
+  db.prepare('INSERT OR REPLACE INTO window_layout (key, value) VALUES (?,?)').run(WINDOW_LAYOUT_KEY, payload);
+  cache.payload = payload;
+  return true;
+}
 
 /**
  * What was written last time, keyed by `meta:<key>` / `c:` / `b:` / `m:`. The value carries the row

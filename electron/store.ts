@@ -3,15 +3,17 @@ import { safeStorage } from 'electron';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
-import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord } from '../src/types';
+import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord, WindowLayout } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
-import { initStateSchema, loadState, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveState, type StateCache } from './state_store';
+import { initStateSchema, loadState, loadWindowRow, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveState, saveWindowRow, type StateCache, type WindowLayoutCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
   private secrets = new Map<string, string>();
   // Row payloads as last written, so a save only touches what changed.
   private cache: StateCache = new Map();
+  // 窗口布局单独一份缓存：它写得比会话勤（拖动窗口就是一次），不该惊动会话状态的增量判断。
+  private windowCache: WindowLayoutCache = {};
   secure = false;
   constructor(public directory: string) {}
   init() {
@@ -56,6 +58,12 @@ export class Store {
     for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
     return state;
   }
+  /**
+   * 上次关闭时的窗口布局。建窗口之前读一次，所以它不经过 AppState：既不会被广播给渲染层，
+   * 也不会被导入备份顺手改掉。没有存档（第一次运行）时返回 undefined，由调用方决定默认值。
+   */
+  loadWindowLayout() { return loadWindowRow(this.db, this.windowCache); }
+  saveWindowLayout(layout: WindowLayout) { return saveWindowRow(this.db, this.windowCache, layout); }
   // 只碰 settings：设置页和草稿这类窄面写入就不必构造一份完整的 AppState。
   resolveSecrets(state: { settings: AppState['settings'] }) {
     for (const c of state.settings.connections) {

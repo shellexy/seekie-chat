@@ -1268,8 +1268,42 @@ try {
   assert.ok(!db.includes(Buffer.from('Bearer fixture-secret')), '数据库不得包含 API Key 的值');
   assert.ok(!db.includes(Buffer.from('"header-secret"')), '数据库不得包含自定义请求头的值');
   const messageCount = saved.conversations.reduce((n,c) => n+c.messages.length,0);
+  // 重启前把窗口摆成「上次关在什么样子」：收掉大纲栏、改成 900×600、再最大化。这三件事都必须
+  // 在重启后原样回来。900×600 是最小尺寸以上、又不会大过任何一块屏幕的值，免得断言跟着显示器变。
+  console.log('stage: window layout before restart');
+  const layoutSizeBefore = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  const outlineToggleBefore = page.locator('.icon-button[title="切换对话大纲"]');
+  assert.equal(await page.locator('.outline').count(), 1, '到这里为止大纲栏应是打开的');
+  await outlineToggleBefore.click();
+  await page.locator('.outline').waitFor({ state: 'hidden' });
+  await desktop.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(900, 600); window.maximize(); });
+  await waitFor(page, async () => window.seekie.isWindowMaximized());
+  await page.waitForTimeout(600);
   await desktop.close(); desktop = null;
   page = await launch();
+  // 窗口布局是主进程自己恢复的，渲染层只负责大纲栏，所以两边的证据都要看到。
+  await waitFor(page, async () => window.seekie.isWindowMaximized());
+  const outlineToggleAfter = page.locator('.icon-button[title="切换对话大纲"]');
+  assert.equal(await page.locator('.outline').count(), 0, '重启后大纲栏应保持关闭');
+  assert.ok(!(await outlineToggleAfter.getAttribute('class') || '').includes('selected'), '顶栏开关不该显示选中态');
+  assert.equal(await page.getByRole('button', { name: '还原窗口' }).count(), 1, '窗口控件应认得出这是最大化');
+  // 最大化时量不到还原尺寸，所以先点还原：那一份才是用户上次留下的尺寸。
+  await page.getByRole('button', { name: '还原窗口' }).click();
+  for (let i = 0; i < 60; i++) {
+    const current = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+    if (Math.abs(current[0] - 900) <= 2 && Math.abs(current[1] - 600) <= 2) break;
+    await page.waitForTimeout(100);
+  }
+  const layoutSizeAfter = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  assert.ok(Math.abs(layoutSizeAfter[0] - 900) <= 2 && Math.abs(layoutSizeAfter[1] - 600) <= 2, `重启后窗口尺寸应是上次关闭前的 900×600，实际 ${layoutSizeAfter.join('×')}`);
+  // 后面的阶段仍按默认布局量尺寸，所以把窗口和大纲栏都放回去。顺序不能反：窄于 1150 px 时样式会
+  // 直接藏掉大纲栏（`.outline { display: none }`），先恢复尺寸才量得到它。
+  await desktop.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), layoutSizeBefore);
+  await page.waitForTimeout(200);
+  await outlineToggleAfter.click();
+  await page.locator('.outline').waitFor();
+  assert.ok((await outlineToggleAfter.getAttribute('class') || '').includes('selected'), '重新打开后开关应显示选中态');
+  console.log('stage: window layout restored');
   saved = await page.evaluate(() => window.seekie.load());
   await assertUsageDetails(page, 72);
   // Attachment bytes no longer travel with the state, so after a restart the picture can only come
@@ -1619,7 +1653,7 @@ try {
   await page.evaluate(async text => { await window.seekie.save(JSON.parse(text)); window.dispatchEvent(new Event('seekie-reload')); }, groupingSnapshot);
   await waitFor(page, async count => (await window.seekie.load()).conversations.length === count, groupingOriginalCount);
   console.log('stage: validation complete');
-  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics and restart recovery. Screenshot: ${join(directory,'desktop.png')}`);
+  console.log(`PASS: Electron desktop, 4 protocols including native Gemini, prompt preset library, auto title, branch isolation and failed-version switching, regeneration, manual edits, compression, aligned compact title rows, inline connection and role fields, image rotate/flip/copy/save/zoom/pan, Markdown outline and fitted video preview, ordered body/thinking/tool events, last-body copy/edit, tall answer editor, conversation search and Ctrl+F/Ctrl+I, time-grouped sidebar with sticky headers, icon-state networking toggle, tool-adjusted generation speed, resizable composer, bottom toolbar, reasoning levels and auto-collapse, default search, local credentials, answer dates, hover/click usage metrics, restart recovery and window layout restore (size, maximized, outline). Screenshot: ${join(directory,'desktop.png')}`);
 } finally {
   if (desktop) { await desktop.evaluate(({ app }) => app.exit(0)).catch(() => {}); await desktop.close().catch(() => {}); } server.close(); if (vite) await vite.close();
   // Keep the temporary fixture and screenshot for inspection, never mix with user data.

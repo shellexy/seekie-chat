@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initStateSchema, loadState, primeCache, saveMessage, saveState } from '../electron/state_store';
+import { initStateSchema, loadState, loadWindowRow, primeCache, saveMessage, saveState, saveWindowRow, type WindowLayoutCache } from '../electron/state_store';
 import { addMessage, createConversation, initialState, uid } from '../src/domain';
 import { validateState } from '../src/validation';
 import type { AppState, Message } from '../src/types';
@@ -96,4 +96,23 @@ test('the streaming fast path updates a single row', () => {
   assert.equal(saveMessage(db, cache, conversation.id, 1, message), true);
   assert.equal(loadState(db)!.conversations[0].messages[1].text, '第一个回答流式追加');
   assert.equal(saveMessage(db, cache, conversation.id, 1, message), false, '写完立刻再存不应重复写');
+});
+
+test('窗口布局单独一行，全量保存不会把它带走', () => {
+  const db = new DatabaseSync(':memory:');
+  initStateSchema(db);
+  const cache = new Map<string, string>();
+  const layoutCache: WindowLayoutCache = {};
+  const layout = { x: 40, y: 20, width: 1200, height: 800, maximized: false, outline: false };
+  assert.equal(loadWindowRow(db, layoutCache), undefined, '第一次运行没有存档');
+  assert.equal(saveWindowRow(db, layoutCache, layout), true);
+  assert.deepEqual(loadWindowRow(db, layoutCache), layout);
+  assert.equal(saveWindowRow(db, layoutCache, layout), false, '没改动就不该再写盘');
+  // 全量保存会把状态里没有的行删掉，布局不在状态里，所以它必须活下来。
+  saveState(db, fixture(), cache);
+  assert.deepEqual(loadWindowRow(db, layoutCache), layout, '窗口布局不该被会话状态的清理逻辑删掉');
+  // 写坏的行只让布局退回默认值，不能把整个应用挡在门外。
+  db.prepare("INSERT OR REPLACE INTO window_layout (key, value) VALUES ('layout', ?)").run('{oops');
+  assert.equal(loadWindowRow(db, layoutCache), undefined);
+  assert.doesNotThrow(() => loadState(db), 'meta 表与布局无关，坏掉的布局不能拖垮状态读取');
 });
