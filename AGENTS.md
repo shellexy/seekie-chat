@@ -64,6 +64,7 @@
 - 改「选择 / 切换分支 / 改名 / 归档」这类标量状态时，把字段加进 `src/domain.ts` 的 `applyStateChanges` 白名单并走 `saveFields`，别退回整份保存——那会把整个会话树搬两遍。删除类操作反过来：它要连带清理附件与请求记录，仍然走整份保存。
 - 冒烟脚本中途会关掉应用再重启。**重启前抓的 locator 会失效**，之后必须从 `page` 重新取，不能复用之前的 `const`。
 - `.chat-header` 与 `.settings-header` 的高度要彼此对齐，也和窗口控件对齐；改一个记得看另外两个。
+- AppImage 的压缩用 **zstd**，别改回 xz。xz 能把包压到约 99 MB（zstd 约 123 MB），但 squashfs 的 xz 解压慢，而 AppImage 是按需解压：启动要等一大截才出窗口，出窗口后正文还要再等。gzip 与 zstd 体积都在 123 MB 上下、启动明显更快，取 zstd（同体积下压缩率略好）。想省体积就去压应用本身（见 `dependencies` 那条），别在压缩算法上抠。
 - `package.json` 的 `dependencies` 只放**运行时真加载**的包（目前只有 `undici` 与 `@firecrawl/anydoc`）。electron-builder 会把 `dependencies` 整包复制进 asar，而渲染层用的库已经被 Vite 打进 `dist/`、`defuddle`/`linkedom` 已被 esbuild 内联进 `main.cjs`——把它们留在 `dependencies` 就是白带几十 MB。往 `scripts/build-electron.mjs` 的 `external` 里加包之前，先确认它同时在 `dependencies` 里。
 - `MessageRow` 用自定义 `propsEqual`（消息本身靠 `sameMessage` 逐字段比较），`Markdown` 用默认浅比较、只认 `text`。**新增 `Message` 字段或给消息行加 prop 时，必须同时加进 `sameMessage` / `propsEqual`**，否则那一行不会更新——表现是界面停在旧内容而不是报错，很难联想到 memo。
 - 若冒烟偶发失败在**悬停 / 浮层**类断言上，先重跑一次：本机 GPU 进程会反复崩，渲染节流会让这类断言抖动。

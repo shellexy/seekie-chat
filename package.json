@@ -93,7 +93,7 @@
       "executableArgs": [
         "--no-sandbox"
       ],
-      "compression": "xz"
+      "compression": "zstd"
     },
     "deb": {
       "depends": [
