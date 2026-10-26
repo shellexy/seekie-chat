@@ -6,9 +6,9 @@
 
 ![version](https://img.shields.io/badge/version-0.2.7-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 
-![主界面](docs/screenshots/main-window.webp)
+[![主界面](docs/screenshots/main-window.webp)](docs/screenshots.md)
 
-![多段正文编辑](docs/screenshots/multi-body-edit.webp)
+[![多段正文编辑](docs/screenshots/multi-body-edit.webp)](docs/screenshots.md)
 
 > **多段正文编辑**
 >
@@ -16,7 +16,7 @@
 >
 > 编辑框刻意画成"一整块文本框、块间一条细线"，而不是几个并排的输入框——它表达的仍然是一段完整的回答。
 
-更多界面截图见 [docs/screenshots.md](docs/screenshots.md)。
+点击任意一张截图可查看全部界面图：[docs/screenshots.md](docs/screenshots.md)。
 
 功能不少，但用起来轻。分支、多段正文编辑、请求详情、四种协议与多模态都不缺；差别在于这些能力都按「不随历史长度变慢」来做——启动不重建索引、不预加载附件，打字不为每次按键复制整棵会话树，切换会话只写一行，流式只广播正在生成的那条回答。侧栏上千个会话也只渲染看得见的十几行。
 
