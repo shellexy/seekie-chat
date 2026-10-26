@@ -334,7 +334,9 @@ export default function App() {
     const preset = state.settings.promptPresets.find(p => p.id === 'whale_lady');
     if (!preset) { toast('角色库里没有鲸鱼娘，请先在设置里重置预设角色'); return; }
     if (!conversation || !branch) return;
-    await saveFields([{ kind: 'config', conversationId: conversation.id, id: branch.id, fields: { system: preset.content } }]).catch(e => toast(String(e)));
+    // 角色与开场白都先在本地生效（saveFields 的 applyStateChanges 是同步的），写盘在后台排队。
+    // 等 IPC 回来再填字的话，队列里要正好压着一次整份保存，这一下就会明显卡住。
+    void saveFields([{ kind: 'config', conversationId: conversation.id, id: branch.id, fields: { system: preset.content } }]).catch(e => toast(String(e)));
     fillDraft('鲸鱼娘，来和我说说话吧。');
     textareaRef.current?.focus();
   }
@@ -607,6 +609,8 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   sidebarHandlersRef.current = {
     onSelect: (id: string) => void switchChat(id),
     onToggleSelect: toggleChecked, onSelectAll: toggleSelectAll, onBatchArchive: () => void archiveSelection(), onBatchDelete: () => void deleteSelection(),
+    // 多选时右键一条没勾上的会话：把它变成唯一选中，菜单随之退化成单条语义。
+    onSelectOnly: (id: string) => setCheckedIds([id]),
     onNewChat: () => void newChat(),
     onArchiveView: () => { setShowArchived(!showArchived); setConversationMenu(null); },
     onOpenSettings: () => setShowSettings(true),
@@ -634,6 +638,12 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
   // 勾选项按当前列表过滤一遍再用：会话在别处被删掉（或改了归档状态）时，留下的 id 不该继续
   // 参与计数，更不该被批量按钮动到。
   const selectedIds = useMemo(() => selecting ? checkedIds.filter(id => state.conversations.some(c => c.id === id)) : NO_SELECTION, [selecting, checkedIds, state.conversations]);
+  // 菜单作用于谁：多选时是勾选集合（行上右键落在未勾选的行时，Sidebar 已先把它变成唯一选中），
+  // 否则就是右键的那一条。单条动作只在恰好一条时出现，批量动作的文案带条数——作用域必须一眼可见，
+  // 「删除」在两种作用域下长得一样是最容易出事的地方。
+  const menuTargets = selecting ? state.conversations.filter(c => selectedIds.includes(c.id)) : (menuConversation ? [menuConversation] : []);
+  const menuOnly = menuTargets.length === 1 ? menuTargets[0] : undefined;
+
   const runningIds = useMemo(() => tasks.map(task => task.conversationId), [tasks]);
   // Same actions as the message toolbar, reachable by right clicking the question or the answer.
   // Callbacks handed to MessageRow. They are defined once per render so the row is a pure function
@@ -827,8 +837,23 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     </section>{right && <OutlinePanel width={rightWidth} messages={messages} turnNumbers={turnNumbers} activeMessage={activeMessage} branchName={branch?.name}
       onResizeStart={event => resize(event, 'right', rightWidth)} onJump={id => { document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveMessage(id); }}/>}</div></main>}
     {messageMenu && messageContextMenu(conversation!.messages.find(m => m.id === messageMenu.id)!)}
-          {conversationMenu && conversationMenuAnchor && (menuConversation || conversationMenu === LIST_MENU) && createPortal(<div ref={conversationMenuRef} className="popover conversation-popover" role="menu" style={{ position: 'fixed', top: conversationMenuPosition?.top ?? conversationMenuAnchor.bottom, left: conversationMenuPosition?.left ?? Math.max(8, conversationMenuAnchor.right - 140), right: 'auto' }}>
-          {menuConversation ? <>
+          {conversationMenu && conversationMenuAnchor && (menuConversation || conversationMenu === LIST_MENU) && createPortal(<div ref={conversationMenuRef} className={`popover conversation-popover${selecting ? ' selection-menu' : ''}`} role="menu" style={{ position: 'fixed', top: conversationMenuPosition?.top ?? conversationMenuAnchor.bottom, left: conversationMenuPosition?.left ?? Math.max(8, conversationMenuAnchor.right - 140), right: 'auto' }}>
+          {selecting ? <>
+            {menuOnly && <>
+              <button role="menuitem" onClick={() => { setRenameValue(menuOnly.title); setRenamingConversation(menuOnly.id); setConversationMenu(null); }}>
+              <Pencil size={14}/>重命名</button>
+              <button role="menuitem" onClick={() => { setConversationMenu(null); if (menuOnly.manualTitle && !confirm("用 AI 重新生成标题，替换手动标题？")) return; void api.title(menuOnly.id).catch(e => toast(String(e))); }}>
+              <Sparkles size={14}/>AI 生成标题</button>
+            </>}
+            {menuTargets.length > 0 && <>
+              <button role="menuitem" onClick={() => { setConversationMenu(null); void archiveSelection(); }}>
+              {showArchived ? <ArchiveRestore size={14}/> : <Archive size={14}/>} {showArchived ? '取消归档' : '归档'}选中的 {menuTargets.length} 个对话</button>
+              <button role="menuitem" className="danger" onClick={() => { setConversationMenu(null); void deleteSelection(); }}>
+              <Trash2 size={14}/>删除选中的 {menuTargets.length} 个对话</button>
+            </>}
+            <button role="menuitem" onClick={() => { setConversationMenu(null); endSelection(); }}>
+              <ListChecks size={14}/>取消多选</button>
+          </> : menuConversation ? <>
               <button role="menuitem" onClick={() => { setRenameValue(menuConversation.title); setRenamingConversation(menuConversation.id); setConversationMenu(null); }}>
               <Pencil size={14}/>重命名</button>
                   <button role="menuitem" onClick={() => { setConversationMenu(null); if (menuConversation.manualTitle && !confirm("用 AI 重新生成标题，替换手动标题？")) return; void api.title(menuConversation.id).catch(e => toast(String(e))); }}>
@@ -836,13 +861,13 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                     <button role="menuitem" onClick={() => void toggleArchive(menuConversation).catch(e => toast(String(e)))}>
                         {menuConversation.archived ? <ArchiveRestore size={14}/> : <Archive size={14}/>} {menuConversation.archived ? '取消归档' : '归档'}
                         </button>
-                    <button role="menuitem" onClick={() => { setConversationMenu(null); if (selecting) endSelection(); else startSelection(menuConversation.id); }}>
-                        <ListChecks size={14}/> {selecting ? '取消多选' : '多选'}
+                    <button role="menuitem" onClick={() => { setConversationMenu(null); startSelection(menuConversation.id); }}>
+                        <ListChecks size={14}/>多选
                     </button>
                             <button role="menuitem" className="danger" onClick={() => { setConversationMenu(null); void deleteConversations([menuConversation.id], `删除“${menuConversation.title}”及其全部分支？`).catch(e => toast(String(e))); }}>
                             <Trash2 size={14}/>删除会话</button>
-          </> : <button role="menuitem" onClick={() => { setConversationMenu(null); if (selecting) endSelection(); else startSelection(); }}>
-            <ListChecks size={14}/> {selecting ? '取消多选' : '多选'}
+          </> : <button role="menuitem" onClick={() => { setConversationMenu(null); startSelection(); }}>
+            <ListChecks size={14}/>多选
           </button>}
 </div>, document.body)}
           {renamingConversation && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setRenamingConversation(null); }}>

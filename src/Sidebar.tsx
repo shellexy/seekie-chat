@@ -17,6 +17,7 @@ type Props = {
   onSelectAll: () => void;
   onQueryChange: (query: string) => void; onSelect: (id: string) => void; onToggleSelect: (id: string) => void; onNewChat: () => void; onArchiveView: () => void; onOpenSettings: () => void; onCollapse: () => void;
   onMenu: (id: string, anchor: MenuAnchor | null) => void; onResizeStart: (event: React.MouseEvent) => void; onBatchArchive: () => void; onBatchDelete: () => void;
+  onSelectOnly: (id: string) => void;
 };
 
 // 会话上千条时，一次性铺开就是上千个节点：每次筛选、每次父组件重渲染都在为看不见的行付钱。
@@ -24,13 +25,13 @@ type Props = {
 // 而是在挂载后量一次真实占据的高度（含外边距），量到之后整个窗口按它计算。
 const OVERSCAN = 8;
 
-export type SidebarHandlers = Pick<Props, 'onSelect' | 'onToggleSelect' | 'onSelectAll' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart' | 'onBatchArchive' | 'onBatchDelete'>;
+export type SidebarHandlers = Pick<Props, 'onSelect' | 'onToggleSelect' | 'onSelectAll' | 'onNewChat' | 'onArchiveView' | 'onOpenSettings' | 'onCollapse' | 'onMenu' | 'onResizeStart' | 'onBatchArchive' | 'onBatchDelete' | 'onSelectOnly'>;
 
 type Row = { kind: 'group'; key: string; label: string } | { kind: 'item'; key: string; conversation: Conversation };
 
 // The conversation list column: new chat, search, the list itself with its per item menu, the
 // archive view entry, settings, and the resize handle that belongs to this edge of the window.
-function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, selecting, selectedIds, allSelected, onQueryChange, onSelect, onToggleSelect, onSelectAll, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart, onBatchArchive, onBatchDelete }: Props) {
+function Sidebar({ width, conversations, selectedId, query, showArchived, archiveCount, showSettings, runningIds, openMenuId, selecting, selectedIds, allSelected, onQueryChange, onSelect, onToggleSelect, onSelectAll, onNewChat, onArchiveView, onOpenSettings, onCollapse, onMenu, onResizeStart, onBatchArchive, onBatchDelete, onSelectOnly }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewport, setViewport] = useState(0);
@@ -119,7 +120,13 @@ function Sidebar({ width, conversations, selectedId, query, showArchived, archiv
             {rows.slice(layout.start, layout.end).map(row => row.kind === 'group'
               ? <div key={row.key} className="conversation-group">{row.label}</div>
               : <div key={row.key} data-id={row.conversation.id} className={`conversation-item ${row.conversation.id === selectedId && !showSettings ? 'active' : ''} ${selecting ? 'selecting' : ''}`}
-                  onContextMenu={event => { event.preventDefault(); onMenu(row.conversation.id, { top: event.clientY, bottom: event.clientY, right: event.clientX }); }}>
+                  onContextMenu={event => {
+                    event.preventDefault();
+                    // 多选时右键一条没勾上的会话：按资源管理器的惯例先把它变成唯一选中（右键一个没选中的
+                    // 东西，本意就是「我要动的是它」）。勾上的则保留整组，菜单因此作用于全部勾选项。
+                    if (selecting && !selectedIds.includes(row.conversation.id)) onSelectOnly(row.conversation.id);
+                    onMenu(row.conversation.id, { top: event.clientY, bottom: event.clientY, right: event.clientX });
+                  }}>
                   {/* 复选框放在按钮外面：input 嵌在 button 里不是合法的 HTML，也没法单独聚焦。
                       占位与那枚消息图标同宽，标题因此不会左右跳。 */}
                   {selecting && <input type="checkbox" className="conversation-check" checked={selectedIds.includes(row.conversation.id)}

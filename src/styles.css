@@ -1580,6 +1580,12 @@ summary {
   right: 4px;
   width: 140px;
 }
+/* 多选时的菜单要写明「选中的 N 个对话」，140px 装不下会折行。只放宽这一种：单条菜单保持原样，
+   宽度跟着内容走，向右展开（侧栏在最左边，右边是聊天区，不会顶出窗口）。 */
+.conversation-popover.selection-menu {
+  width: max-content;
+  min-width: 140px;
+}
 .message-context-menu {
   min-width: 230px;
 }

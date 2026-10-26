@@ -1286,6 +1286,28 @@ try {
   assert.equal(await rowOf(batchIds[1]).locator('.conversation-check').isChecked(), true);
   assert.equal((await selectionLabel()).count, '已选 2');
   assert.equal(await page.evaluate(async () => (await window.seekie.load()).selectedId), batchKeep, '多选里点行不该换掉当前会话');
+  // 多选时右键：菜单要针对选中项，而且文案带条数——「删除」在两种作用域下长得一样最容易出事。
+  await rowOf(batchIds[1]).click({ button: 'right' });
+  await batchMenu.waitFor();
+  const batchSelectionMenu = await batchMenu.innerText();
+  assert.match(batchSelectionMenu, /删除选中的 2 个对话/, `多选右键应针对选中项：${batchSelectionMenu}`);
+  assert.match(batchSelectionMenu, /归档选中的 2 个对话/, '归档同样要写明作用域');
+  assert.match(batchSelectionMenu, /取消多选/, '多选菜单里要能直接退出');
+  assert.doesNotMatch(batchSelectionMenu, /重命名/, '选中两条以上时不该出现单条动作');
+  await page.keyboard.press('Escape'); await batchMenu.waitFor({ state: 'hidden' });
+  // 右键一条没勾上的行：先变成唯一选中，菜单随之退化成单条语义。
+  await rowOf(batchBefore[0]).click({ button: 'right' });
+  await batchMenu.waitFor();
+  const batchSingleMenu = await batchMenu.innerText();
+  assert.match(batchSingleMenu, /重命名/, '只剩一条时单条动作应该回来');
+  assert.match(batchSingleMenu, /删除选中的 1 个对话/, `单条时也要写明条数：${batchSingleMenu}`);
+  assert.equal((await selectionLabel()).count, '已选 1', '右键未勾选的行应把它变成唯一选中');
+  await page.keyboard.press('Escape'); await batchMenu.waitFor({ state: 'hidden' });
+  // 恢复成两条勾选，后面继续走批量归档／删除。
+  await rowOf(batchBefore[0]).locator('.conversation-check').click();
+  await rowOf(batchIds[0]).click();
+  await rowOf(batchIds[1]).click();
+  assert.equal((await selectionLabel()).count, '已选 2');
   assert.deepEqual((await batchActions.allInnerTexts()).map(text => text.trim()), ['归档', '删除'], '列表底部就是这两个按钮');
   assert.equal(await page.locator('.sidebar-bottom .settings-entry').count(), 0, '批量操作时底部那两行让位');
   // Esc 退出多选，再进来一次准备批量归档。
