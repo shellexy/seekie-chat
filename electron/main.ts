@@ -313,12 +313,13 @@ function register() {
     const next = applyStateChanges(state, changes);
     for (const change of changes) {
       if (change.kind === 'selected') { store.saveSelection(next.selectedId); continue; }
+      if (change.kind === 'settings') { store.saveSettingsOnly(next.settings); continue; }
       const conversationId = change.kind === 'conversation' ? change.id : change.conversationId;
       const position = next.conversations.findIndex(c => c.id === conversationId);
       if (position < 0) continue;
       const conversation = next.conversations[position];
-      store.saveConversation(conversation, position);
-      if (change.kind !== 'branch') continue;
+      if (change.kind === 'conversation') { store.saveConversation(conversation, position); continue; }
+      // 分支改名、阅读位置、以及会话选项（config）都落在分支那一行上。
       const branchPosition = conversation.branches.findIndex(b => b.id === change.id);
       if (branchPosition >= 0) store.saveBranchOf(conversation.id, branchPosition, conversation.branches[branchPosition]);
     }

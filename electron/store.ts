@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { initialState, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord, WindowLayout } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
-import { initStateSchema, loadState, loadWindowRow, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveState, saveWindowRow, type StateCache, type WindowLayoutCache } from './state_store';
+import { initStateSchema, loadState, loadWindowRow, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveSettingsRow, saveState, saveWindowRow, type StateCache, type WindowLayoutCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
 export class Store {
   private db!: DatabaseSync;
@@ -121,6 +121,14 @@ export class Store {
   saveSelection(selectedId: string | null) { return saveSelectedId(this.db, this.cache, selectedId); }
   saveConversation(conversation: Conversation, position: number) { return saveConversationRow(this.db, this.cache, conversation, position); }
   saveBranchOf(conversationId: string, position: number, branch: Branch) { return saveBranch(this.db, this.cache, conversationId, position, branch); }
+  // 只写 settings 那一行。连接或密钥变了别走这里——那种情况得重写凭据存储，用 save()。
+  // 写盘前必须像 save() 一样把密钥抹掉：真实值在 secrets 表里，落进 settings 行就等于明文入库。
+  saveSettingsOnly(settings: AppState['settings']) {
+    const copy = structuredClone(settings);
+    for (const c of copy.connections) { c.apiKey = ''; c.headers = {}; }
+    copy.exaKey = ''; copy.ollamaKey = ''; copy.tavilyKey = ''; copy.firecrawlKey = ''; copy.anysearchKey = ''; copy.deepseekKey = '';
+    return saveSettingsRow(this.db, this.cache, copy);
+  }
   hold(conversations: Conversation[]) { for (const conversation of conversations) this.held.set(conversation.id, conversation); }
   unhold(ids: string[]) { for (const id of ids) this.held.delete(id); }
   save(state: AppState) {

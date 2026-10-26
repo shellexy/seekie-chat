@@ -160,11 +160,13 @@ export function resolveDefaultWebFetch(settings: Settings): WebFetchMode {
  * "切换即记，成功置顶"：在输入框选中模型时把它记进列表末尾（已经记过的保持原位，
  * 否则反复切换会把顺序搅乱），一次回答真正跑完再由调用方把它挪到最前。
  */
+export function nextRecentModels(recent: string[] | undefined, modelId: string, promote = false) {
+  const current = (recent || []).filter(id => id && id !== modelId);
+  return promote ? [modelId, ...current].slice(0, MAX_RECENT_MODELS) : [...current, modelId].slice(-MAX_RECENT_MODELS);
+}
 export function rememberRecentModel(settings: Settings, modelId: string, promote = false) {
-  const current = (settings.recentModels || []).filter(id => id && id !== modelId);
-  if (promote) { settings.recentModels = [modelId, ...current].slice(0, MAX_RECENT_MODELS); return; }
-  if ((settings.recentModels || []).includes(modelId)) return;
-  settings.recentModels = [...current, modelId].slice(-MAX_RECENT_MODELS);
+  if (!promote && (settings.recentModels || []).includes(modelId)) return;
+  settings.recentModels = nextRecentModels(settings.recentModels, modelId, promote);
 }
 /**
  * 新对话的起始模型：开启"最近使用"时优先最近用过的，记录里已被删除的模型直接跳过；
@@ -633,22 +635,28 @@ export function compressionCut(path: Message[], contextWindow: number, maxRetain
 export type StateChange =
   | { kind: 'selected'; id: string | null }
   | { kind: 'conversation'; id: string; fields: { title?: string; manualTitle?: boolean; titleState?: 'idle' | 'pending' | 'done'; archived?: boolean; activeBranchId?: string } }
-  | { kind: 'branch'; conversationId: string; id: string; fields: { name?: string; scrollTop?: number } };
+  | { kind: 'branch'; conversationId: string; id: string; fields: { name?: string; scrollTop?: number; draft?: string } }
+  // 会话选项（联网开关、模型、思考等级…）改的是分支 config 里的几个键；它连带影响的两项设置
+  // 单独走 settings——都只写一行，不必为切个开关搬整份状态。
+  | { kind: 'config'; conversationId: string; id: string; fields: Partial<Branch['config']> }
+  | { kind: 'settings'; fields: { lastWebFetch?: Settings['lastWebFetch']; recentModels?: string[]; favoriteModels?: string[] } };
 
 const definedFields = <T extends object>(fields: T) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Partial<T>;
 
 /** 返回新对象，未涉及的会话与分支保持原引用，便于 memo 判断。 */
 export function applyStateChanges(state: AppState, changes: StateChange[]): AppState {
   let selectedId = state.selectedId;
+  let settings = state.settings;
   const grouped = new Map<string, StateChange[]>();
   for (const change of changes) {
     if (change.kind === 'selected') { selectedId = change.id; continue; }
+    if (change.kind === 'settings') { settings = { ...settings, ...definedFields(change.fields) }; continue; }
     const key = change.kind === 'conversation' ? change.id : change.conversationId;
     const list = grouped.get(key) ?? [];
     list.push(change);
     grouped.set(key, list);
   }
-  if (!grouped.size) return selectedId === state.selectedId ? state : { ...state, selectedId };
+  if (!grouped.size) return selectedId === state.selectedId && settings === state.settings ? state : { ...state, selectedId, settings };
   const conversations = state.conversations.map(conversation => {
     const list = grouped.get(conversation.id);
     if (!list) return conversation;
@@ -656,10 +664,11 @@ export function applyStateChanges(state: AppState, changes: StateChange[]): AppS
     for (const change of list) {
       if (change.kind === 'conversation') next = { ...next, ...definedFields(change.fields) };
       else if (change.kind === 'branch') next = { ...next, branches: next.branches.map(branch => branch.id === change.id ? { ...branch, ...definedFields(change.fields) } : branch) };
+      else if (change.kind === 'config') next = { ...next, branches: next.branches.map(branch => branch.id === change.id ? { ...branch, config: { ...branch.config, ...definedFields(change.fields) } } : branch) };
     }
     return next;
   });
-  return { ...state, conversations, selectedId };
+  return { ...state, conversations, selectedId, settings };
 }
 
 /**

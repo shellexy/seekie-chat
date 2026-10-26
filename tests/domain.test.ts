@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
-import { uid } from '../src/domain';
+import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
 import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
 import { settingsProblems } from '../src/validation';
@@ -862,4 +862,37 @@ test('批量归档只写被勾到的会话，并按需换掉当前会话', () =>
   assert.equal(applied.conversations[0].archived, true);
   assert.equal(applied.conversations[2].archived, false, '没勾到的会话不该被顺手改掉');
   assert.equal(applied.selectedId, third.id);
+});
+
+test('config and settings changes stay narrow and never mutate the old state', () => {
+  const state = initialState();
+  const conversation = createConversation(state.settings), untouched = createConversation(state.settings);
+  state.conversations = [conversation, untouched]; state.selectedId = conversation.id;
+  const branchId = conversation.branches[0].id, previousSystem = conversation.branches[0].config.system;
+
+  const configured = applyStateChanges(state, [{ kind: 'config', conversationId: conversation.id, id: branchId, fields: { system: '新角色', search: 'off' } }]);
+  assert.equal(configured.conversations[0].branches[0].config.system, '新角色');
+  assert.equal(configured.conversations[0].branches[0].config.search, 'off');
+  assert.equal(conversation.branches[0].config.system, previousSystem, '旧状态不该被就地改动');
+  assert.equal(configured.conversations[1], untouched, '未涉及的会话保持原引用');
+  assert.equal(configured.settings, state.settings, '没有 settings 变更时不应动它');
+
+  const settingsChange = applyStateChanges(state, [{ kind: 'settings', fields: { lastWebFetch: 'local', recentModels: ['m1'] } }]);
+  assert.equal(settingsChange.settings.lastWebFetch, 'local');
+  assert.deepEqual(settingsChange.settings.recentModels, ['m1']);
+  assert.notEqual(settingsChange.settings, state.settings, 'settings 变了要给出新对象');
+  assert.equal(state.settings.lastWebFetch, initialState().settings.lastWebFetch, '旧 settings 不该被改');
+
+  // 分支草稿走同一条白名单：程序化填字后本地状态也要跟着更新，否则输入框看不到。
+  const drafted = applyStateChanges(state, [{ kind: 'branch', conversationId: conversation.id, id: branchId, fields: { draft: '程序化填的字' } }]);
+  assert.equal(drafted.conversations[0].branches[0].draft, '程序化填的字');
+});
+
+test('nextRecentModels keeps the list bounded and moves a promoted model to the front', () => {
+  assert.deepEqual(nextRecentModels(['a', 'b'], 'c'), ['a', 'b', 'c']);
+  assert.deepEqual(nextRecentModels(['a', 'b'], 'a'), ['b', 'a'], '重复使用应挪到末尾而不是重复');
+  assert.deepEqual(nextRecentModels(['a', 'b'], 'c', true), ['c', 'a', 'b'], 'promote 时放最前');
+  const long = Array.from({ length: 12 }, (_, index) => 'm' + index);
+  assert.equal(nextRecentModels(long, 'new').length, MAX_RECENT_MODELS);
+  assert.equal(nextRecentModels(long, 'new', true)[0], 'new');
 });

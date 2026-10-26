@@ -113,6 +113,15 @@ export function saveSelectedId(db: StateDatabase, cache: StateCache, selectedId:
   return true;
 }
 
+/** 设置那一行：会话选项连带改的 lastWebFetch / recentModels 只写它，不碰别的。 */
+export function saveSettingsRow(db: StateDatabase, cache: StateCache, settings: AppState['settings']) {
+  const key = 'meta:settings', payload = JSON.stringify(settings), current = signature(payload);
+  if (cache.get(key) === current) return false;
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)').run('settings', payload);
+  cache.set(key, current);
+  return true;
+}
+
 /** 会话头一行（不含分支与消息）：改名、归档、切换当前分支都只动它。 */
 export function saveConversationRow(db: StateDatabase, cache: StateCache, conversation: Conversation, position: number) {
   const { branches, messages, ...header } = conversation;

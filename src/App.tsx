@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, ListChecks, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api, isDesktop } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, nextRecentModels, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -144,6 +144,16 @@ export default function App() {
   async function saveFields(changes: StateChange[]): Promise<void> {
     apply(applyStateChanges(stateRef.current, changes));
     await enqueue(() => api.saveFields(changes));
+  }
+  // 调用方已经按不可变方式构造好下一份状态时用它：省掉 commit 里那次全量 structuredClone。
+  // 只有改动很小、构造新状态本身是浅拷贝时才值得（新建会话就是这样）。
+  async function commitNext(next: AppState): Promise<void> {
+    overlayDrafts(next);
+    apply(next);
+    const sequence = ++saveSequence.current; pendingWrites.current++;
+    // 不要在这里拖一帧再保存：拖了之后「点完新建对话、主进程还没收到」会有一个几十毫秒的窗口，
+    // 任何读主进程状态的地方（重启、测试、另一个视图）都会看到旧数据，而实测并没有换来更快的绘制。
+    return enqueue(async () => { try { const saved = await api.save(next); if (sequence === saveSequence.current) apply(saved); else receive(saved); } finally { pendingWrites.current--; } });
   }
   async function commit(mutate: (s: AppState) => void, undoIds?: string[]): Promise<void> {
     // 草稿不在 state 里，落盘前必须贴回去，否则存下来的是上一次提交时的旧草稿。
@@ -307,14 +317,24 @@ export default function App() {
     const key = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape' && !conversationMenu) endSelection(); };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [selecting, conversationMenu]);
-  async function newChat() { await commit(s => { const c = createConversation(s.settings); s.conversations.unshift(c); s.selectedId = c.id; }); setShowArchived(false); setShowSettings(false); setAtBottom(true); textareaRef.current?.focus(); }
+  async function newChat() {
+    const current = stateRef.current;
+    const created = createConversation(current.settings);
+    // 只把新会话插到最前面，其余会话保持原引用：这样不必为「加一条空会话」克隆整棵树。
+    const next: AppState = { ...current, conversations: [created, ...current.conversations], selectedId: created.id };
+    setShowArchived(false); setShowSettings(false); setAtBottom(true);
+    const saving = commitNext(next);
+    textareaRef.current?.focus();
+    await saving;
+  }
   /** 欢迎页的一键添加：不需要 API Key 的免费体验模型，加好就能直接开始聊。 */
   async function addFreeModel() { await commit(s => { s.settings = freeModelSettings(s.settings); }).then(() => toast('已添加免费体验模型，可以开始聊了\n免费体验模型有使用量限制\n日常使用建议添加 DeepSeek 等 API')).catch(e => toast(String(e))); }
   /** 欢迎页的"找鲸鱼娘聊天"：换到鲸鱼娘这个角色，并替用户把开场白填进输入框。 */
   async function talkToWhaleLady() {
     const preset = state.settings.promptPresets.find(p => p.id === 'whale_lady');
     if (!preset) { toast('角色库里没有鲸鱼娘，请先在设置里重置预设角色'); return; }
-    await commit(s => { const { b } = find(s); b.config = { ...b.config, system: preset.content }; }).catch(e => toast(String(e)));
+    if (!conversation || !branch) return;
+    await saveFields([{ kind: 'config', conversationId: conversation.id, id: branch.id, fields: { system: preset.content } }]).catch(e => toast(String(e)));
     fillDraft('鲸鱼娘，来和我说说话吧。');
     textareaRef.current?.focus();
   }
@@ -428,10 +448,15 @@ export default function App() {
     }, 450);
   }
   // 程序化地填草稿（点建议、加删附件、鲸鱼娘）：都是离散动作，要立刻反映到界面并落盘。
+  // 只换文字时走草稿命令——为几十个字把整棵树克隆一遍再整份保存，点击就会明显发钝；
+  // 带附件时必须整份保存，因为附件字节要由主进程落成文件。
   function fillDraft(value: string, attachments?: Attachment[]) {
     draft(value, attachments);
     clearTimeout(persistDraftTimer.current);
-    void commit(() => {}).catch(() => {});
+    if (attachments || !branch || !conversation) { void commit(() => {}).catch(() => {}); return; }
+    // 走白名单里的 branch.draft：本地那份 state 会一起更新，输入框（本地状态驱动）才看得到；
+    // 只写草稿缓存的话界面不会变。
+    void saveFields([{ kind: 'branch', conversationId: conversation.id, id: branch.id, fields: { draft: value } }]).catch(() => {});
   }
   async function begin(id: string, branchId: string, messageId: string) {
     // Remember which answer is streaming, so its model can be promoted once the run really finishes.
@@ -559,16 +584,19 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     const active = els.find(node => node.getBoundingClientRect().bottom > top + 80); if (active) setActiveMessage(active.dataset.id || '');
   }
   function updateConfig(values: Partial<Branch['config']>) {
-    void commit(s => {
-      const { b } = find(s);
-      b.config = { ...b.config, ...values };
-      // Switching the model records it straight away, so the list is useful before any answer runs.
-      if (values.modelId) rememberRecentModel(s.settings, values.modelId);
-      // Likewise for the webpage reader: a new chat configured to follow the last choice has to see
-      // the choice that was actually made, not the one that seeded the branch it was changed on.
-      // A branch only ever stores a concrete mode, never 'last'.
-      if (values.webFetch) s.settings.lastWebFetch = values.webFetch;
-    }).catch(() => {});
+    if (!conversation || !branch) return;
+    const changes: StateChange[] = [{ kind: 'config', conversationId: conversation.id, id: branch.id, fields: values }];
+    const settings: Extract<StateChange, { kind: 'settings' }>['fields'] = {};
+    // 换模型顺手把它记进最近使用，列表在任何回答跑起来之前就有用。
+    // 已经在列表里就不要动它：nextRecentModels 会把它挪到末尾，而「最近使用」的顺序决定
+    // 新对话用哪个模型（useRecentModel 时取第一个），挪一下就会让新对话换个模型。
+    const recent = state.settings.recentModels || [];
+    if (values.modelId && !recent.includes(values.modelId)) settings.recentModels = nextRecentModels(recent, values.modelId);
+    // 同理给网页读取方式：设为「跟随上次」的新对话得看到这次实际选的，而不是它继承来的那个。
+    // 分支里只存具体模式，从不存 'last'。
+    if (values.webFetch) settings.lastWebFetch = values.webFetch;
+    if (Object.keys(settings).length) changes.push({ kind: 'settings', fields: settings });
+    void saveFields(changes).catch(() => {});
   }
   function toggleFavorite(modelId: string) {
     void commit(s => { s.settings.favoriteModels = s.settings.favoriteModels.includes(modelId) ? s.settings.favoriteModels.filter(id => id !== modelId) : [...s.settings.favoriteModels, modelId]; }).catch(() => {});
