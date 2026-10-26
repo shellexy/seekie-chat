@@ -863,6 +863,13 @@ try {
   const composerBox = await page.locator('.composer').boundingBox();
   assert.ok(await page.evaluate(bottom => window.innerHeight - bottom < 12, composerBox.y + composerBox.height));
   await input.fill('如何设计 Linux 聊天客户端？'); await page.getByTitle('发送消息', { exact: true }).click();
+  // 发出去的那段话必须离开输入框：草稿平时只进本地缓存、不进 state，发送时把它设成空串
+  // 不构成「变化」，输入框那层同步就可能收不到通知，于是文字一直留在框里。
+  await waitFor(page, () => document.querySelector('textarea[aria-label="消息输入"]').value === '');
+  assert.equal(await page.evaluate(async () => {
+    const state = await window.seekie.load(), conversation = state.conversations.find(c => c.id === state.selectedId);
+    return conversation.branches.find(b => b.id === conversation.activeBranchId).draft;
+  }), '', '发送后落盘的草稿也该是空的');
   await page.locator('.message.assistant').getByText('实现思路', { exact: true }).waitFor();
   assert.equal(calls.find(c => c.path === '/v1/chat/completions').data.reasoning_effort, 'high');
   assert.match(await input.getAttribute('placeholder'), /Ctrl\+I/);
@@ -1750,7 +1757,8 @@ try {
   await page.locator('.starter-grid').waitFor();
   assert.equal(await page.locator('.welcome .text-link').count(), 1, '新对话页应提供鲸鱼娘入口');
   await page.locator('.welcome .text-link').click();
-  assert.equal(await page.getByRole('textbox', { name: '消息输入' }).inputValue(), '鲸鱼娘，来和我说说话吧。', '点击后应把开场白填进输入框');
+  // 输入框由组件本地状态驱动，填充要等一次 React 渲染，所以等它出现而不是立刻断言。
+  await waitFor(page, () => document.querySelector('textarea[aria-label="消息输入"]').value === '鲸鱼娘，来和我说说话吧。');
   assert.equal(await page.locator('.header-title .role-preset').innerText(), '鲸鱼娘', '顶栏应显示当前角色是鲸鱼娘');
   await page.screenshot({ path: join(directory, 'whale-lady.png') });
   console.log('stage: sidebar time groups');

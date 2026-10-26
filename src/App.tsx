@@ -70,6 +70,8 @@ export default function App() {
   const [debugView, setDebugView] = useState<{ label: string; records: RequestRecord[] } | null>(null);
   const [editing, setEditing] = useState<string | null>(null), [editTexts, setEditTexts] = useState<string[]>([]);
   const [activeMessage, setActiveMessage] = useState(''), [atBottom, setAtBottom] = useState(true), [summaryOpen, setSummaryOpen] = useState(false);
+  // 发送之后要让输入框清空：它由组件本地状态驱动，而草稿平时不进 state，光靠值的变化通知不到。
+  const [draftReset, setDraftReset] = useState(0);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [composerHeight, setComposerHeight] = useState(56);
   const [leftWidth, setLeftWidth] = useState(258), [rightWidth, setRightWidth] = useState(230);
@@ -488,6 +490,7 @@ export default function App() {
     let messageId = '', branchId = branch.id, id = conversation.id;
     clearTimeout(persistDraftTimer.current); draftCache.current.delete(branch.id);
     await commit(s => { const { c, b } = find(s); const m = addMessage(c, b, 'user', text); m.attachments = attachments; b.draft = ''; b.draftAttachments = []; const reply = addMessage(c, b, 'assistant', ''); messageId = reply.id; if (c.title === '新对话') c.title = m.text.slice(0, 24) || (m.attachments.length ? '附件对话' : '新对话'); });
+    setDraftReset(value => value + 1);
     setAtBottom(true); await begin(id, branchId, messageId);
   }
   async function regenerate(source: Message) {
@@ -823,7 +826,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     })}</div>}</div>
 
     <Composer branch={branch || null} model={model} models={state.settings.models} connections={state.settings.connections} busy={busy} pending={pending}
-      atBottom={atBottom} messageCount={messages.length} height={composerHeight} textareaRef={textareaRef}
+      height={composerHeight} draftReset={draftReset} textareaRef={textareaRef}
       networkingEnabled={networkingEnabled} networkUnavailable={networkUnavailable} effectiveSearch={effectiveSearch} webFetchMode={webFetchMode}
       samplingSupported={samplingSupported} samplingHelp={samplingHelp} ollamaSearchConfigured={ollamaSearchConfigured}
       hasExaKey={!!state.settings.exaKey} deepseekSearchConfigured={!!deepseekWebSearchKey(state.settings)} promptPresets={state.settings.promptPresets} backgroundUsage={conversation?.backgroundUsage}
@@ -833,7 +836,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       onAttach={files => void attach(files)} onSend={() => void send().catch(error => toast(String(error)))} onStop={() => void api.cancel(conversation!.id)}
       onCompress={() => { if (conversation && branch) void api.compress(conversation.id, branch.id).catch(error => toast(String(error))); }}
       onUpdateConfig={updateConfig} onNewChat={() => void newChat()} onNotice={toast}
-      onScrollToBottom={() => { setAtBottom(true); scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }}/>
+      />
     </section>{right && <OutlinePanel width={rightWidth} messages={messages} turnNumbers={turnNumbers} activeMessage={activeMessage} branchName={branch?.name}
       onResizeStart={event => resize(event, 'right', rightWidth)} onJump={id => { document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveMessage(id); }}/>}</div></main>}
     {messageMenu && messageContextMenu(conversation!.messages.find(m => m.id === messageMenu.id)!)}

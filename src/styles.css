@@ -1440,17 +1440,7 @@ summary {
   font-size: 12px;
   color: var(--muted);
 }
-.scroll-bottom {
-  position: absolute;
-  top: -40px;
-  left: 50%;
-  border-radius: 50%;
-  background: var(--bg);
-  width: 35px;
-  height: 35px;
-  padding: 0;
-  box-shadow: 0 2px 8px #0000000a;
-}
+
 .outline {
   flex-shrink: 0;
   display: flex;

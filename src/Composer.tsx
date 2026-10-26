@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
 import { defaultModelEffort, EFFORT_OFF, SEARCH_MODE_LABELS, WEB_FETCH_LABELS, WHALELADY_SYSTEM_PROMPT } from './domain';
 import ModelPicker from './ModelPicker';
@@ -12,19 +12,19 @@ function DraftImage({ attachment }: { attachment: Attachment }) {
 }
 // The input area of the chat: draft text and attachments, the model and effort selectors, the
 // session options popover, the networking toggle, the send/stop button and its own height handle.
-export default function Composer({ branch, model, models, connections, busy, pending, atBottom, messageCount, height, textareaRef,
+export default function Composer({ branch, model, models, connections, busy, pending, height, draftReset, textareaRef,
   networkingEnabled, networkUnavailable, effectiveSearch, webFetchMode, samplingSupported, samplingHelp, ollamaSearchConfigured,
   hasExaKey, deepseekSearchConfigured, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch,
-  onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onToggleFavorite, onScrollToBottom, onNewChat, onNotice
+  onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onToggleFavorite, onNewChat, onNotice
 }: {
   branch: Branch | null; model?: Model; models: Model[]; connections: Connection[]; busy: boolean; pending: boolean;
-  atBottom: boolean; messageCount: number; height: number; textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  height: number; draftReset: number; textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   networkingEnabled: boolean; networkUnavailable: boolean; effectiveSearch: string; webFetchMode: string; samplingSupported: boolean; samplingHelp: string; ollamaSearchConfigured: boolean;
   hasExaKey: boolean; deepseekSearchConfigured: boolean; promptPresets: PromptPreset[]; backgroundUsage?: Conversation['backgroundUsage']; userTurnCount: number;
   favoriteModels: string[]; recentModels: string[]; defaultSearch: Branch['config']['search'];
   onHeightChange: (height: number) => void; onDraftChange: (text: string) => void; onRemoveAttachment: (attachment: Attachment) => void; onAttach: (files: File[]) => void;
   onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onToggleFavorite: (modelId: string) => void;
-  onScrollToBottom: () => void; onNewChat: () => void; onNotice: (message: string) => void;
+  onNewChat: () => void; onNotice: (message: string) => void;
 }) {
   const composerDrag = useRef<{ y: number; height: number } | null>(null);
   const composing = useRef(false);
@@ -34,7 +34,10 @@ export default function Composer({ branch, model, models, connections, busy, pen
   // branch.draft（它在保存前是滞后的）。branch.draft 变化时同步过来——发消息后清空、切换分支、
   // 程序化填充（点建议、加附件）都靠这一步。
   const [text, setText] = useState(branch?.draft || '');
-  useEffect(() => { setText(branch?.draft || ''); }, [branch?.id, branch?.draft]);
+  // draftReset：App 自己清空草稿时（发送之后）递增。只看 branch.draft 的变化是不够的——
+  // 打字时草稿只进本地缓存、不进 state，branch.draft 一直是空串，发送时把它设成空串
+  // 也就「没有变化」，输入框会一直留着刚发出去的那段话。
+  useEffect(() => { setText(branch?.draft || ''); }, [branch?.id, branch?.draft, draftReset]);
   // 按钮上显示当前分支用的角色名：优先按提示词内容匹配角色库；角色被删了但用的是内置的
   // 鲸鱼娘提示词时，仍认得出她。
   const roleName = (() => {
@@ -58,9 +61,6 @@ export default function Composer({ branch, model, models, connections, busy, pen
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
   }, [options]);
           return <div className="composer-area">
-          {!atBottom && !!messageCount && <button className="scroll-bottom" title="回到底部" onClick={onScrollToBottom}>
-            <ArrowDown size={18}/>
-          </button>}
           {branch ? <>
             <div className="composer">
               <div className="composer-resize" role="separator" aria-label="调整输入框高度" aria-orientation="horizontal" aria-valuemin={47} aria-valuemax={Math.max(47, Math.min(420, window.innerHeight * 0.45))} aria-valuenow={height} tabIndex={0} title="上下拖动调整输入框高度，也可使用方向键" onPointerDown={e => { if (e.button !== 0) return; e.preventDefault(); e.currentTarget.focus(); composerDrag.current = { y: e.clientY, height: textareaRef.current?.getBoundingClientRect().height || height }; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { const drag = composerDrag.current; if (drag) onHeightChange(drag.height + drag.y - e.clientY); }} onPointerUp={e => { composerDrag.current = null; if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerCancel={() => { composerDrag.current = null; }} onLostPointerCapture={() => { composerDrag.current = null; }} onKeyDown={e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); onHeightChange((textareaRef.current?.getBoundingClientRect().height || height) + (e.key === 'ArrowUp' ? 24 : -24)); } else if (e.key === 'Home') { e.preventDefault(); onHeightChange(47); } else if (e.key === 'End') { e.preventDefault(); onHeightChange(420); } }}>
