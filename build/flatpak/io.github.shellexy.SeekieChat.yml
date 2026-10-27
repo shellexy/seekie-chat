@@ -34,8 +34,10 @@ modules:
       # 图标从 build/icon.png 复制过来（CI 做这一步），仓库里只留一份原图。
       - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.shellexy.SeekieChat.png
     sources:
+      # dir 类型的源码默认摊到构建目录根部，用 dest 收进 app/ 才不会和下面几个安装文件混在一起。
       - type: dir
         path: app
+        dest: app
       - type: file
         path: seekie-chat.sh
       - type: file
