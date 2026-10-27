@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -632,6 +632,19 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.deepEqual(settingsProblems(next), []);
   // 已经有默认模型时不覆盖用户的选择。
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
+});
+
+test('rawHasToolCalls recognises tool entries from every protocol', () => {
+  // 只有真的带着工具调用/结果的 raw 才算数：清理旧数据时不能把这类历史回放打断。
+  assert.equal(rawHasToolCalls(undefined), false);
+  assert.equal(rawHasToolCalls({ protocol: 'chat', entries: [{ role: 'assistant', content: '没有工具' }] }), false);
+  assert.equal(rawHasToolCalls({ protocol: 'chat', entries: [{ role: 'assistant', tool_calls: [{ id: 't' }] }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'responses', entries: [{ type: 'reasoning' }, { type: 'function_call' }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'responses', entries: [{ type: 'function_call_output' }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'anthropic', entries: [{ role: 'assistant', content: [{ type: 'tool_use' }] }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'anthropic', entries: [{ role: 'assistant', content: [{ type: 'server_tool_use' }] }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'gemini', entries: [{ role: 'model', parts: [{ functionCall: {} }] }] }), true);
+  assert.equal(rawHasToolCalls({ protocol: 'gemini', entries: [{ role: 'model', parts: [{ text: '纯文本' }] }] }), false);
 });
 
 test('a search tool card shows the query it ran, and nothing when the service gave no parameters', () => {

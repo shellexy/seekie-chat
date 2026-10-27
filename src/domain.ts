@@ -534,6 +534,26 @@ export function toolQuery(name: string, input: string): string {
  * 纯文本回答没有这些，buildInput 重建出来和原生结构一样，再存一份只是把正文重复写一遍。
  */
 export function needsRawReplay(message: Message) { return message.tools.length > 0; }
+/**
+ * raw 里是否真的带着工具调用或工具结果。清理旧数据的 raw 时要先问一遍：老版本有可能调过
+ * 工具却没把它记进 `tools`（那张卡片在界面上也就没出现过），只看 `tools` 为空就删会把这
+ * 类历史里的工具链悄悄打断。四种协议的原生条目形状都不一样，逐个认一遍。
+ */
+export function rawHasToolCalls(raw: unknown) {
+  const entries = (raw as { entries?: unknown } | undefined)?.entries;
+  if (!Array.isArray(entries)) return false;
+  return entries.some(entry => {
+    if (!entry || typeof entry !== 'object') return false;
+    const e = entry as Record<string, any>;
+    if (Array.isArray(e.tool_calls) && e.tool_calls.length) return true;
+    if (e.type === 'function_call' || e.type === 'function_call_output') return true;
+    for (const item of Array.isArray(e.content) ? e.content : []) {
+      if (['tool_use', 'tool_result', 'server_tool_use', 'web_search_tool_result'].includes(item?.type)) return true;
+    }
+    for (const part of Array.isArray(e.parts) ? e.parts : []) if (part?.functionCall || part?.functionResponse) return true;
+    return false;
+  });
+}
 export function messageDateTime(timestamp: number) {
   const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;

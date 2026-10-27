@@ -1,9 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import { safeStorage } from 'electron';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { initialState, needsRawReplay, normalizeSettings } from '../src/domain';
+import { initialState, needsRawReplay, normalizeSettings, rawHasToolCalls } from '../src/domain';
 import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord, WindowLayout } from '../src/types';
+import { sweepAttachmentFiles } from './attachment_files';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
 import { initStateSchema, loadState, loadWindowRow, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveSettingsRow, saveState, saveWindowRow, type StateCache, type WindowLayoutCache } from './state_store';
 export const SECRET_MARKER = '••••••••';
@@ -61,7 +62,10 @@ export class Store {
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
     // 纯文本回答的 raw 是正文的重复副本（旧版本每条都存），读上来时顺手丢掉——它没有工具
     // 调用可回放，buildInput 用 text 重建出来的结构完全一样。带工具的回答一律保留。
-    for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) { if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } if (!needsRawReplay(m)) delete m.raw; } }
+    for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) { if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } if (!needsRawReplay(m) && !rawHasToolCalls(m.raw)) delete m.raw; } }
+    // 只在确实读到存档时清扫：初始化失败时 state 是个空壳，按空集合清扫会把用户的附件全删了。
+    // 启动这一刻还没有窗口在写文件，是唯一安全的全量清理时机；保存路径上的那次只管本次改动。
+    if (stored) sweepAttachmentFiles(this.directory, attachments(state).map(a => a.id));
     return state;
   }
   /**
@@ -158,7 +162,7 @@ export class Store {
       if (!validId(a.id) || (a.markdown !== undefined && (typeof a.markdown !== 'string' || a.markdown.length > 1_000_000))) throw new Error('附件内容无效');
       // Every referenced attachment keeps its file, including one that is down to its converted
       // Markdown: deleting that file would destroy the only remaining copy of the content.
-      const name = `${a.id}.txt`; keep.add(name);
+      const name = `${a.id}.txt`; keep.add(a.id);
       const file = join(this.directory, 'attachments', name);
       if (!a.data && a.markdown !== undefined) continue;
       // The renderer never receives attachment bytes, so its copy of the state has none: an empty
@@ -176,7 +180,7 @@ export class Store {
       writeFileSync(credentials + '.tmp', JSON.stringify({ version: 1, secrets: Object.fromEntries(this.secrets) }, null, 2), { mode: 0o600 });
       chmodSync(credentials + '.tmp', 0o600); renameSync(credentials + '.tmp', credentials);
     } else if (existsSync(credentials)) unlinkSync(credentials);
-    for (const file of readdirSync(join(this.directory, 'attachments'))) if (!keep.has(file)) unlinkSync(join(this.directory, 'attachments', file));
+    sweepAttachmentFiles(this.directory, keep);
   }
   // Request records live in their own files: they persist for the in-app debug view but never enter
   // the state JSON, and they never enlarge the database that every save rewrites.
