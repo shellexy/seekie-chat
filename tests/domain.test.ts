@@ -635,7 +635,7 @@ test('the one-click free model adds the agreed connection and model and passes v
 });
 
 test('a search tool card shows the query it ran, and nothing when the service gave no parameters', () => {
-  assert.equal(toolQuery('tavily_search', '{"query":"广州天气"}'), '广州天气');
+  assert.equal(toolQuery('web_search', '{"query":"广州天气"}'), '广州天气');
   assert.equal(toolQuery('web_search', '{\n  "type": "search",\n  "query": "Electron docs"\n}'), 'Electron docs');
   // Gemini 原生搜索给的是字符串数组，一轮可能带多个查询。
   assert.equal(toolQuery('google_search', '["广州天气","广州 天河 天气"]'), '广州天气、广州 天河 天气');
@@ -645,7 +645,7 @@ test('a search tool card shows the query it ran, and nothing when the service ga
   // 非搜索工具不显示查询词：网页读取的输入是地址，日期时间没有输入。
   assert.equal(toolQuery('web_fetch', '{"url":"https://example.com"}'), '');
   assert.equal(toolQuery('datetime', '{}'), '');
-  assert.equal(toolQuery('tavily_search', ''), '');
+  assert.equal(toolQuery('web_search', ''), '');
 });
 
 test('tool output that happens to be JSON is indented for reading, and only for reading', () => {

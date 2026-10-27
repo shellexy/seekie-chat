@@ -126,7 +126,7 @@ export async function* sse(body: AsyncIterable<Uint8Array>, sink?: { response?: 
   if (tail.startsWith('data:') && tail.slice(5).trim() !== '[DONE]') yield JSON.parse(tail.slice(5).trim());
 }
 function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return EXTERNAL_SEARCH_MODES.includes(mode as ExternalSearchMode); }
-function searchToolName(mode: ExternalSearchMode) { return mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : mode === 'deepseek' ? 'deepseek_search' : 'anysearch_search'; }
+function searchToolName(mode: ExternalSearchMode) { return 'web_search'; }
 function searchProviderName(mode: ExternalSearchMode) { return mode === 'exa' ? 'Exa' : mode === 'ollama' ? 'Ollama Cloud' : mode === 'tavily' ? 'Tavily' : mode === 'firecrawl' ? 'Firecrawl' : mode === 'deepseek' ? 'DeepSeek' : 'AnySearch'; }
 function externalSearchTool(mode: ExternalSearchMode) { return { name: searchToolName(mode), description: `搜索互联网获取当前信息。结果包含标题、URL 和正文片段。${UNTRUSTED_CONTENT_NOTE}`, parameters: { type: 'object', properties: { query: { type: 'string', description: '搜索查询' } }, required: ['query'], additionalProperties: false } }; }
 const webFetchTool = { name: 'web_fetch', description: `读取公开网页正文并转换为 Markdown。输入应是搜索结果或用户提供的完整网页 URL。${UNTRUSTED_CONTENT_NOTE}`, parameters: { type: 'object', properties: { url: { type: 'string', description: '要抓取的 HTTP 或 HTTPS 网页 URL' } }, required: ['url'], additionalProperties: false } };
@@ -439,7 +439,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
             if (['tool_use', 'server_tool_use'].includes(block.type)) {
               block._json = '';
               const input = JSON.stringify(block.input || {}, null, 2);
-              if (block.name === 'web_search') anthropicSearchInputs.set(block.id, input);
+              if (block.type === 'server_tool_use' && block.name === 'web_search') anthropicSearchInputs.set(block.id, input);
               const started = Date.now();
               if (block.type === 'server_tool_use') anthropicServerSearchStarted.set(block.id, started);
               hooks.tool({ id: block.id, name: block.name, input, output: '', status: block.type === 'server_tool_use' ? 'running' : 'pending', started });
@@ -464,7 +464,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
             if (b?._json !== undefined) {
               if (b._json) b.input = JSON.parse(b._json);
               delete b._json;
-              if (b.name === 'web_search') {
+              if (b.type === 'server_tool_use' && b.name === 'web_search') {
                 const input = JSON.stringify(b.input || {}, null, 2);
                 anthropicSearchInputs.set(b.id, input);
                 hooks.tool({ id: b.id, name: b.name, input, output: '', status: b.type === 'server_tool_use' ? 'running' : 'pending', started: b.type === 'server_tool_use' ? anthropicServerSearchStarted.get(b.id) || Date.now() : Date.now() });
@@ -510,7 +510,7 @@ export async function generate(connection: Connection, model: Model, config: Cha
           const args = JSON.parse(call.args), page = await webFetch(String(args.url || ''), signal, settings, config.webFetch);
           addSources([{ title: page.title || page.url, url: page.url }]);
           event.output = JSON.stringify(page); event.status = 'done';
-        } else if (isExternalSearch(config.search) && call.name === searchToolName(config.search)) {
+        } else if (isExternalSearch(config.search) && (call.name === searchToolName(config.search) || call.name === (config.search === 'exa' ? 'exa_search' : config.search === 'ollama' ? 'ollama_web_search' : config.search === 'tavily' ? 'tavily_search' : config.search === 'firecrawl' ? 'firecrawl_search' : config.search === 'deepseek' ? 'deepseek_search' : 'anysearch_search'))) {
           if (!recordToolCall(toolCounts, call.name)) throw new Error(toolCallLimitError(call.name));
           productive = true;
           const results = await externalSearch(config.search, call.args, settings, signal); addSources(results);

@@ -57,9 +57,9 @@ test('usage aggregation counts cumulative frames once and keeps unknown cache di
 });
 test('generation time subtracts the union of overlapping tool waits once', () => {
   const tools = [
-    { id: 'a', name: 'exa_search', input: '', output: '', status: 'done' as const, started: 1200, elapsed: 500 },
+    { id: 'a', name: 'web_search', input: '', output: '', status: 'done' as const, started: 1200, elapsed: 500 },
     { id: 'b', name: 'web_fetch', input: '', output: '', status: 'done' as const, started: 1400, elapsed: 300 },
-    { id: 'c', name: 'tavily_search', input: '', output: '', status: 'done' as const, started: 1800, elapsed: 500 },
+    { id: 'c', name: 'web_search', input: '', output: '', status: 'done' as const, started: 1800, elapsed: 500 },
     { id: 'native', name: 'google_search', input: '', output: '', status: 'done' as const, started: 1000, elapsed: 1000 }
   ];
   assert.equal(elapsedExcludingToolWait(1000, 1000, tools, 2000), 300);
@@ -213,7 +213,7 @@ test('Exa tool results are returned to the model with matching call IDs and pers
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'exa_search', arguments: '{"query":"Electron docs"}' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'web_search', arguments: '{"query":"Electron docs"}' } }] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
   ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
   agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: 'Electron docs', url: 'https://www.electronjs.org/docs', text: 'Desktop framework documentation' }] });
@@ -233,7 +233,7 @@ test('Exa tool results are returned to the model with matching call IDs and pers
 test('Exa failures return explicit tool errors without fabricated sources', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
-  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [ { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-2', function: { name: 'exa_search', arguments: '{"query":"search"}' } }] } }] }, { choices: [{ delta: {}, finish_reason: 'tool_calls' }] } ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
+  pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [ { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-2', function: { name: 'web_search', arguments: '{"query":"search"}' } }] } }] }, { choices: [{ delta: {}, finish_reason: 'tool_calls' }] } ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
   agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(429, { error: 'rate limited' });
   let secondBody: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => { secondBody = JSON.parse(String(options.body)); return [ { choices: [{ delta: { content: '搜索失败，请稍后重试。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] } ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''); });
@@ -246,7 +246,7 @@ test('search result bodies are truncated to 8000 characters before reaching the 
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-long', function: { name: 'tavily_search', arguments: '{"query":"long body"}' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-long', function: { name: 'web_search', arguments: '{"query":"long body"}' } }] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
   ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
   agent.get('https://api.tavily.com').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: 'Long result', url: 'https://example.com/long', content: '正'.repeat(20_000) }] });
@@ -261,7 +261,7 @@ test('search result bodies are truncated to 8000 characters before reaching the 
 for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) test(`${provider} web search sends authenticated queries and returns source snippets to the model`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
-  const toolName = provider === 'ollama' ? 'ollama_web_search' : provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
+  const toolName = 'web_search';
   let firstBody: any, secondBody: any, searchBody: any, searchHeaders: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
     firstBody = JSON.parse(String(options.body));
@@ -303,7 +303,7 @@ for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) 
 for (const provider of ['tavily', 'firecrawl', 'anysearch'] as const) test(`${provider} web search uses official keyless access when its API key is empty`, async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid');
-  const toolName = provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
+  const toolName = 'web_search';
   let searchHeaders: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
     { choices: [{ delta: { tool_calls: [{ index: 0, id: `keyless-${provider}`, function: { name: toolName, arguments: '{"query":"anonymous search"}' } }] } }] },
@@ -372,7 +372,7 @@ test('web_fetch is offered beside search, records its source and returns Markdow
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: e => tools.push(e.status), sources() {} }, async (url) => {
     fetched = url; return { url, title: 'Fetched article', content: '# Article\n\nFull article body.', contentType: 'text/html', truncated: false };
   });
-  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['exa_search', 'web_fetch', 'datetime']);
+  assert.deepEqual(firstBody.tools.map((tool: any) => tool.function.name), ['web_search', 'web_fetch', 'datetime']);
   assert.equal(fetched, 'https://example.com/article');
   const returned = secondBody.messages.at(-1);
   assert.equal(returned.role, 'tool'); assert.equal(returned.tool_call_id, 'fetch-1'); assert.match(returned.content, /Full article body/);
@@ -461,8 +461,8 @@ for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${prot
   // 系统提示由用户随意改写，外部资料提示必须长在工具描述里，改提示词才删不掉它。
   const declared = body.tools.map((tool: any) => tool.function ?? tool);
   const names = declared.map((tool: any) => tool.name);
-  assert.ok(names.includes('exa_search') && names.includes('web_fetch'), `两种工具都应被声明：${names}`);
-  const guarded = declared.filter((tool: any) => tool.name === 'exa_search' || tool.name === 'web_fetch');
+  assert.ok(names.includes('web_search') && names.includes('web_fetch'), `两种工具都应被声明：${names}`);
+  const guarded = declared.filter((tool: any) => tool.name === 'web_search' || tool.name === 'web_fetch');
   assert.equal(guarded.length, 2, `搜索与抓取工具都应被声明：${names}`);
   for (const tool of guarded) assert.match(tool.description, /外部资料/, `${protocol} 的 ${tool.name} 描述缺少外部资料提示`);
   await agent.close();
@@ -506,7 +506,7 @@ test('object-shaped tool arguments from a gateway are replayed as JSON text', as
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid'); let secondBody: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-obj', type: 'function', function: { name: 'exa_search', arguments: { query: '广州天气' } } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-obj', type: 'function', function: { name: 'web_search', arguments: { query: '广州天气' } } }] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
   ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
   agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(200, { results: [{ title: '天气', url: 'https://example.com/weather', text: '多云' }] });
@@ -576,12 +576,12 @@ test('parallel tool calls that reuse one index stay separate calls', async () =>
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid'); let secondBody: any;
   // New API converts Gemini function calls into one chunk where every call reports index 0 and no
-  // id; merging them by index produced "datetimeexa_search" with concatenated arguments.
+  // id; merging them by index produced "datetimeweb_search" with concatenated arguments.
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
     { choices: [{ delta: { tool_calls: [
       { index: 0, type: 'function', function: { name: 'datetime', arguments: '{}' } },
-      { index: 0, type: 'function', function: { name: 'exa_search', arguments: '{"query":"广州实时天气"}' } },
-      { index: 0, type: 'function', function: { name: 'exa_search', arguments: '{"query":"亚运会奖牌榜"}' } }
+      { index: 0, type: 'function', function: { name: 'web_search', arguments: '{"query":"广州实时天气"}' } },
+      { index: 0, type: 'function', function: { name: 'web_search', arguments: '{"query":"亚运会奖牌榜"}' } }
     ] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
   ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
@@ -594,7 +594,7 @@ test('parallel tool calls that reuse one index stay separate calls', async () =>
   const events: Array<{ id: string; name: string; status: string }> = [];
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'exa' }, c.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool: t => events.push(t), sources() {} });
   const replayed = secondBody.messages[2].tool_calls;
-  assert.deepEqual(replayed.map((call: any) => call.function.name), ['datetime', 'exa_search', 'exa_search']);
+  assert.deepEqual(replayed.map((call: any) => call.function.name), ['datetime', 'web_search', 'web_search']);
   assert.deepEqual(replayed.map((call: any) => JSON.parse(call.function.arguments)), [{}, { query: '广州实时天气' }, { query: '亚运会奖牌榜' }]);
   assert.equal(new Set(replayed.map((call: any) => call.id)).size, 3, '每个调用都必须有独立 id');
   for (const call of replayed) assert.ok(call.id, '回灌的 tool_call 必须带 id');
@@ -606,7 +606,7 @@ test('parallel tool calls that reuse one index stay separate calls', async () =>
   assert.equal(result.sources.length, 1);
   assert.equal(new Set(events.filter(event => event.status === 'pending').map(event => event.id)).size, 3, '三个调用各自有独立的待执行事件');
   assert.equal(events.filter(event => event.name === 'datetime').length, 3, 'datetime 经历 pending/running/done');
-  assert.equal(events.filter(event => event.name === 'exa_search').length, 6, '两个搜索调用各自经历 pending/running/done');
+  assert.equal(events.filter(event => event.name === 'web_search').length, 6, '两个搜索调用各自经历 pending/running/done');
   await agent.close();
 });
 
@@ -614,7 +614,7 @@ test('fragmented arguments under one index still merge into a single call', asyn
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   const pool = agent.get('https://fixture.invalid'); let secondBody: any;
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, [
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-frag', type: 'function', function: { name: 'exa_search', arguments: '{"query"' } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-frag', type: 'function', function: { name: 'web_search', arguments: '{"query"' } }] } }] },
     { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"广州天气"}' } }] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
   ].map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
@@ -814,7 +814,7 @@ test('deepseek search uses its own endpoint and prefers summary over snippet', a
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => {
     firstBody = JSON.parse(String(options.body));
     return [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'deepseek_search', arguments: '{"query":"deepseek search API"}' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'web_search', arguments: '{"query":"deepseek search API"}' } }] } }] },
       { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }
     ].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
   }, { headers: { 'content-type': 'text/event-stream' } });
@@ -831,7 +831,7 @@ test('deepseek search uses its own endpoint and prefers summary over snippet', a
   state.settings.deepseekKey = 'deepseek-fixture';
   const c = createConversation(state.settings); addMessage(c, c.branches[0], 'user', '请搜索');
   const result = await generate(connection('chat'), model, { ...c.branches[0].config, search: 'deepseek' }, c.messages, state.settings, new AbortController().signal);
-  assert.equal(firstBody.tools[0].function.name, 'deepseek_search', 'DeepSeek 搜索的工具名');
+  assert.equal(firstBody.tools[0].function.name, 'web_search', 'DeepSeek 搜索的工具名');
   assert.equal(searchBody.query, 'deepseek search API');
   assert.equal(searchBody.count, 3, 'count 只影响条数，不影响单次价格');
   assert.equal(searchBody.need_content, false, '默认只要 summary，正文交给 Fetch');
@@ -849,7 +849,7 @@ test('deepseek search falls back to the connection key and reports an empty bala
     const body = JSON.parse(String(options.body));
     // 工具结果回灌后模型应当收尾；否则会一直重复调用同一个失败的工具。
     if (body.messages.at(-1)?.role === 'tool') return [{ choices: [{ delta: { content: '没有搜索到结果。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
-    return [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'deepseek_search', arguments: '{"query":"余额"}' } }] } }] },
+    return [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-deepseek', function: { name: 'web_search', arguments: '{"query":"余额"}' } }] } }] },
       { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }].map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
   }, { headers: { 'content-type': 'text/event-stream' } }).persist();
   let searchHeaders: any;
@@ -874,7 +874,7 @@ test('deepseek search returns page bodies when the setting asks for them', async
   const pool = agent.get('https://fixture.invalid');
   const turn = (body: any) => body.messages.at(-1)?.role === 'tool'
     ? [{ choices: [{ delta: { content: '已阅读正文。' } }] }, { choices: [{ delta: {}, finish_reason: 'stop' }] }]
-    : [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-ds', function: { name: 'deepseek_search', arguments: '{"query":"正文"}' } }] } }] },
+    : [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-ds', function: { name: 'web_search', arguments: '{"query":"正文"}' } }] } }] },
        { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
   let searchBody: any, toolResult = '';
   pool.intercept({ path: '/v1/chat/completions', method: 'POST' }).reply(200, options => turn(JSON.parse(String(options.body))).map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });

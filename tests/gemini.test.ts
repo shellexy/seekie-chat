@@ -57,7 +57,7 @@ test('Gemini declares search and web_fetch as untrusted content', async () => {
     // 与另外三种协议同一份提示：系统提示会被改写，工具描述不会。
     const declared = body.tools.flatMap((tool: any) => tool.functionDeclarations ?? []);
     const names = declared.map((tool: any) => tool.name);
-    const guarded = declared.filter((tool: any) => tool.name === 'exa_search' || tool.name === 'web_fetch');
+    const guarded = declared.filter((tool: any) => tool.name === 'web_search' || tool.name === 'web_fetch');
     assert.equal(guarded.length, 2, `搜索与抓取工具都应被声明：${names}`);
     for (const tool of guarded) assert.match(tool.description, /外部资料/, `Gemini 的 ${tool.name} 描述缺少外部资料提示`);
   } finally { await agent.close(); }
@@ -84,16 +84,16 @@ for (const fail of [false, true]) test(`Gemini Exa ${fail ? 'failures are explic
     const pool = agent.get('https://gemini.fixture.invalid'); let first: any, second: any;
     pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => {
       first = JSON.parse(String(options.body));
-      return frames([{ candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: 'call-g', name: 'exa_search', args: { query: 'Electron' } }, thoughtSignature: 'signed-call' }] }, finishReason: 'STOP' }] }]);
+      return frames([{ candidates: [{ content: { role: 'model', parts: [{ functionCall: { id: 'call-g', name: 'web_search', args: { query: 'Electron' } }, thoughtSignature: 'signed-call' }] }, finishReason: 'STOP' }] }]);
     });
     agent.get('https://api.exa.ai').intercept({ path: '/search', method: 'POST' }).reply(fail ? 429 : 200, fail ? { error: 'limited' } : { results: [{ title: 'Electron', url: 'https://www.electronjs.org/docs', text: 'Desktop docs' }] });
     pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete(fail ? '搜索失败。' : '搜索完成。')]); });
     const { state, conversation, branch } = fixture(); state.settings.exaKey = 'fixture';
     const result = await generate(connection, model, { ...branch.config, search: 'exa', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
-    assert.equal(first.tools[0].functionDeclarations[0].name, 'exa_search');
+    assert.equal(first.tools[0].functionDeclarations[0].name, 'web_search');
     assert.equal(second.contents.at(-2).parts[0].thoughtSignature, 'signed-call');
     const returned = second.contents.at(-1).parts[0].functionResponse;
-    assert.equal(returned.id, 'call-g'); assert.equal(returned.name, 'exa_search');
+    assert.equal(returned.id, 'call-g'); assert.equal(returned.name, 'web_search');
     if (fail) { assert.match(returned.response.instruction, /搜索未成功/); assert.equal(result.sources.length, 0); }
     else { assert.equal(returned.response.results[0].text, 'Desktop docs'); assert.equal(result.sources.length, 1); }
   } finally { await agent.close(); }
@@ -102,7 +102,7 @@ for (const provider of ['ollama', 'tavily', 'firecrawl', 'anysearch'] as const) 
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);
   try {
     const pool = agent.get('https://gemini.fixture.invalid');
-    const toolName = provider === 'ollama' ? 'ollama_web_search' : provider === 'tavily' ? 'tavily_search' : provider === 'firecrawl' ? 'firecrawl_search' : 'anysearch_search';
+    const toolName = 'web_search';
     let first: any, second: any;
     pool.intercept({ path: streamPath, method: 'POST' }).reply(200, options => {
       first = JSON.parse(String(options.body));
@@ -249,7 +249,7 @@ test('Gemini external search sends function declarations without a native tool c
     agent.get('https://gemini.fixture.invalid').intercept({ path: streamPath, method: 'POST' }).reply(200, options => { body = JSON.parse(String(options.body)); return frames([complete('按记忆回答。')]); });
     const { state, conversation, branch } = fixture(); state.settings.exaKey = 'fixture';
     await generate(connection, model, { ...branch.config, search: 'exa', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal);
-    assert.deepEqual(body.tools[0].functionDeclarations.map((tool: any) => tool.name), ['exa_search', 'datetime']);
+    assert.deepEqual(body.tools[0].functionDeclarations.map((tool: any) => tool.name), ['web_search', 'datetime']);
     assert.equal(body.toolConfig, undefined, '没有内置工具时无需 opt-in');
   } finally { await agent.close(); }
 });
@@ -315,7 +315,7 @@ test('Gemini retries with an external provider when a relay drops tool_config', 
     assert.equal(second.toolConfig, undefined, '放弃内置工具后不再需要 opt-in');
     assert.equal(second.tools.some((tool: any) => tool.googleSearch), false);
     // Keyless Tavily is the documented auto fallback when no search key is configured.
-    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['tavily_search', 'datetime']);
+    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['web_search', 'datetime']);
     assert.equal(result.text, '现在是本机时间。');
     assert.match(notices[0] || '', /未转发 tool_config/); assert.match(notices[0] || '', /Tavily/);
     assert.equal(result.sources.length, 0);
@@ -330,7 +330,7 @@ test('Gemini keeps the user configured external provider when falling back', asy
     pool.intercept({ path, method: 'POST' }).reply(200, options => { second = JSON.parse(String(options.body)); return frames([complete('现在是本机时间。')]); });
     const { state, conversation, branch } = fixture(); state.settings.exaKey = 'fixture'; const notices: string[] = [];
     await generate(connection, gemini3, { ...branch.config, search: 'native', webFetch: 'off', effort: 'auto' }, conversation.messages, state.settings, new AbortController().signal, { text() {}, reasoning() {}, tool() {}, sources() {}, notice: message => notices.push(message) });
-    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['exa_search', 'datetime']);
+    assert.deepEqual(second.tools[0].functionDeclarations.map((tool: any) => tool.name), ['web_search', 'datetime']);
     assert.match(notices[0] || '', /Exa/);
   } finally { await agent.close(); }
 });

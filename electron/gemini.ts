@@ -15,7 +15,7 @@ function isExternalSearch(mode: SearchMode): mode is ExternalSearchMode { return
 const SEARCH_LABELS: Record<ExternalSearchMode, string> = { exa: 'Exa', ollama: 'Ollama Cloud', tavily: 'Tavily', firecrawl: 'Firecrawl', anysearch: 'AnySearch', deepseek: 'DeepSeek' };
 function searchTool(mode: ExternalSearchMode) {
   return {
-  name: mode === 'exa' ? 'exa_search' : mode === 'ollama' ? 'ollama_web_search' : mode === 'tavily' ? 'tavily_search' : mode === 'firecrawl' ? 'firecrawl_search' : mode === 'deepseek' ? 'deepseek_search' : 'anysearch_search', description: `搜索互联网获取当前信息，返回真实来源和正文片段。${UNTRUSTED_CONTENT_NOTE}`,
+  name: 'web_search', description: `搜索互联网获取当前信息，返回真实来源和正文片段。${UNTRUSTED_CONTENT_NOTE}`,
   parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: '搜索查询' } }, required: ['query'] }
   };
 }
@@ -219,7 +219,8 @@ export async function generateGemini(connection: Connection, model: Model, confi
           const page = await deps.webFetch(String(call.args?.url || ''), signal, settings, config.webFetch);
           addSources([{ title: page.title || page.url, url: page.url }]);
           event.output = JSON.stringify(page); event.status = 'done';
-        } else if (isExternalSearch(searchMode) && call.name === searchTool(searchMode).name) {
+        } else if (isExternalSearch(searchMode) && (call.name === searchTool(searchMode).name
+          || call.name === (searchMode === 'exa' ? 'exa_search' : searchMode === 'ollama' ? 'ollama_web_search' : searchMode === 'tavily' ? 'tavily_search' : searchMode === 'firecrawl' ? 'firecrawl_search' : searchMode === 'deepseek' ? 'deepseek_search' : 'anysearch_search'))) {
           if (!recordToolCall(toolCounts, call.name)) throw new Error(toolCallLimitError(call.name));
           productive = true;
           const found = await deps.search(searchMode, event.input, settings, signal); addSources(found);
