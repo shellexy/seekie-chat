@@ -4,7 +4,7 @@
 
 <sub>基于 MIT License 开源。Seekie Chat 是非官方的第三方客户端，与 DeepSeek 官方无隶属关系。</sub>
 
-![version](https://img.shields.io/badge/version-0.2.8-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
+![version](https://img.shields.io/badge/version-0.2.9-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)
 
 [![主界面](docs/screenshots/main-window.webp)](docs/screenshots.md)
 
@@ -49,6 +49,7 @@
 
 - **Linux deb**（`seekie-chat_<版本>_amd64.deb`）：`sudo dpkg -i` 安装。装完命令行敲 `seekie-chat`，或从应用菜单启动。
 - **Linux AppImage**（`seekie-chat-<版本>-x86_64.AppImage`）：`chmod +x` 后直接运行，免安装。
+- **Linux Flatpak**（`seekie-chat-<版本>-x86_64.flatpak`）：先加 Flathub 远程（`flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo`），再 `flatpak install ./seekie-chat-<版本>-x86_64.flatpak`；之后从应用菜单启动，或 `flatpak run io.github.shellexy.SeekieChat`。首次安装会自动拉取 `org.freedesktop.Platform` 运行时（约 1 GB）。
 - **Windows**（`seekie-chat-<版本>-setup.exe`）：一键安装到当前用户目录。安装包未签名，首次运行会提示“未知发布者”。
 - **macOS**（`seekie-chat-<版本>-arm64.dmg` / `seekie-chat-<版本>-x64.dmg`）：按芯片选包，拖进“应用程序”。构建未签名也未公证，首次打开需右键 →“打开”，或先执行 `xattr -dr com.apple.quarantine /Applications/seekie-chat.app`。
 
@@ -73,7 +74,7 @@ Electron 45 首次使用时可能下载桌面运行时。如果网络需要代�
 ELECTRON_GET_USE_PROXY=1 npm run dev
 ```
 
-Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间，请以普通用户运行，不要使用 root。从源码运行靠 Linux 的用户命名空间启用沙箱；deb 包里带着 `chrome-sandbox`（安装后归 root 所有、权限 4755），走的是 setuid 那条路；**AppImage 则关闭了沙箱**（启动参数带 `--no-sandbox`）——它挂在 FUSE 的 squashfs 上，那个挂载点通常带 `nosuid`，setuid 的 `chrome-sandbox` 在那里起不了作用。极简系统可能还需要 GTK、NSS、GBM、音频等 Electron 系统库。
+Electron 的 Chromium 沙箱需要 Linux 正常配置用户命名空间，请以普通用户运行，不要使用 root。从源码运行靠 Linux 的用户命名空间启用沙箱；deb 包里带着 `chrome-sandbox`（安装后归 root 所有、权限 4755），走的是 setuid 那条路；**AppImage 与 Flatpak 都关闭了 Chromium 自己的沙箱**（启动参数带 `--no-sandbox`）——AppImage 挂在 FUSE 的 squashfs 上，那个挂载点通常带 `nosuid`；Flatpak 里则既没有 setuid 位、沙箱内也不给用户命名空间，setuid 的 `chrome-sandbox` 在这两种情况下都起不了作用。AppImage 只留下内核提供的保护，Flatpak 那层的隔离由 Flatpak 自己负责。极简系统可能还需要 GTK、NSS、GBM、音频等 Electron 系统库。
 
 ## 开始聊天
 

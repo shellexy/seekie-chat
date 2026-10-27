@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Seekie Chat
+Comment=Local-first desktop client for LLM chat
+Exec=seekie-chat %U
+Icon=io.github.shellexy.SeekieChat
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+Keywords=chat;llm;ai;deepseek;openai;anthropic;gemini;
+StartupNotify=true
+StartupWMClass=seekie-chat

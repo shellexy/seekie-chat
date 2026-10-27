@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.shellexy.SeekieChat</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Seekie Chat</name>
+  <summary>Local-first desktop client for LLM chat</summary>
+  <description>
+    <p>Seekie Chat 是一个本地优先的桌面 LLM 聊天客户端，支持 OpenAI Responses、OpenAI Chat Completions、Anthropic、Gemini 与 Ollama 协议。</p>
+    <p>回答可以按段落就地编辑，对话可以像存档一样分支，每次请求的请求头、请求体与上游流式原文都能在本机核对。所有聊天记录与附件都保存在本机，没有账号、没有遥测、没有云同步。</p>
+  </description>
+  <launchable type="desktop-id">io.github.shellexy.SeekieChat.desktop</launchable>
+  <url type="homepage">https://github.com/shellexy/seekie-chat</url>
+  <url type="bugtracker">https://github.com/shellexy/seekie-chat/issues</url>
+  <developer id="io.github.shellexy"><name>Shellexy</name></developer>
+  <content_rating type="oars-1.1"/>
+</component>

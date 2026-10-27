@@ -1,0 +1,46 @@
+# Flatpak 清单。CI 里先把 electron-builder 的 --linux dir 产物放到与这份清单同级的 app/，
+# 再跑 flatpak-builder（见 .github/workflows/release.yml）。这样清单本身不依赖仓库路径。
+app-id: io.github.shellexy.SeekieChat
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: seekie-chat
+separate-locales: false
+finish-args:
+  - --share=ipc
+  - --share=network
+  # x11 与 wayland 都给：Electron 自己按会话类型选，Ozone 的默认值在新老发行版上不一致。
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  - --device=dri
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # 导出 Markdown / 备份时要能写用户自己选的位置。
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-download
+  - --env=ELECTRON_OZONE_PLATFORM_HINT=auto
+modules:
+  - name: seekie-chat
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/seekie-chat
+      - cp -a app/. /app/seekie-chat/
+      - install -Dm755 seekie-chat.sh /app/bin/seekie-chat
+      - install -Dm644 io.github.shellexy.SeekieChat.desktop /app/share/applications/io.github.shellexy.SeekieChat.desktop
+      - install -Dm644 io.github.shellexy.SeekieChat.metainfo.xml /app/share/metainfo/io.github.shellexy.SeekieChat.metainfo.xml
+      # 图标从 build/icon.png 复制过来（CI 做这一步），仓库里只留一份原图。
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.shellexy.SeekieChat.png
+    sources:
+      - type: dir
+        path: app
+      - type: file
+        path: seekie-chat.sh
+      - type: file
+        path: io.github.shellexy.SeekieChat.desktop
+      - type: file
+        path: io.github.shellexy.SeekieChat.metainfo.xml
+      - type: file
+        path: icon.png
