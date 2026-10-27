@@ -8,7 +8,7 @@ import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, pathTo, summaryValid } from '../src/domain';
+import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, needsRawReplay, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest, WindowLayout } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
@@ -218,7 +218,7 @@ async function runChat(request: RunRequest) {
       }, webFetch);
       if (!result.text.trim()) throw new Error('模型未返回回答正文');
       const elapsedMs = performance.now() - started;
-      message.raw = result.raw; message.usage = { ...result.usage, elapsedMs, generationMs: elapsedExcludingToolWait(elapsedMs, requestStartedAt, message.tools), firstTokenMs, firstOutputMs }; message.sources = result.sources; message.status = 'complete';
+      if (needsRawReplay(message)) message.raw = result.raw; message.usage = { ...result.usage, elapsedMs, generationMs: elapsedExcludingToolWait(elapsedMs, requestStartedAt, message.tools), firstTokenMs, firstOutputMs }; message.sources = result.sources; message.status = 'complete';
       if (conversation.title === '新对话' && !conversation.manualTitle) conversation.title = pathTo(conversation, message.id).find(m => m.role === 'user')?.text.slice(0, 24) || '图片对话';
       void generateTitle(conversation, config, pathTo(conversation, message.id));
     } catch (error) { message.status = controller.signal.aborted ? 'interrupted' : 'error'; message.error = controller.signal.aborted ? '已停止生成' : redact(error); }

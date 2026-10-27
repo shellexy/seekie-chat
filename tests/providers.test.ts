@@ -7,7 +7,7 @@ import { Agent, MockAgent, setGlobalDispatcher } from 'undici';
 import { createServer } from 'node:http';
 import { connect, type AddressInfo } from 'node:net';
 import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, parseServerModel, request, sse } from '../electron/providers';
-import { addMessage, appendAssistantSegment, createConversation, initialState } from '../src/domain';
+import { addMessage, appendAssistantSegment, createConversation, initialState, needsRawReplay } from '../src/domain';
 import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
 const toStream = (chunks: string[]): AsyncIterable<Uint8Array> => ({
@@ -120,6 +120,17 @@ test('protocol-native signed blocks are preserved only in compatible unedited an
   assert.equal(buildInput('anthropic', [a])[0].content[0].signature, 'signed');
   assert.equal(buildInput('chat', [a])[0].content, '正文');
   a.edited = true; assert.equal(buildInput('anthropic', [a])[0].content[0].type, 'text');
+});
+test('an answer without tools replays its text when no native entries were kept', () => {
+  const state = initialState(), c = createConversation(state.settings);
+  const plain = addMessage(c, c.branches[0], 'assistant', '纯文本回答'); plain.status = 'complete';
+  const withTool = addMessage(c, c.branches[0], 'assistant', '搜过的回答'); withTool.status = 'complete';
+  withTool.tools = [{ id: 't1', name: 'web_search', input: '{}', output: '结果', status: 'done', started: 1 }];
+  // 纯文本回答不存 raw，回放时按 text 重建，结构完全一样；带工具的回答必须留着原生条目。
+  assert.equal(needsRawReplay(plain), false);
+  assert.equal(needsRawReplay(withTool), true);
+  assert.equal(buildInput('anthropic', [plain])[0].content[0].text, '纯文本回答');
+  assert.equal(buildInput('chat', [plain])[0].content, '纯文本回答');
 });
 test('stream events preserve alternating answer, reasoning and tool order in one assistant message', async () => {
   const agent = new MockAgent(); agent.disableNetConnect(); setGlobalDispatcher(agent);

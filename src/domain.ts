@@ -527,6 +527,13 @@ export function toolQuery(name: string, input: string): string {
   } catch { /* 占位文字不是 JSON：没有查询词可显示。 */ }
   return '';
 }
+/**
+ * 是否需要为这条回答保存协议原生条目（message.raw）。外部搜索、读取网页、日期时间和原生搜索
+ * 都要靠它把「工具调用 + 工具结果」原样回放给下一轮，thinking 签名与 Gemini 的 thoughtSignature
+ * 也只存在于原生结构里——从 text/reasoning 重建不出来，丢了这段历史就等于断了工具链。
+ * 纯文本回答没有这些，buildInput 重建出来和原生结构一样，再存一份只是把正文重复写一遍。
+ */
+export function needsRawReplay(message: Message) { return message.tools.length > 0; }
 export function messageDateTime(timestamp: number) {
   const date = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;

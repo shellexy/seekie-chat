@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { safeStorage } from 'electron';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { initialState, normalizeSettings } from '../src/domain';
+import { initialState, needsRawReplay, normalizeSettings } from '../src/domain';
 import type { AppState, Attachment, Branch, Conversation, Message, RequestRecord, WindowLayout } from '../src/types';
 import { clearRequests, deleteRequests, initRequestDirectory, loadRequests, saveRequests } from './request_store';
 import { initStateSchema, loadState, loadWindowRow, primeCache, saveBranch, saveConversationRow, saveMessage, saveSelectedId, saveSettingsRow, saveState, saveWindowRow, type StateCache, type WindowLayoutCache } from './state_store';
@@ -59,7 +59,9 @@ export class Store {
     state.settings.anysearchKey = this.secrets.get('anysearch') || '';
     state.settings.deepseekKey = this.secrets.get('deepseek') || '';
     for (const a of attachments(state)) if (validId(a.id)) { const file = join(this.directory, 'attachments', `${a.id}.txt`); if (existsSync(file)) a.data = readFileSync(file, 'utf8'); }
-    for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } }
+    // 纯文本回答的 raw 是正文的重复副本（旧版本每条都存），读上来时顺手丢掉——它没有工具
+    // 调用可回放，buildInput 用 text 重建出来的结构完全一样。带工具的回答一律保留。
+    for (const c of state.conversations) { if (c.titleState === 'pending') c.titleState = 'idle'; for (const m of c.messages) { if (m.status === 'streaming') { m.status = 'interrupted'; m.error = '上次运行中断，已保留收到的内容'; } if (!needsRawReplay(m)) delete m.raw; } }
     return state;
   }
   /**
