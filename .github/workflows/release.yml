@@ -81,7 +81,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          # elfutils 提供 eu-strip/eu-elfcompress：flatpak-builder 默认会把二进制里的
+          # debuginfo 拆出去，缺了它构建会在「Compressing debuginfo」这一步直接失败。
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub \
             org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 \
