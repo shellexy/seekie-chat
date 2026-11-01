@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -632,6 +632,17 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.deepEqual(settingsProblems(next), []);
   // 已经有默认模型时不覆盖用户的选择。
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
+});
+
+test('outputBudget narrows max output to whatever the input left over', () => {
+  // 1M 窗口、贴上 800K：用户填的 393K 输出上限会把两者之和顶到 1.19M，供应商直接 400。
+  // 收窄到剩余空间，请求才合法——这正是「输入没超窗」却发不出去的那种情况。
+  assert.deepEqual(outputBudget(1_048_576, 800_000, 393_216), { available: 248_576, maxOutput: 248_576 });
+  // 窗口还很空：用户填多少就发多少，不擅自放大。
+  assert.deepEqual(outputBudget(128_000, 10_000, 8_192), { available: 118_000, maxOutput: 8_192 });
+  // 剩余连最小回答都放不下：返回 0，让调用方说清数字，而不是发一个注定空心的请求。
+  assert.equal(outputBudget(128_000, 128_000 - MIN_REPLY_TOKENS + 1, 8_192).maxOutput, 0);
+  assert.equal(outputBudget(128_000, 128_000 - MIN_REPLY_TOKENS, 8_192).maxOutput, MIN_REPLY_TOKENS);
 });
 
 test('rawHasToolCalls recognises tool entries from every protocol', () => {

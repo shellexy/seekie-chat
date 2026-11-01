@@ -639,6 +639,21 @@ export function estimateToolTokens(message: Message): number {
   for (const tool of message.tools) counter.addText(tool.input + tool.output);
   return counter.value();
 }
+/**
+ * 一次回答至少给模型留多少输出。低于这个数就别发了：思考模型光推理就能把这点预算吃光，
+ * 最后拿到一条空正文，报的还是「模型未返回回答正文」——不如直说空间不够。
+ */
+export const MIN_REPLY_TOKENS = 2048;
+/**
+ * 这次请求实际能要多少输出。输入（正文 + 附件 + 工具结果 + 系统提示 + 摘要）和输出共用同一个
+ * 上下文窗口，而 maxOutput 是用户按模型能力填的上限：输入快吃满窗口时还按上限要，供应商只会
+ * 回一个「requested N tokens exceeds maximum」的 400——输入本身并没有超窗，超的是两者之和。
+ * 这里按剩余空间收窄，收完仍不够 MIN_REPLY_TOKENS 就返回 0，由调用方给出说清数字的报错。
+ */
+export function outputBudget(contextWindow: number, inputTokens: number, configuredMaxOutput: number) {
+  const available = contextWindow - inputTokens;
+  return { available, maxOutput: available < MIN_REPLY_TOKENS ? 0 : Math.min(configuredMaxOutput, available) };
+}
 export const MAX_COMPRESSION_RETAINED_TOKENS = 50_000;
 export function compressionCut(path: Message[], contextWindow: number, maxRetainedTokens = MAX_COMPRESSION_RETAINED_TOKENS) {
   const turns: number[] = [];

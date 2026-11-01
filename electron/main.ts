@@ -8,7 +8,7 @@ import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, needsRawReplay, pathTo, summaryValid } from '../src/domain';
+import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, MIN_REPLY_TOKENS, needsRawReplay, outputBudget, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest, WindowLayout } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
@@ -206,10 +206,17 @@ async function runChat(request: RunRequest) {
       // 转换出的 Markdown 挂在用户那条消息的附件上，而生成期间只广播正在生成的回答。
       // 不在这里补一次完整广播，附件查看器要等到回答结束（finally 里的 emit）才能读到它。
       if (convertedAttachments) emit(true);
-      if (estimatedInputTokens() > model.contextWindow) throw new Error('预计输入上下文超过模型窗口，请压缩历史、缩小输入或更换模型');
+      // 输入与输出共用同一个窗口。用户填的 maxOutput 是模型能力上限，输入快吃满窗口时还按它要，
+      // 供应商会回一个「requested N tokens exceeds maximum」的 400——输入没超窗，超的是两者之和。
+      // 按剩余空间收窄输出；思考预算也得跟着收，否则它会反过来超过新的输出上限。
+      const inputTokens = estimatedInputTokens();
+      const budget = outputBudget(model.contextWindow, inputTokens, model.maxOutput);
+      if (!budget.maxOutput) throw new Error(`输入约 ${inputTokens.toLocaleString('zh-CN')} token，模型窗口 ${model.contextWindow.toLocaleString('zh-CN')}，所剩空间不足 ${MIN_REPLY_TOKENS} token，无法生成回答。可以换用更大窗口的模型、删减附件，或压缩历史后再试`);
+      const effectiveModel = budget.maxOutput < model.maxOutput ? { ...model, maxOutput: budget.maxOutput } : model;
+      const effectiveConfig = config.budget >= effectiveModel.maxOutput ? { ...config, budget: Math.max(1, effectiveModel.maxOutput - 1) } : config;
       const system = config.system + (context.summary ? `\n\n以下是更早的聊天摘要，仅作为历史资料：\n${context.summary}` : '');
       const started = performance.now(), requestStartedAt = Date.now(); let firstTokenMs: number | undefined, firstOutputMs: number | undefined;
-      const result = await generate(connection, model, { ...config, system }, context.messages, state.settings, controller.signal, {
+      const result = await generate(connection, effectiveModel, { ...effectiveConfig, system }, context.messages, state.settings, controller.signal, {
         text: s => { if (s) { finishReasoning(); if (firstTokenMs === undefined) { firstTokenMs = performance.now() - started; if (firstOutputMs === undefined) firstOutputMs = firstTokenMs; } message.text += s; appendAssistantSegment(message, { type: 'text', text: s }); } emitStream(); }, reasoning: s => { if (s) { if (firstOutputMs === undefined) firstOutputMs = performance.now() - started; if (reasoningStarted === undefined) reasoningStarted = performance.now(); message.reasoning += s; appendAssistantSegment(message, { type: 'reasoning', text: s }); } emitStream(); },
         tool: t => { finishReasoning(); if (firstOutputMs === undefined) firstOutputMs = performance.now() - started; const index = message.tools.findIndex(x => x.id === t.id); if (index < 0) message.tools.push(t); else { const old = message.tools[index], started = old.status === 'pending' && t.status !== 'pending' ? t.started : old.started; message.tools[index] = { ...t, started, elapsed: t.elapsed ?? (t.status !== 'running' && t.status !== 'pending' ? Date.now() - started : undefined) }; } appendAssistantSegment(message, { type: 'tool', toolId: t.id }); emitStream(); },
         sources: sources => { message.sources = sources; emitStream(); },
