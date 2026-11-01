@@ -3318,3 +3318,22 @@ input[type="range"] {
     width: min(360px, calc(100vw - 16px));
   }
 }
+
+/* 输入框右下角的上下文用量：只在接近窗口（或附件还在转换）时出现，平时完全不占视觉。
+   颜色只用前景色，不铺底色——明暗两套主题下都不用另外覆盖。 */
+.token-badge {
+  margin-left: 6px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: default;
+}
+.token-badge.warning { color: #b7791f; border-color: #e8d9b5; }
+.token-badge.danger { color: #b35247; border-color: #e8c3bd; }
+.draft-attachment .attachment-converting {
+  font-style: normal;
+  color: var(--muted);
+}

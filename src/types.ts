@@ -150,6 +150,9 @@ export interface Bridge {
   versions(): Promise<Versions>;
   // Attachment payloads are fetched one at a time instead of travelling with every broadcast.
   attachment(id: string): Promise<string>;
+  // 添加附件时先转一次 Markdown：界面要靠它算这条消息占多少上下文，也让转换失败当场暴露。
+  // 当前模型能原生读取该类型时返回空串。
+  convert(attachment: { name: string; mime: string; data: string }, modelId: string): Promise<string>;
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;

@@ -6,7 +6,7 @@ import { DEFAULT_WINDOW_SIZE, MINIMUM_WINDOW_SIZE, restoreWindow } from './windo
 import { settingsProblems, validateState } from '../src/validation';
 import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
-import { convertUnsupportedAttachments, findAttachment } from './attachments';
+import { canSendNative, convertAttachment, convertUnsupportedAttachments, findAttachment } from './attachments';
 import { fetchWebPageWithProviders } from './web_fetch';
 import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, MIN_REPLY_TOKENS, needsRawReplay, outputBudget, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest, WindowLayout } from '../src/types';
@@ -342,6 +342,15 @@ function register() {
   });
   // Attachment payloads are fetched one at a time: a broadcast carries no bytes, only references.
   handle('attachment', (id: string) => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id) ? findAttachment(state, id)?.data || '' : '');
+  // 添加附件时先转一次 Markdown：它是「这条消息要占多少上下文」的大头，界面得立刻能算出来。
+  // 顺带把「当前模型读不了、也转不了」提前到添加那一刻——之前要等发送才报错。当前模型能原生
+  // 读的类型不必转，返回空串。
+  handle('convert', async (attachment: { name: string; mime: string; data: string }, modelId: string) => {
+    if (!attachment || typeof attachment.name !== 'string' || typeof attachment.mime !== 'string' || typeof attachment.data !== 'string' || attachment.data.length > 15_000_000) throw new Error('附件参数无效');
+    const { connection, model } = resolve(modelId);
+    if (canSendNative(effectiveProtocol(connection, model), model, attachment)) return '';
+    return convertAttachment(attachment);
+  });
   handle('debug', (messageId: string) => requestLog.get(messageId).length ? requestLog.get(messageId) : store.loadRequests(messageId));
   handle('versions', () => ({ app: app.getVersion(), chromium: process.versions.chrome || '', electron: process.versions.electron || '', node: process.versions.node || '' }));
   handle('title', async (id: string) => {

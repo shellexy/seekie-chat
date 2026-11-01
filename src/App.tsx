@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, ListChecks, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api, isDesktop } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, nextRecentModels, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
+import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, contextMessages, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, estimateTokens, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, nextRecentModels, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -72,6 +72,8 @@ export default function App() {
   const [activeMessage, setActiveMessage] = useState(''), [atBottom, setAtBottom] = useState(true), [summaryOpen, setSummaryOpen] = useState(false);
   // 发送之后要让输入框清空：它由组件本地状态驱动，而草稿平时不进 state，光靠值的变化通知不到。
   const [draftReset, setDraftReset] = useState(0);
+  // 正在转换成 Markdown 的附件 id：chip 上显示「转换中」，转换结果回来才补 markdown。
+  const [convertingAttachments, setConvertingAttachments] = useState<string[]>([]);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [composerHeight, setComposerHeight] = useState(56);
   const [leftWidth, setLeftWidth] = useState(258), [rightWidth, setRightWidth] = useState(230);
@@ -481,11 +483,27 @@ export default function App() {
       } finally { pendingWrites.current--; }
     });
   }
+  // 输入框右下角的上下文提示：历史这一部分只随分支、摘要、回答结束变化。绝不能挂在 conversation
+  // 对象上——它每次广播都换引用，而算一遍整条历史要 20ms 上下，等于把打字成本退回去。
+  const contextTokens = useMemo(() => {
+    if (!conversation || !branch) return 0;
+    const context = contextMessages(conversation, branch);
+    return estimateTokens(context.messages, branch.config.system + context.summary);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id, branch?.id, branch?.leafId, branch?.summary?.created, branch?.config.system, busy]);
+
   async function send() {
     if (!conversation || !branch || busy || pending) return;
     const text = draftOf(branch).trim(), attachments = attachmentsOf(branch);
     if (!text && !attachments.length) return;
     if (!model) { toast('请先配置并选择聊天模型'); setShowSettings(true); return; }
+    // 主进程也会拦（那里有精确的剩余空间计算），但等到那时用户消息已经落库、回答位上多一条
+    // 失败消息。这里先算一次，超窗就什么都不发。
+    const pendingTokens = contextTokens + estimateTokens([{ id: 'draft', parentId: null, role: 'user', text, reasoning: '', attachments, tools: [], sources: [], status: 'complete', created: 0 }]);
+    if (pendingTokens > model.contextWindow) {
+      toast(`这条消息加上历史约 ${pendingTokens.toLocaleString('zh-CN')} token，超过模型窗口 ${model.contextWindow.toLocaleString('zh-CN')}，请删减附件或换用更大窗口的模型`);
+      return;
+    }
 
     let messageId = '', branchId = branch.id, id = conversation.id;
     clearTimeout(persistDraftTimer.current); draftCache.current.delete(branch.id);
@@ -556,6 +574,23 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
     }
     const current = stateRef.current.conversations.find(c => c.id === conversation!.id)?.branches.find(b => b.id === branch.id);
     if (current) fillDraft(draftOf(current), [...attachmentsOf(current), ...items]);
+    if (!items.length) return;
+    // 转换放后台：chip 先出现，转完再补 markdown。大 PDF 转一次要几秒，等它转完才出现会让人
+    // 以为附件没加上；转换失败也不拦着发送——换个能原生读它的模型照样能用。
+    const convertModel = branch.config.modelId;
+    setConvertingAttachments(list => [...list, ...items.map(item => item.id)]);
+    for (const item of items) {
+      void api.convert({ name: item.name, mime: item.mime, data: item.data }, convertModel).then(markdown => {
+        if (!markdown) return;
+        const live = stateRef.current.conversations.find(c => c.id === conversation!.id)?.branches.find(b => b.id === branch.id);
+        if (!live) return;
+        const attachmentsNow = attachmentsOf(live);
+        // 转换期间被移除（或已经发出去）就算了，不要把 md 写回一个不存在的位置。
+        if (!attachmentsNow.some(a => a.id === item.id)) return;
+        fillDraft(draftOf(live), attachmentsNow.map(a => a.id === item.id ? { ...a, markdown } : a));
+      }).catch(error => toast(`附件“${item.name}”无法转换为 Markdown：${error instanceof Error ? error.message : String(error)}`)).
+        finally(() => setConvertingAttachments(list => list.filter(id => id !== item.id)));
+    }
   }
   // 大纲栏开没开跟着窗口布局一起存：界面立刻改，落盘只写那一个布尔。写失败要说一声，不然「这次
   // 没记住」得等下次重启才会被发现。
@@ -836,7 +871,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       onAttach={files => void attach(files)} onSend={() => void send().catch(error => toast(String(error)))} onStop={() => void api.cancel(conversation!.id)}
       onCompress={() => { if (conversation && branch) void api.compress(conversation.id, branch.id).catch(error => toast(String(error))); }}
       onUpdateConfig={updateConfig} onNewChat={() => void newChat()} onNotice={toast}
-      />
+      contextTokens={contextTokens} convertingAttachments={convertingAttachments} />
     </section>{right && <OutlinePanel width={rightWidth} messages={messages} turnNumbers={turnNumbers} activeMessage={activeMessage} branchName={branch?.name}
       onResizeStart={event => resize(event, 'right', rightWidth)} onJump={id => { document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActiveMessage(id); }}/>}</div></main>}
     {messageMenu && messageContextMenu(conversation!.messages.find(m => m.id === messageMenu.id)!)}

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, BookOpen, Check, ChevronDown, ImagePlus, Paperclip, Plus, Settings as SettingsIcon, Square, X } from 'lucide-react';
 import { useAttachmentPayload } from './attachment_cache';
-import { defaultModelEffort, EFFORT_OFF, SEARCH_MODE_LABELS, WEB_FETCH_LABELS, WHALELADY_SYSTEM_PROMPT } from './domain';
+import { defaultModelEffort, EFFORT_OFF, estimateTokens, outputBudget, SEARCH_MODE_LABELS, WEB_FETCH_LABELS, WHALELADY_SYSTEM_PROMPT } from './domain';
 import ModelPicker from './ModelPicker';
 import type { Attachment, Branch, Connection, Conversation, Model, PromptPreset } from './types';
 
@@ -14,7 +14,7 @@ function DraftImage({ attachment }: { attachment: Attachment }) {
 // session options popover, the networking toggle, the send/stop button and its own height handle.
 export default function Composer({ branch, model, models, connections, busy, pending, height, draftReset, textareaRef,
   networkingEnabled, networkUnavailable, effectiveSearch, webFetchMode, samplingSupported, samplingHelp, ollamaSearchConfigured,
-  hasExaKey, deepseekSearchConfigured, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch,
+  hasExaKey, deepseekSearchConfigured, promptPresets, backgroundUsage, userTurnCount, favoriteModels, recentModels, defaultSearch, contextTokens, convertingAttachments,
   onHeightChange, onDraftChange, onRemoveAttachment, onAttach, onSend, onStop, onCompress, onUpdateConfig, onToggleFavorite, onNewChat, onNotice
 }: {
   branch: Branch | null; model?: Model; models: Model[]; connections: Connection[]; busy: boolean; pending: boolean;
@@ -22,6 +22,8 @@ export default function Composer({ branch, model, models, connections, busy, pen
   networkingEnabled: boolean; networkUnavailable: boolean; effectiveSearch: string; webFetchMode: string; samplingSupported: boolean; samplingHelp: string; ollamaSearchConfigured: boolean;
   hasExaKey: boolean; deepseekSearchConfigured: boolean; promptPresets: PromptPreset[]; backgroundUsage?: Conversation['backgroundUsage']; userTurnCount: number;
   favoriteModels: string[]; recentModels: string[]; defaultSearch: Branch['config']['search'];
+  // 历史部分由 App 算好并缓存；输入框这边只加「草稿文字 + 待发附件」这一小段。
+  contextTokens: number; convertingAttachments: string[];
   onHeightChange: (height: number) => void; onDraftChange: (text: string) => void; onRemoveAttachment: (attachment: Attachment) => void; onAttach: (files: File[]) => void;
   onSend: () => void; onStop: () => void; onCompress: () => void; onUpdateConfig: (values: Partial<Branch['config']>) => void; onToggleFavorite: (modelId: string) => void;
   onNewChat: () => void; onNotice: (message: string) => void;
@@ -38,6 +40,33 @@ export default function Composer({ branch, model, models, connections, busy, pen
   // 打字时草稿只进本地缓存、不进 state，branch.draft 一直是空串，发送时把它设成空串
   // 也就「没有变化」，输入框会一直留着刚发出去的那段话。
   useEffect(() => { setText(branch?.draft || ''); }, [branch?.id, branch?.draft, draftReset]);
+  // 上下文预算＝历史（App 算好）+ 输入框文字 + 待发附件。三者分开缓存：打字时只重算文字那一点
+  // （0.03ms），附件那部分只在附件增删或 Markdown 回来时才走一遍——它有 1MB 上限，不能每次按键都数。
+  const draftAttachments = branch?.draftAttachments || [];
+  const draftMessage = { id: 'draft', parentId: null, role: 'user' as const, text: '', reasoning: '', attachments: [] as Attachment[], tools: [], sources: [], status: 'complete' as const, created: 0 };
+  const textTokens = useMemo(() => estimateTokens([{ ...draftMessage, text }]), [text]);
+  const attachmentKey = draftAttachments.map(a => `${a.id}:${a.markdown?.length ?? 0}`).join(',');
+  const attachmentTokens = useMemo(() => estimateTokens([{ ...draftMessage, attachments: draftAttachments }]), [attachmentKey]);
+  const windowSize = model?.contextWindow || 0;
+  const totalTokens = contextTokens + textTokens + attachmentTokens;
+  const overWindow = windowSize > 0 && totalTokens > windowSize;
+  const outputRoom = windowSize > 0 ? outputBudget(windowSize, totalTokens, model?.maxOutput || 0).maxOutput : 0;
+  const converting = convertingAttachments.length > 0;
+  // 迟滞：60% 出现、55% 才消失。否则在边界上打字会让它反复出现/消失，整行跟着抖。
+  const [tokenShown, setTokenShown] = useState(false);
+  useEffect(() => {
+    if (!windowSize) { setTokenShown(false); return; }
+    const ratio = totalTokens / windowSize;
+    setTokenShown(shown => (ratio >= 0.6 ? true : ratio < 0.55 ? false : shown));
+  }, [totalTokens, windowSize]);
+  const shortTokens = (value: number) => value >= 10_000 ? `${Math.round(value / 1000)}K` : String(value);
+  const tokenBadge = (tokenShown || converting) && windowSize ? <span
+    className={`token-badge ${overWindow ? 'danger' : totalTokens / windowSize >= 0.75 ? 'warning' : ''}`}
+    title={overWindow
+      ? `这条消息加上历史约 ${totalTokens.toLocaleString('zh-CN')} token，超过模型窗口 ${windowSize.toLocaleString('zh-CN')}`
+      : `上下文 ${totalTokens.toLocaleString('zh-CN')} / ${windowSize.toLocaleString('zh-CN')}\n历史 ${shortTokens(contextTokens)} · 附件 ${shortTokens(attachmentTokens)} · 输入框 ${shortTokens(textTokens)}${outputRoom ? `\n本次最多可输出 ${shortTokens(outputRoom)}` : '\n已经没有给回答留出空间'}`}>
+    {converting ? '转换中…' : overWindow ? `超出 ${shortTokens(totalTokens - windowSize)}` : `${shortTokens(totalTokens)} · ${Math.round(totalTokens / windowSize * 100)}%`}
+  </span> : null;
   // 按钮上显示当前分支用的角色名：优先按提示词内容匹配角色库；角色被删了但用的是内置的
   // 鲸鱼娘提示词时，仍认得出她。
   const roleName = (() => {
@@ -71,13 +100,14 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   {a.mime.startsWith('image/') ? <DraftImage attachment={a}/> : <span className="attachment-chip" title={a.name}>
                     <Paperclip size={15}/>
                     {a.name}
+                    {convertingAttachments.includes(a.id) && <em className="attachment-converting">转换中</em>}
                   </span>}
                   <button className="icon-button" title="移除附件" onClick={() => onRemoveAttachment(a)}>
                     <X size={12}/>
                   </button>
                 </div>)}
               </div>
-              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={text} onChange={e => { setText(e.target.value); onDraftChange(e.target.value); }} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
+              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={text} onChange={e => { setText(e.target.value); onDraftChange(e.target.value); }} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); if (!overWindow) onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
               <div className="composer-bottom">
                 <button className="icon-button" type="button" aria-label="添加图片或附件" title="添加图片或附件" onClick={() => fileRef.current?.click()}>
                   <ImagePlus size={20}/>
@@ -181,9 +211,10 @@ export default function Composer({ branch, model, models, connections, busy, pen
                     </select>}
                   </div>
                 </div>
+                {tokenBadge}
                 {busy ? <button className="send-button stop" title="停止生成" onClick={onStop}>
                   <Square size={15} fill="currentColor"/>
-                </button> : <button className="send-button" title="发送消息" disabled={pending || !model || (!text.trim() && !branch.draftAttachments.length)} onClick={onSend}>
+                </button> : <button className="send-button" disabled={pending || !model || overWindow || (!text.trim() && !branch.draftAttachments.length)} title={overWindow ? '超出模型窗口，无法发送' : '发送消息'} onClick={onSend}>
                   <ArrowUp size={20}/>
                 </button>}
               </div>
