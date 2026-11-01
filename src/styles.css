@@ -3337,3 +3337,12 @@ input[type="range"] {
   font-style: normal;
   color: var(--muted);
 }
+
+/* 这条消息发给模型的是摘要（原文仍在本地）：位置在正文上方，颜色压低，不抢内容。 */
+.condensed-note {
+  margin: 4px 0;
+  padding: 3px 8px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}

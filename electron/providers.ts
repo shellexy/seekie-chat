@@ -195,11 +195,15 @@ export function buildInput(protocol: string, messages: Message[], model?: Model)
     const items = m.attachments.map(attachment => {
       const data = attachmentBase64(attachment);
       const native = !!data && canSendNative(protocol, model, attachment);
-      return { attachment, data, native, markdown: native ? '' : attachment.markdown || markdownForUnsupported(attachment, protocol, model) };
+      // 发过摘要的消息：Markdown 已经并进 condensed 里，不能再拼一遍，否则等于没压。
+      const markdown = native || m.condensed ? '' : attachment.markdown || markdownForUnsupported(attachment, protocol, model);
+      return { attachment, data, native, markdown };
     });
-    const lost = items.find(item => !item.native && !item.markdown);
+    // 发过摘要的消息，附件内容已经并进 condensed：这时 markdown 为空是正常的，不是丢失。
+    const lost = m.condensed ? undefined : items.find(item => !item.native && !item.markdown);
     if (lost) throw new Error(`附件“${lost.attachment.name}”的内容已缺失，请重新添加该附件后再发送`);
-    const text = [m.text || (m.attachments.length ? '请查看附件。' : '（空消息）'), ...items.filter(item => item.markdown).map(({ attachment, markdown }) => `附件“${attachment.name}”的 Markdown 内容：\n${markdown}`)].join('\n\n');
+    const body = m.condensed ?? m.text;
+    const text = [body || (m.attachments.length ? '请查看附件。' : '（空消息）'), ...items.filter(item => item.markdown).map(({ attachment, markdown }) => `附件“${attachment.name}”的 Markdown 内容：\n${markdown}`)].join('\n\n');
     const payload = items.filter(item => item.native).map(({ attachment: a, data }) => {
       const format = a.name.split('.').at(-1)?.toLowerCase();
       if (protocol === 'gemini') return { inlineData: { mimeType: a.mime, data } };

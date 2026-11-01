@@ -7,7 +7,7 @@ import { Agent, MockAgent, setGlobalDispatcher } from 'undici';
 import { createServer } from 'node:http';
 import { connect, type AddressInfo } from 'node:net';
 import { authHeaders, buildInput, debugHeaders, endpoint, generate, listModels, parseServerModel, request, sse } from '../electron/providers';
-import { addMessage, appendAssistantSegment, createConversation, initialState, needsRawReplay } from '../src/domain';
+import { addMessage, appendAssistantSegment, createConversation, estimateTextTokens, initialState, needsRawReplay, uid } from '../src/domain';
 import type { Connection, Model, RequestRecord } from '../src/types';
 import { elapsedExcludingToolWait, UsageCounter } from '../electron/usage';
 const toStream = (chunks: string[]): AsyncIterable<Uint8Array> => ({
@@ -120,6 +120,21 @@ test('protocol-native signed blocks are preserved only in compatible unedited an
   assert.equal(buildInput('anthropic', [a])[0].content[0].signature, 'signed');
   assert.equal(buildInput('chat', [a])[0].content, '正文');
   a.edited = true; assert.equal(buildInput('anthropic', [a])[0].content[0].type, 'text');
+});
+test('a message sent as a summary drops its attachment markdown from the request', () => {
+  const state = initialState(), c = createConversation(state.settings);
+  const sent = addMessage(c, c.branches[0], 'user', '这份报告的要点是什么？');
+  sent.attachments = [{ id: uid(), name: '报告.pdf', mime: 'application/pdf', data: '', size: 10, markdown: '原始正文'.repeat(1000) }];
+  // 没有摘要时：正文 + 附件 Markdown 一起发。
+  const plain = JSON.stringify(buildInput('chat', [sent]));
+  assert.match(plain, /原始正文/);
+  // 发过摘要时：只发摘要，附件 Markdown 不再拼一遍，否则等于没压。
+  sent.condensed = '【摘要】报告的核心结论有三点。';
+  const condensed = JSON.stringify(buildInput('chat', [sent]));
+  assert.match(condensed, /核心结论/);
+  assert.doesNotMatch(condensed, /原始正文/);
+  // 估算口径也要跟着换：否则界面显示的占用会和真正发出去的对不上。
+  assert.ok(estimateTextTokens(sent.condensed!) < estimateTextTokens('原始正文'.repeat(1000)));
 });
 test('an answer without tools replays its text when no native entries were kept', () => {
   const state = initialState(), c = createConversation(state.settings);

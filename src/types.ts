@@ -78,6 +78,9 @@ export interface Message {
   attachments: Attachment[]; tools: ToolEvent[]; sources: Source[];
   status: 'complete' | 'streaming' | 'interrupted' | 'error'; error?: string;
   created: number; edited?: boolean; modelId?: string; modelName?: string; connectionName?: string; config?: ChatConfig; usage?: Usage;
+  // 这条消息超过模型窗口时，发送给模型的是压缩后的版本（原文仍留在本机，界面上照旧显示）。
+  // 有它就代表「模型看到的是摘要」，估算与 buildInput 都按它算。
+  condensed?: string;
   // Protocol-native assistant payload, preserved for signed thinking and tool continuity.
   raw?: unknown;
   // Maintained by the main process while an answer streams. Patches and full states both carry it,
@@ -153,6 +156,8 @@ export interface Bridge {
   // 添加附件时先转一次 Markdown：界面要靠它算这条消息占多少上下文，也让转换失败当场暴露。
   // 当前模型能原生读取该类型时返回空串。
   convert(attachment: { name: string; mime: string; data: string }, modelId: string): Promise<string>;
+  // 超窗时把这条消息压成能发出去的摘要：有损、且会产生额外请求，必须由用户显式触发。
+  condense(payload: { text: string; attachments: { name: string; markdown?: string }[] }, modelId: string, chatContextWindow: number): Promise<string>;
   exportData(format: 'json' | 'markdown', conversationId?: string): Promise<boolean>;
   importData(): Promise<AppState | null>;
   openExternal(url: string): Promise<void>;

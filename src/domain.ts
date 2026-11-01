@@ -436,6 +436,7 @@ export function sameMessage(a: Message, b: Message): boolean {
   return a.id === b.id && a.parentId === b.parentId && a.role === b.role && a.text === b.text && a.reasoning === b.reasoning
     && a.status === b.status && a.edited === b.edited && a.error === b.error && a.created === b.created
     && a.modelId === b.modelId && a.modelName === b.modelName && a.connectionName === b.connectionName && a.reasoningMs === b.reasoningMs
+    && a.condensed === b.condensed
     && a.segments?.length === b.segments?.length
     && (a.segments || []).every((segment, index) => { const other = b.segments![index]; return segment.type === other.type && (segment.type === 'tool' ? segment.toolId === (other as typeof segment).toolId : segment.text === (other as typeof segment).text && (segment.type === 'reasoning' ? segment.ms === (other as typeof segment).ms : true)); })
     && a.tools.length === b.tools.length
@@ -610,13 +611,14 @@ function tokenCounter(system = '') {
       const hasReportedOutput = message.role === 'assistant' && message.status === 'complete' && !message.edited
         && message.usage?.estimated !== true && Number.isFinite(message.usage?.output) && message.usage!.output > 0;
       if (hasReportedOutput) fixed += message.usage!.output;
-      else addText(message.text + (message.role === 'assistant' ? message.reasoning : '') + message.tools.map(t => t.input).join(''));
+      else addText((message.condensed ?? message.text) + (message.role === 'assistant' ? message.reasoning : '') + message.tools.map(t => t.input).join(''));
       // Tool results become input to later turns, so estimate them separately from assistant output usage.
       addText(message.tools.map(t => t.output).join(''));
       for (const attachment of message.attachments) {
-        if (attachment.markdown) addText(attachment.markdown);
+        // 已经改发摘要的消息，附件的 Markdown 不再随请求发送，也就不该算进上下文。
+        if (attachment.markdown && !message.condensed) addText(attachment.markdown);
         else if (attachment.mime.startsWith('image/')) fixed += 184;
-        else fixed += 1600; // Conservative fallback for native PDF, audio, and video inputs.
+        else if (!attachment.markdown) fixed += 1600; // Conservative fallback for native PDF, audio, and video inputs.
       }
       fixed += 12; // Message framing overhead.
       messageCount++;
@@ -643,6 +645,35 @@ export function estimateToolTokens(message: Message): number {
  * 一次回答至少给模型留多少输出。低于这个数就别发了：思考模型光推理就能把这点预算吃光，
  * 最后拿到一条空正文，报的还是「模型未返回回答正文」——不如直说空间不够。
  */
+/**
+ * 只用文本估一次 token，切块时要用。和 estimateTokens 同一套字符模型。
+ */
+export function estimateTextTokens(text: string) {
+  const counter = tokenCounter();
+  counter.addText(text);
+  return counter.value();
+}
+/**
+ * 把超长文本切成若干块，每块的估算不超过 budgetTokens。字符数按最坏情况换算（全是非 ASCII、
+ * 0.6 token/字符），所以切出来的块一定装得下。断点优先空行、其次换行，实在没有才硬切，
+ * 免得把一段话从中间劈开。
+ */
+export function chunkForTokens(text: string, budgetTokens: number): string[] {
+  const maxChars = Math.max(1000, Math.floor(budgetTokens / 0.6));
+  if (text.length <= maxChars) return [text];
+  const chunks: string[] = [];
+  let rest = text;
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars);
+    let cut = window.lastIndexOf('\n\n');
+    if (cut < maxChars * 0.5) cut = window.lastIndexOf('\n');
+    if (cut < maxChars * 0.5) cut = maxChars;
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, '');
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
 export const MIN_REPLY_TOKENS = 2048;
 /**
  * 这次请求实际能要多少输出。输入（正文 + 附件 + 工具结果 + 系统提示 + 摘要）和输出共用同一个

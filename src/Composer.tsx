@@ -107,7 +107,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                   </button>
                 </div>)}
               </div>
-              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={text} onChange={e => { setText(e.target.value); onDraftChange(e.target.value); }} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); if (!overWindow) onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
+              <textarea aria-label="消息输入" style={{ height: height }} ref={textareaRef} rows={2} placeholder={model ? '发送消息（Ctrl+I 聚焦，Shift+回车换行），或从回答中开启一个新分支…' : '先在设置中连接模型（Ctrl+I 聚焦输入，Shift+回车换行）…'} value={text} onChange={e => { setText(e.target.value); onDraftChange(e.target.value); }} onCompositionStart={() => composing.current = true} onCompositionEnd={() => composing.current = false} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !composing.current) { e.preventDefault(); onSend(); } }} onPaste={e => { const files = [...e.clipboardData.files]; if (files.length) { e.preventDefault(); onAttach(files); } }}/>
               <div className="composer-bottom">
                 <button className="icon-button" type="button" aria-label="添加图片或附件" title="添加图片或附件" onClick={() => fileRef.current?.click()}>
                   <ImagePlus size={20}/>
@@ -214,7 +214,7 @@ export default function Composer({ branch, model, models, connections, busy, pen
                 {tokenBadge}
                 {busy ? <button className="send-button stop" title="停止生成" onClick={onStop}>
                   <Square size={15} fill="currentColor"/>
-                </button> : <button className="send-button" disabled={pending || !model || overWindow || (!text.trim() && !branch.draftAttachments.length)} title={overWindow ? '超出模型窗口，无法发送' : '发送消息'} onClick={onSend}>
+                </button> : <button className="send-button" disabled={pending || !model || (!text.trim() && !branch.draftAttachments.length)} title={overWindow ? '超出模型窗口：发送时会先问你是否分段摘要' : '发送消息'} onClick={onSend}>
                   <ArrowUp size={20}/>
                 </button>}
               </div>

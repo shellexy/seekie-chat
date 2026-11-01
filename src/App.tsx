@@ -74,6 +74,8 @@ export default function App() {
   const [draftReset, setDraftReset] = useState(0);
   // 正在转换成 Markdown 的附件 id：chip 上显示「转换中」，转换结果回来才补 markdown。
   const [convertingAttachments, setConvertingAttachments] = useState<string[]>([]);
+  // 分段摘要是若干次串行请求，期间把输入框锁住，避免重复提交。
+  const [condensing, setCondensing] = useState(false);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [composerHeight, setComposerHeight] = useState(56);
   const [leftWidth, setLeftWidth] = useState(258), [rightWidth, setRightWidth] = useState(230);
@@ -499,15 +501,29 @@ export default function App() {
     if (!model) { toast('请先配置并选择聊天模型'); setShowSettings(true); return; }
     // 主进程也会拦（那里有精确的剩余空间计算），但等到那时用户消息已经落库、回答位上多一条
     // 失败消息。这里先算一次，超窗就什么都不发。
-    const pendingTokens = contextTokens + estimateTokens([{ id: 'draft', parentId: null, role: 'user', text, reasoning: '', attachments, tools: [], sources: [], status: 'complete', created: 0 }]);
+    const draftMessage = { id: 'draft', parentId: null, role: 'user' as const, text, reasoning: '', attachments, tools: [], sources: [], status: 'complete' as const, created: 0 };
+    const pendingTokens = contextTokens + estimateTokens([draftMessage]);
+    let condensed: string | undefined;
     if (pendingTokens > model.contextWindow) {
-      toast(`这条消息加上历史约 ${pendingTokens.toLocaleString('zh-CN')} token，超过模型窗口 ${model.contextWindow.toLocaleString('zh-CN')}，请删减附件或换用更大窗口的模型`);
-      return;
+      // 超窗不是死路：可以把这条消息分段摘要后发出去。有损、且会产生额外请求，所以先问一声。
+      const confirmed = confirm(`这条消息加上历史约 ${pendingTokens.toLocaleString('zh-CN')} token，超过模型窗口 ${model.contextWindow.toLocaleString('zh-CN')}。\n\n要先把这条消息分段摘要再发送吗？\n模型只会看到摘要；原始内容仍保存在本机，界面上照旧显示。摘要会产生若干次额外请求。`);
+      if (!confirmed) return;
+      setCondensing(true);
+      toast('正在分段摘要，请稍候…');
+      try {
+        condensed = await api.condense({ text, attachments: attachments.map(a => ({ name: a.name, markdown: a.markdown })) }, state.settings.compressionModel || branch.config.modelId, model.contextWindow);
+      } catch (error) { toast(`分段摘要失败：${error instanceof Error ? error.message : String(error)}`); return; }
+      finally { setCondensing(false); }
+      const afterTokens = contextTokens + estimateTokens([{ ...draftMessage, condensed }]);
+      if (afterTokens > model.contextWindow) {
+        toast(`摘要后仍有约 ${afterTokens.toLocaleString('zh-CN')} token，超过模型窗口；请再压缩历史或换用更大窗口的模型`);
+        return;
+      }
     }
 
     let messageId = '', branchId = branch.id, id = conversation.id;
     clearTimeout(persistDraftTimer.current); draftCache.current.delete(branch.id);
-    await commit(s => { const { c, b } = find(s); const m = addMessage(c, b, 'user', text); m.attachments = attachments; b.draft = ''; b.draftAttachments = []; const reply = addMessage(c, b, 'assistant', ''); messageId = reply.id; if (c.title === '新对话') c.title = m.text.slice(0, 24) || (m.attachments.length ? '附件对话' : '新对话'); });
+    await commit(s => { const { c, b } = find(s); const m = addMessage(c, b, 'user', text); m.attachments = attachments; if (condensed) m.condensed = condensed; b.draft = ''; b.draftAttachments = []; const reply = addMessage(c, b, 'assistant', ''); messageId = reply.id; if (c.title === '新对话') c.title = m.text.slice(0, 24) || (m.attachments.length ? '附件对话' : '新对话'); });
     setDraftReset(value => value + 1);
     setAtBottom(true); await begin(id, branchId, messageId);
   }

@@ -7,8 +7,9 @@ import { settingsProblems, validateState } from '../src/validation';
 import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { canSendNative, convertAttachment, convertUnsupportedAttachments, findAttachment } from './attachments';
+import { CONDENSE_SYSTEM_PROMPT, condenseToBudget } from './condense';
 import { fetchWebPageWithProviders } from './web_fetch';
-import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, MIN_REPLY_TOKENS, needsRawReplay, outputBudget, pathTo, summaryValid } from '../src/domain';
+import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTextTokens, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, MIN_REPLY_TOKENS, needsRawReplay, outputBudget, pathTo, summaryValid } from '../src/domain';
 import type { AppState, Branch, ChatConfig, Connection, Conversation, Message, Model, RequestRecord, RunRequest, WindowLayout } from '../src/types';
 import { elapsedExcludingToolWait } from './usage';
 import { RequestLog } from './request_log';
@@ -17,6 +18,8 @@ let win: BrowserWindow | null = null, state: AppState, store: Store;
 // 上次关闭时的窗口布局：尺寸、是否最大化、大纲栏开没开。主进程是唯一写它的人，渲染层只读写
 // 大纲栏那一项。
 let windowLayout: WindowLayout = { ...DEFAULT_WINDOW_SIZE, maximized: false, outline: true };
+// 正在跑的分段摘要：退出前要能中断，否则关窗口会留下一个还在发请求的进程。
+let condensing: AbortController | null = null;
 let layoutTimer: ReturnType<typeof setTimeout> | undefined;
 // 删除的宽限期：渲染层删掉的会话先只解绑、不落刀，窗口内可以整批拿回来。行、附件文件和请求记录
 // 都原样留着，所以撤销不需要恢复任何数据——它们根本没被删过。
@@ -145,13 +148,38 @@ async function compress(conversation: Conversation, branch: Branch, signal: Abor
   const valid = branch.summary && summaryValid(branch.summary, prefix);
   const remaining = valid ? prefix.slice(branch.summary!.nodeIds.length) : prefix;
   if (!remaining.length) return;
-  const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.text}\n${m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
+  // 已经发过摘要的消息直接用摘要：原文可能远超压缩模型自己的窗口。
+  const material = (valid ? `已有摘要：\n${branch.summary!.text}\n\n` : '') + remaining.map(m => `${m.role}：${m.condensed ?? m.text}\n${m.condensed ? '' : m.attachments.map(a => a.markdown ? `[附件：${a.name}]\n${a.markdown}` : `[附件：${a.name}]`).join('\n')} ${m.sources.map(s => `\n来源：${s.url}`).join('')}`).join('\n\n');
   if (material.length / 2 + 2048 > model.contextWindow) throw new Error('压缩模型上下文不足以处理这些历史，请选择更大窗口的模型');
   const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, MAX_COMPRESSION_RETAINED_TOKENS) }, { ...branch.config, modelId, search: 'off', webFetch: 'off', localTools: false, effort: 'auto', budget: 1024, system: HISTORY_COMPRESSION_PROMPT }, [plainMessage(material)], state.settings, signal);
   if (!result.text.trim()) throw new Error('压缩模型未返回摘要');
   if (!state.conversations.some(c => c.id === conversation.id)) return;
   conversation.backgroundUsage = [...(conversation.backgroundUsage || []), { kind: 'compression', modelId, usage: result.usage, created: Date.now() }];
   branch.summary = { text: result.text, nodeIds: prefix.map(m => m.id), modelId, created: Date.now() }; emit(true);
+}
+/**
+ * 把一条超窗的用户消息压成能发出去的摘要。问题本身很短时原样保留、只压附件——把「到底在问
+ * 什么」交给摘要模型改写，等于换了个人在问。
+ */
+async function condenseMessage(payload: { text: string; attachments: { name: string; markdown?: string }[] }, modelId: string, chatContextWindow: number, signal: AbortSignal) {
+  const { connection, model } = resolve(modelId);
+  const text = payload.text.trim();
+  const materials = payload.attachments.filter(a => a.markdown).map(a => `附件“${a.name}”的内容：\n${a.markdown}`);
+  // 摘要请求自己也得装得下：输入按窗口的 40% 切块，输出封到 4096。
+  const chunkTokens = Math.max(2048, Math.floor(model.contextWindow * 0.4));
+  // 目标大小不能只看摘要模型的窗口：最终要装进的是聊天模型的窗口，两者取小的那个一半，
+  // 剩下的留给历史与输出。
+  const target = Math.max(1024, Math.floor(Math.min(model.contextWindow, chatContextWindow || model.contextWindow) * 0.5));
+  const config: ChatConfig = { modelId, system: CONDENSE_SYSTEM_PROMPT, search: 'off', effort: 'auto', budget: 1024, webFetch: 'off', localTools: false };
+  const summarize = async (text: string) => {
+    const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 4096) }, config, [plainMessage(text)], state.settings, signal);
+    return result.text;
+  };
+  const keepQuestion = !!materials.length && estimateTextTokens(text) <= 2000;
+  const material = keepQuestion ? materials.join('\n\n') : [text, ...materials].filter(Boolean).join('\n\n');
+  if (!material) throw new Error('这条消息没有可摘要的内容');
+  const condensed = await condenseToBudget(material, target, chunkTokens, summarize);
+  return keepQuestion ? `${text}\n\n【以下为附件摘要】\n${condensed}` : condensed;
 }
 async function generateTitle(conversation: Conversation, config: ChatConfig, path: Message[]) {
   const live = state.conversations.find(c => c.id === conversation.id);
@@ -161,7 +189,7 @@ async function generateTitle(conversation: Conversation, config: ChatConfig, pat
   conversation.titleState = 'pending'; const controller = new AbortController(); titles.set(conversation.id, controller); emit();
   try {
     const modelId = state.settings.titleModel || config.modelId; const { connection, model } = resolve(modelId);
-    const material = path.filter(m => m.text.trim()).slice(0, 2).map(m => `${m.role}：${m.text.slice(0, 3000)}`).join('\n');
+    const material = path.filter(m => (m.condensed ?? m.text).trim()).slice(0, 2).map(m => `${m.role}：${(m.condensed ?? m.text).slice(0, 3000)}`).join('\n');
     const result = await generate(connection, { ...model, maxOutput: Math.min(model.maxOutput, 2048) }, { ...config, modelId, search: 'off', webFetch: 'off', localTools: false, effort: 'auto', budget: 1024, system: '为下面的对话生成简短标题。中文约8至20字，其他语言同等长度。语言跟随用户。只输出标题，不加引号、解释或Markdown。' }, [plainMessage(material)], state.settings, controller.signal);
     const current = state.conversations.find(c => c.id === conversation.id);
     if (current) current.backgroundUsage = [...(current.backgroundUsage || []), { kind: 'title', modelId, usage: result.usage, created: Date.now() }];
@@ -341,6 +369,16 @@ function register() {
     try { await compress(conversation, branch, controller.signal); } finally { tasks.delete(id); store.save(state); emit(true); }
   });
   // Attachment payloads are fetched one at a time: a broadcast carries no bytes, only references.
+  // 超窗时由渲染层显式发起：把这条消息压到能发出去为止。有损且要花额外的请求，所以绝不自动做。
+  handle('condense', async (payload: { text: string; attachments: { name: string; markdown?: string }[] }, modelId: string, chatContextWindow: number) => {
+    if (!payload || typeof payload.text !== 'string' || !Array.isArray(payload.attachments)) throw new Error('摘要参数无效');
+    if (tasks.size) throw new Error('请先等待当前任务完成');
+    const controller = new AbortController(); condensing = controller;
+    const picked = modelId || state.settings.compressionModel || '';
+    if (!picked) throw new Error('请先在设置里选择「历史压缩模型」，或用当前聊天模型再试');
+    try { return await condenseMessage(payload, picked, Number(chatContextWindow) || 0, controller.signal); }
+    finally { condensing = null; }
+  });
   handle('attachment', (id: string) => typeof id === 'string' && /^[a-f0-9-]{36}$/.test(id) ? findAttachment(state, id)?.data || '' : '');
   // 添加附件时先转一次 Markdown：它是「这条消息要占多少上下文」的大头，界面得立刻能算出来。
   // 顺带把「当前模型读不了、也转不了」提前到添加那一刻——之前要等发送才报错。当前模型能原生
@@ -455,5 +493,5 @@ else {
   // 时，数据库已经关了，那时再写就只剩报错。
   // 宽限期里没点撤销就算确定要删：先解绑，紧接着那次 store.save 才会真的把行和附件清掉。
   // （被强杀时留着的行还在，下次启动这些会话会回来——宁可多留一份，也不要误删。）
-  app.on('before-quit', () => { clearTimeout(persistTimer); if (store) { flushWindowLayout(); closeGrace(false); } if (state && store) { store.save(state); store.close(); } });
+  app.on('before-quit', () => { condensing?.abort(); clearTimeout(persistTimer); if (store) { flushWindowLayout(); closeGrace(false); } if (state && store) { store.save(state); store.close(); } });
 }
