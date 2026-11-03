@@ -49,9 +49,9 @@ test('usage aggregation counts cumulative frames once and keeps unknown cache di
   counter.observe({ input: 100, output: 1, cachedInput: 20 });
   counter.observe({ input: 100, output: 9, cachedInput: 20 }); counter.finishRound();
   counter.observe({ input: 110, output: 6, cachedInput: 0 }); counter.finishRound();
-  assert.deepEqual(counter.total, { input: 210, output: 15, cachedInput: 20 });
+  assert.deepEqual(counter.total, { input: 210, output: 15, cachedInput: 20, requests: 2 });
   counter.observe({ input: 120, output: 10 }); counter.finishRound();
-  assert.deepEqual(counter.total, { input: 330, output: 25 });
+  assert.deepEqual(counter.total, { input: 330, output: 25, requests: 3 });
   counter.observe({ input: 130, output: 4, cachedInput: 15 }); counter.finishRound();
   assert.equal(counter.total.cachedInput, undefined, 'partial cache totals must not be presented as complete');
 });
@@ -87,7 +87,7 @@ for (const variant of ['chat', 'deepseek', 'responses', 'anthropic', 'gemini'] a
     agent.get('https://fixture.invalid').intercept({ path, method: 'POST' }).reply(200, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''));
     const state = initialState(), c = createConversation(state.settings), b = c.branches[0]; addMessage(c, b, 'user', '你好');
     const result = await generate(connection(protocol), model, { ...b.config, search: 'off' }, c.messages, state.settings, new AbortController().signal);
-    assert.deepEqual(result.usage, { input: 100, output: 8, cachedInput: 40 });
+    assert.deepEqual(result.usage, { input: 100, output: 8, cachedInput: 40, requests: 1 });
   } finally { await agent.close(); }
 });
 test('URL construction respects v1 and custom prefixes', () => {
@@ -186,7 +186,7 @@ for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${prot
   agent.get('https://fixture.invalid').intercept({ path: `/v1/${path}`, method: 'POST' }).reply(200, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
   const state = initialState(), c = createConversation(state.settings), b = c.branches[0]; addMessage(c, b, 'user', '你好'); const output: string[] = [];
   const result = await generate(connection(protocol), model, b.config, c.messages, state.settings, new AbortController().signal, { text: s => output.push(s), reasoning() {}, tool() {}, sources() {} });
-  assert.equal(result.text, '你好'); assert.equal(result.reasoning, '摘要'); assert.deepEqual(result.usage, { input: 10, output: 2 }); assert.equal(output.join(''), '你好'); assert.ok(result.raw.entries.length);
+  assert.equal(result.text, '你好'); assert.equal(result.reasoning, '摘要'); assert.deepEqual(result.usage, { input: 10, output: 2, requests: 1 }); assert.equal(output.join(''), '你好'); assert.ok(result.raw.entries.length);
   await agent.close();
 });
 for (const protocol of ['chat', 'responses', 'anthropic'] as const) test(`${protocol} sends the branch temperature and top_p settings`, async () => {

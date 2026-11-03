@@ -4,11 +4,15 @@ import type { Conversation, Model } from './types';
 
 // 只从当前保留的会话里算（方案 A）。页面必须把这件事说在明处：它不是账本，删掉的会话不该
 // 悄悄消失在「历史花费」里而不解释。
-const RANGES = [['7', '近 7 天'], ['30', '近 30 天'], ['all', '全部']] as const;
+const RANGES = [['1', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['all', '全部']] as const;
 
 export default function UsagePage({ conversations, models }: { conversations: Conversation[]; models: Model[] }) {
-  const [range, setRange] = useState<'7' | '30' | 'all'>('30');
-  const report = useMemo(() => buildUsageReport(conversations, { days: range === 'all' ? undefined : Number(range) }), [conversations, range]);
+  const [range, setRange] = useState<'1' | '7' | '30' | 'all'>('30');
+  const report = useMemo(() => {
+    if (range === 'all') return buildUsageReport(conversations);
+    if (range === '1') { const start = new Date(); start.setHours(0, 0, 0, 0); return buildUsageReport(conversations, { since: start.getTime() }); }
+    return buildUsageReport(conversations, { days: Number(range) });
+  }, [conversations, range]);
   const nameOf = (modelId: string, fallback: string) => models.find(model => model.id === modelId)?.name || fallback || '未知模型';
   const days = report.byDay.slice(0, 14);
   const busiest = Math.max(1, ...days.map(day => day.input + day.output));
@@ -19,6 +23,7 @@ export default function UsagePage({ conversations, models }: { conversations: Co
       {report.answers ? <>
         <div className="usage-summary">
           <div><strong>{report.answers}</strong><span>回答</span></div>
+          <div><strong>{report.requests}</strong><span>请求</span></div>
           <div><strong>{formatTokens(report.input)}</strong><span>输入</span></div>
           <div><strong>{formatTokens(report.output)}</strong><span>输出</span></div>
           <div><strong>{report.cachedInput ? formatTokens(report.cachedInput) : '—'}</strong><span>缓存命中</span></div>
@@ -30,10 +35,10 @@ export default function UsagePage({ conversations, models }: { conversations: Co
     </div>
     {report.byModel.length > 0 && <div className="settings-card"><h3>按模型</h3>
       <div className="usage-rows">
-        <div className="usage-row usage-head"><span>模型</span><span>回答</span><span>输入</span><span>输出</span><span>缓存</span></div>
+        <div className="usage-row usage-head"><span>模型</span><span>回答</span><span>请求</span><span>输入</span><span>输出</span><span>缓存</span></div>
         {report.byModel.map(model => <div className="usage-row" key={model.modelId || model.modelName}>
-          <span title={model.connectionName || undefined}>{nameOf(model.modelId, model.modelName)}</span>
-          <span>{model.answers}</span><span>{formatTokens(model.input)}</span><span>{formatTokens(model.output)}</span><span>{model.cachedInput ? formatTokens(model.cachedInput) : '—'}</span>
+          <span className="usage-model"><b>{nameOf(model.modelId, model.modelName)}</b>{model.connectionName && <small>{model.connectionName}</small>}</span>
+          <span>{model.answers}</span><span>{model.requests}</span><span>{formatTokens(model.input)}</span><span>{formatTokens(model.output)}</span><span>{model.cachedInput ? formatTokens(model.cachedInput) : '—'}</span>
         </div>)}
       </div>
     </div>}

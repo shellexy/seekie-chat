@@ -32,6 +32,7 @@ export class UsageCounter {
   }
 
   finishRound() {
+    this.total.requests = (this.total.requests ?? 0) + 1;
     this.total.input += this.round.input ?? 0;
     this.total.output += this.round.output ?? 0;
     this.cacheKnown &&= this.round.cachedInput !== undefined;

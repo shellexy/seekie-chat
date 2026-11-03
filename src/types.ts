@@ -62,6 +62,8 @@ export type AssistantSegment = { type: 'text'; text: string } | { type: 'reasoni
 export interface Source { title: string; url: string }
 export interface Usage {
   input: number; output: number; estimated?: boolean;
+  // 这条回答一共发了多少次请求（多轮工具调用每轮一次）。老数据没有这一项。
+  requests?: number;
   // Cached reads are a subset of total input; absent means the service did not report them.
   cachedInput?: number;
   // Full chat request duration includes visible tool waits; generationMs excludes the union of measured tool intervals.

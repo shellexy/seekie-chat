@@ -39,7 +39,7 @@ test('Gemini sends images and system prompts, separates thoughts and counts cumu
     assert.deepEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: 'LOW' });
     assert.equal(body.generationConfig.temperature, 0.4); assert.equal(body.generationConfig.topP, 0.65);
     assert.deepEqual(body.contents[0].parts[0], { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } });
-    assert.equal(result.text, '图片中有树。'); assert.equal(result.reasoning, '观察图片。'); assert.deepEqual(result.usage, { input: 10, output: 7 });
+    assert.equal(result.text, '图片中有树。'); assert.equal(result.reasoning, '观察图片。'); assert.deepEqual(result.usage, { input: 10, output: 7, requests: 1 });
     const answer = addMessage(conversation, branch, 'assistant', result.text); answer.status = 'complete'; answer.raw = result.raw;
     assert.equal(buildInput('gemini', [answer])[0].parts[1].thoughtSignature, 'signed-text');
     answer.edited = true; assert.deepEqual(buildInput('gemini', [answer]), [{ role: 'model', parts: [{ text: result.text }] }]);

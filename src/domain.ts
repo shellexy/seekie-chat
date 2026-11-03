@@ -656,26 +656,29 @@ export function estimateToolTokens(message: Message): number {
  * 对不上，用户只会以为统计算出错。
  */
 export type UsageReport = {
-  answers: number; input: number; output: number; cachedInput: number; estimated: number;
+  answers: number; requests: number; input: number; output: number; cachedInput: number; estimated: number;
   background: { count: number; input: number; output: number };
-  byModel: { modelId: string; modelName: string; connectionName: string; answers: number; input: number; output: number; cachedInput: number; estimated: number }[];
+  byModel: { modelId: string; modelName: string; connectionName: string; answers: number; requests: number; input: number; output: number; cachedInput: number; estimated: number }[];
   byDay: { day: string; answers: number; input: number; output: number }[];
 };
-export function buildUsageReport(conversations: Conversation[], options: { days?: number; now?: number } = {}): UsageReport {
+export function buildUsageReport(conversations: Conversation[], options: { days?: number; since?: number; now?: number } = {}): UsageReport {
   const now = options.now ?? Date.now();
-  const since = options.days ? now - options.days * 86_400_000 : -Infinity;
-  const report: UsageReport = { answers: 0, input: 0, output: 0, cachedInput: 0, estimated: 0, background: { count: 0, input: 0, output: 0 }, byModel: [], byDay: [] };
+  // since 优先于 days：「今天」是本地日历日的起点，不是「最近 24 小时」。
+  const since = options.since ?? (options.days ? now - options.days * 86_400_000 : -Infinity);
+  const report: UsageReport = { answers: 0, requests: 0, input: 0, output: 0, cachedInput: 0, estimated: 0, background: { count: 0, input: 0, output: 0 }, byModel: [], byDay: [] };
   const models = new Map<string, UsageReport['byModel'][number]>(), days = new Map<string, UsageReport['byDay'][number]>();
   const dayKey = (timestamp: number) => { const date = new Date(timestamp); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
   for (const conversation of conversations) {
     for (const message of conversation.messages) {
       const usage = message.usage;
       if (!usage || message.created < since) continue;
-      report.answers++; report.input += usage.input; report.output += usage.output; report.cachedInput += usage.cachedInput ?? 0;
+      // 老数据没有 requests：单轮回答本来就是 1 次，按 1 计；多轮的旧记录会少算，只能这样。
+      const requests = usage.requests ?? 1;
+      report.answers++; report.requests += requests; report.input += usage.input; report.output += usage.output; report.cachedInput += usage.cachedInput ?? 0;
       if (usage.estimated) report.estimated++;
       const modelId = message.modelId || '';
-      const model = models.get(modelId) ?? { modelId, modelName: message.modelName || '', connectionName: message.connectionName || '', answers: 0, input: 0, output: 0, cachedInput: 0, estimated: 0 };
-      model.answers++; model.input += usage.input; model.output += usage.output; model.cachedInput += usage.cachedInput ?? 0;
+      const model = models.get(modelId) ?? { modelId, modelName: message.modelName || '', connectionName: message.connectionName || '', answers: 0, requests: 0, input: 0, output: 0, cachedInput: 0, estimated: 0 };
+      model.answers++; model.requests += requests; model.input += usage.input; model.output += usage.output; model.cachedInput += usage.cachedInput ?? 0;
       if (usage.estimated) model.estimated++;
       models.set(modelId, model);
       const day = dayKey(message.created);

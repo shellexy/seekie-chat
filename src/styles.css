@@ -3403,7 +3403,8 @@ input[type="range"] {
 /* 用量页：四个大数字 + 两张紧凑表。数字用等宽数字（tabular-nums），列表右对齐才好扫。 */
 .usage-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 5 项（回答/请求/输入/输出/缓存）：窄窗口会折成两行，宽窗口一行放完，不写死列数。 */
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 12px;
   margin: 4px 0 12px;
 }
@@ -3416,8 +3417,10 @@ input[type="range"] {
   font-size: 20px;
   font-variant-numeric: tabular-nums;
 }
+/* 标签与数字都用正文色：这一页的字号已经够小，再用 muted 会看不清。
+   只有「说明性」的段落（.muted / .usage-scope）保持淡色。 */
 .usage-summary span {
-  color: var(--muted);
+  color: var(--text);
   font-size: 11px;
 }
 .usage-rows {
@@ -3428,7 +3431,7 @@ input[type="range"] {
 }
 .usage-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 0.7fr));
+  grid-template-columns: minmax(0, 1.6fr) repeat(5, minmax(0, 0.7fr));
   gap: 8px;
   padding: 5px 0;
   border-bottom: 1px solid var(--line);
@@ -3444,15 +3447,31 @@ input[type="range"] {
 }
 .usage-row > span:not(:first-child) {
   text-align: right;
-  color: var(--muted);
 }
 .usage-row.usage-head {
-  color: var(--muted);
+  color: var(--text);
   font-size: 11px;
   border-bottom: 1px solid var(--line);
 }
-.usage-row.usage-head > span:not(:first-child) {
-  color: var(--muted);
+/* 模型单元格两行：模型名 + 供应商。都用正文色，靠字号区分主次。 */
+.usage-model {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+.usage-model b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-model small {
+  color: var(--text);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .usage-days {
   display: flex;
@@ -3465,7 +3484,7 @@ input[type="range"] {
   align-items: center;
   gap: 8px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text);
 }
 .usage-day i {
   display: block;
