@@ -79,9 +79,19 @@ export async function seedDemoData() {
   const weeklyBranch = { id: uuid(), name: '主线', leafId: weeklyAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: scheduledNoon(1) };
   const weekly = { id: uuid(), title: '把调研整理成周报', manualTitle: true, titleState: 'done', created: scheduledNoon(1), updated: scheduledNoon(1), activeBranchId: weeklyBranch.id, branches: [weeklyBranch], messages: [weeklyQuestion, weeklyAnswer] };
 
-  const others = ['整理 Electron 主进程的启动流程', '把这段 SQL 改写成窗口函数', '周报：本周进展与下周计划', '给鲸鱼娘写一段角色设定'].map((title, index) => {
-    const branchId = uuid(), at = scheduledNoon([2, 3, 4, 40][index]);
-    return { id: uuid(), title, manualTitle: true, titleState: 'done', created: at, updated: at, activeBranchId: branchId, branches: [{ id: branchId, name: '主线', leafId: null, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: at }], messages: [] };
+  // 侧栏里每条会话都要有内容：只塞标题、消息留空的话，点开是一片空白，用量页也数不到它
+  // ——图里就会出现「侧栏 5 条会话、总览 3 个回答」这种对不上的情况。
+  const turns = [
+    { title: '整理 Electron 主进程的启动流程', at: 2, question: '把 Electron 主进程从启动到建窗口的流程整理成一段说明。', answer: '入口先解析命令行与单实例锁，再注册 IPC、初始化数据库，最后才建窗口；顺序错了会出现「界面先出来、数据还没就绪」。', usage: { input: 3200, output: 540, cachedInput: 2000, requests: 2, elapsedMs: 6400, generationMs: 5200, firstTokenMs: 780, firstOutputMs: 700 } },
+    { title: '把这段 SQL 改写成窗口函数', at: 3, question: '这段按日累加的 SQL 用窗口函数怎么写？', answer: '用 `SUM(total) OVER (PARTITION BY user_id ORDER BY day)`，去掉自连接之后既好读也快一个数量级。', usage: { input: 1600, output: 420, cachedInput: 1200, requests: 1, elapsedMs: 3900, generationMs: 3300, firstTokenMs: 520, firstOutputMs: 520 } },
+    { title: '周报：本周进展与下周计划', at: 4, question: '根据这周的记录写一份周报，结论放前面。', answer: '本周把启动流程拆成了三段并补齐日志；下周接上打包与自动更新，风险是跨平台验证还得排时间。', usage: { input: 2100, output: 380, cachedInput: 0, requests: 1, elapsedMs: 4200, generationMs: 3500, firstTokenMs: 610, firstOutputMs: 600 } },
+    { title: '给鲸鱼娘写一段角色设定', at: 40, question: '给鲸鱼娘写一段角色设定，语气轻快一点。', answer: '她住在屏幕角落的浅海里，说话总带一点水汽；遇到难题会先歪头想一会儿，再把答案推到你面前。', usage: { input: 2800, output: 700, cachedInput: 1800, requests: 2, elapsedMs: 7200, generationMs: 6100, firstTokenMs: 820, firstOutputMs: 760 } }
+  ];
+  const others = turns.map(turn => {
+    const branchId = uuid(), at = scheduledNoon(turn.at);
+    const question = { id: uuid(), parentId: null, role: 'user', text: turn.question, reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: at };
+    const answer = { id: uuid(), parentId: question.id, role: 'assistant', text: turn.answer, reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: at + 60_000, modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config, usage: turn.usage };
+    return { id: uuid(), title: turn.title, manualTitle: true, titleState: 'done', created: at, updated: at, activeBranchId: branchId, branches: [{ id: branchId, name: '主线', leafId: answer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: at }], messages: [question, answer] };
   });
 
   state.settings.connections = [deepseek, openai];
