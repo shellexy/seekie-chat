@@ -3467,7 +3467,7 @@ input[type="range"] {
   white-space: nowrap;
 }
 .usage-model small {
-  color: var(--text);
+  color: var(--muted);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
