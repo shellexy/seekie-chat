@@ -7,6 +7,7 @@ import { settingsProblems, validateState } from '../src/validation';
 import { applyStateChanges, type StateChange } from '../src/domain';
 import { generate, listModels, type WebFetch } from './providers';
 import { canSendNative, convertAttachment, convertUnsupportedAttachments, findAttachment } from './attachments';
+import { fetchBalance } from './balance';
 import { CONDENSE_SYSTEM_PROMPT, condenseToBudget } from './condense';
 import { fetchWebPageWithProviders } from './web_fetch';
 import { appendAssistantSegment, appendReasoningDuration, compressionCut, contextMessages, effectiveProtocol, estimateTextTokens, estimateTokens, MAX_COMPRESSION_RETAINED_TOKENS, MIN_REPLY_TOKENS, needsRawReplay, outputBudget, pathTo, summaryValid } from '../src/domain';
@@ -20,6 +21,8 @@ let win: BrowserWindow | null = null, state: AppState, store: Store;
 let windowLayout: WindowLayout = { ...DEFAULT_WINDOW_SIZE, maximized: false, outline: true };
 // 正在跑的分段摘要：退出前要能中断，否则关窗口会留下一个还在发请求的进程。
 let condensing: AbortController | null = null;
+// 各连接的余额查询结果（主进程内存，不进 AppState，也就不会进备份）。
+const balances = new Map<string, { at: number; text?: string; detail?: string; error?: string }>();
 let layoutTimer: ReturnType<typeof setTimeout> | undefined;
 // 删除的宽限期：渲染层删掉的会话先只解绑、不落刀，窗口内可以整批拿回来。行、附件文件和请求记录
 // 都原样留着，所以撤销不需要恢复任何数据——它们根本没被删过。
@@ -396,6 +399,22 @@ function register() {
     const branch = conversation.branches.find(b => b.id === conversation.activeBranchId)!; const path = pathTo(conversation, branch.leafId);
     if (!path.some(m => m.role === 'assistant' && m.status === 'complete' && m.text.trim())) throw new Error('请先完成一次模型回答');
     conversation.manualTitle = false; conversation.titleState = 'idle'; await generateTitle(conversation, branch.config, path);
+  });
+  // 余额只在用户按刷新时查：有些服务按请求计数，设置页一打开就发一堆请求不合适。缓存放在
+  // 主进程内存里（不进 AppState），所以关掉设置页再打开还能看到上次的结果与时间，重启则清空。
+  handle('balance', async (connectionId: string, refresh: boolean) => {
+    const connection = state.settings.connections.find(c => c.id === connectionId);
+    if (!connection) throw new Error('连接不存在');
+    if (!refresh) return balances.get(connectionId) ?? null;
+    const previous = balances.get(connectionId);
+    try {
+      const result = await fetchBalance(connection, new AbortController().signal);
+      balances.set(connectionId, { at: Date.now(), ...result });
+    } catch (error) {
+      // 刷新失败时保留上一次查到的余额，只把失败信息与这次的时间记上——总比把数字擦掉有用。
+      balances.set(connectionId, { at: Date.now(), text: previous?.text, detail: previous?.detail, error: redact(error) });
+    }
+    return balances.get(connectionId);
   });
   handle('test', async (connection: Connection) => {
     if (connection.apiKey === SECRET_MARKER) connection.apiKey = state.settings.connections.find(c => c.id === connection.id)?.apiKey || '';

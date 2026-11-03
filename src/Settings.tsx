@@ -31,7 +31,24 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');
   const [testing, setTesting] = useState(false), [found, setFound] = useState<ServerModel[]>([]);
+  // 余额只在按刷新时真的查；切换连接时读主进程里缓存的上次结果（不发请求）。
+  const [balance, setBalance] = useState<{ at: number; text?: string; detail?: string; error?: string } | null>(null);
+  const [balanceBusy, setBalanceBusy] = useState(false);
   const [picker, setPicker] = useState(false), [picked, setPicked] = useState<Set<string>>(new Set()), [foundQuery, setFoundQuery] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setBalance(null);
+    if (!selected) return () => { alive = false; };
+    void api.balance(selected, false).then(result => { if (alive) setBalance(result); }).catch(() => {});
+    return () => { alive = false; };
+  }, [selected]);
+  async function refreshBalance() {
+    if (!selected || balanceBusy) return;
+    setBalanceBusy(true);
+    try { setBalance(await api.balance(selected, true)); }
+    catch (error) { toast(`余额查询失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { setBalanceBusy(false); }
+  }
   const [headersText, setHeadersText] = useState(''), [headersEditing, setHeadersEditing] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   // 有没有还没写下去的改动：顶栏要如实说出来，不然"自动保存"三个字会骗人。
@@ -220,6 +237,12 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     {tab === 'connections' && <><h2>模型服务</h2><p className="muted">选择接口协议，添加模型 ID。兼容服务的能力需要按实际情况配置。</p><div className="preset-row">{templates.map((t, i) => <button key={t.name} onClick={() => addConnection(i)}><Plus size={14}/>{t.name}</button>)}</div>
       {!!draft.connections.length && <div className="connection-tabs">{draft.connections.map(c => <button key={c.id} className={`${selected === c.id ? 'active' : ''}${c.disabled ? ' stopped' : ''}`} title={c.disabled ? `${c.name}（已禁用）` : c.name} onClick={() => { setSelected(c.id); setFound([]); setHeadersEditing(false); }}>{c.name}{c.disabled && <span className="stopped-dot"/>}</button>)}</div>}
       {connection ? <><div className="settings-card"><div className="card-heading"><h3>连接配置</h3><div className="card-actions"><button className="icon-button danger" title="删除连接及其模型" onClick={() => { if (!confirm('删除该连接及其模型？已有消息仍保留。')) return; change({ connections: draft.connections.filter(c => c.id !== selected), models: draft.models.filter(m => m.connectionId !== selected) }); setSelected(draft.connections.find(c => c.id !== selected)?.id || ''); }}><Trash2 size={16}/></button><button className={`icon-button connection-toggle${connection?.disabled ? ' on' : ''}`} aria-label={connection?.disabled ? '启用连接' : '禁用连接'} title={connection?.disabled ? '启用该连接，其模型重新出现在模型选择器中' : '禁用该连接：配置与模型保留，但不再参与模型选择'} onClick={() => updateConnection({ disabled: !connection?.disabled })}>{connection?.disabled ? <PowerOff size={16}/> : <Power size={16}/>}</button></div></div>
+      <div className="balance-row">
+        {balance?.text ? <strong title={balance.detail}>{balance.text}</strong> : <strong className="muted">{balance?.error ? '未获取到余额' : '余额未知'}</strong>}
+        <button className="text-button" disabled={balanceBusy} onClick={() => void refreshBalance()}>{balanceBusy ? '查询中…' : '刷新余额'}</button>
+        {balance && <small className="muted" title={balance.detail}>上次查询 {new Date(balance.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</small>}
+        {balance?.error && <small className="balance-error" title={balance.error}>{balance.text ? '本次刷新失败' : balance.error.slice(0, 60)}</small>}
+      </div>
       <div className="form-grid"><label className="field">连接名称<input value={connection.name} onChange={e => updateConnection({ name: e.target.value })}/></label><label className="field">接口协议<select value={connection.protocol} onChange={e => updateConnection({ protocol: e.target.value as Connection['protocol'] })}><option value="responses">OpenAI Responses</option><option value="chat">OpenAI Chat Completions</option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini GenerateContent</option></select></label></div>
       {connection.protocol === 'chat' && <label className="toggle-row">GPT 模型自动使用 Responses 协议<input type="checkbox" checked={connection.responsesForGpt === true} onChange={e => updateConnection({ responsesForGpt: e.target.checked })}/></label>}
       {connection.protocol === 'chat' && <p className="muted" style={{ marginTop: -12, marginBottom: 16 }}>模型 ID 形如 <code>gpt-6-astra</code>、<code>gpt-6-luna</code>、<code>gpt-6.1-sol</code> 的模型改用 Responses 协议，以支持推理摘要等新特性；<code>gpt-oss</code> 等不匹配的模型仍走 Chat Completions。</p>}

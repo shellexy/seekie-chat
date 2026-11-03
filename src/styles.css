@@ -3357,3 +3357,20 @@ input[type="range"] {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
+
+/* 连接卡片里的余额行：只有按「刷新余额」才去查，所以把上次查询时间一起摆出来。 */
+.balance-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+  font-size: 12px;
+}
+.balance-row strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.balance-error {
+  color: #b35247;
+}

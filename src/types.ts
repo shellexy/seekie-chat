@@ -149,6 +149,8 @@ export interface Bridge {
   compress(conversationId: string, branchId: string): Promise<void>;
   test(connection: Connection): Promise<ServerModel[]>; title(conversationId: string): Promise<void>;
   debug(messageId: string): Promise<RequestRecord[]>;
+  // 余额：refresh=false 只读主进程内存里的上次结果（不发请求），true 才真的去查。
+  balance(connectionId: string, refresh: boolean): Promise<{ at: number; text?: string; detail?: string; error?: string } | null>;
   // 关于页用的运行时版本。渲染进程是沙箱，拿不到 process，所以由主进程给。
   versions(): Promise<Versions>;
   // Attachment payloads are fetched one at a time instead of travelling with every broadcast.
