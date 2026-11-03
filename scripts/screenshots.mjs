@@ -136,6 +136,11 @@ await page.evaluate(() => { const el = document.querySelector('.settings-content
 await page.waitForTimeout(250);
 await shot('search');
 
+// 设置 · 用量：纯派生统计，数字来自上面这套模拟会话。
+await page.locator('.settings-nav').getByRole('button', { name: '用量' }).click();
+await page.waitForTimeout(350);
+await shot('usage');
+
 // 深色主题：同一屏，换主题即可。
 await page.getByTitle('返回聊天', { exact: true }).click();
 await page.locator('.settings-page').waitFor({ state: 'hidden' });

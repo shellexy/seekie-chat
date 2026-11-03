@@ -774,7 +774,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
                             {branchMenu && <div className="popover branch-popover">
                                   <div className="popover-heading">对话分支 · {conversation!.branches.length}
                                 </div>
-                                      {branchTree(conversation!.branches).map(({ branch: b, depth }) => <div className="branch-option" key={b.id} style={{ paddingLeft: `${8 + depth * 14}px` }}>
+                                      {branchTree(conversation!.branches).map(({ branch: b, depth }) => <div className="branch-option" key={b.id} data-id={b.id} style={{ paddingLeft: `${8 + depth * 14}px` }}>
                                           <button onClick={() => switchBranch(b.id)}>
                                             <GitBranch size={14}/>
                                                 <span>

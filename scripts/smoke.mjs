@@ -965,8 +965,10 @@ try {
 
   await page.getByTitle('从此回答创建分支', { exact: true }).first().click();
   await page.locator('.branch-pill').click();
-  const branchRows = page.locator('.branch-option');
-  await branchRows.last().getByTitle('重命名分支').click();
+  // 按分支 id 定位刚建出来的那一支：分支列表按更新时间排，取最后一行可能落到别的分支上
+  //（重命名后 awaits 一下也能通过，于是错得很安静）。
+  const forkedBranchId = await page.evaluate(async () => { const s = await window.seekie.load(); const c = s.conversations.find(c => c.id === s.selectedId); return c.activeBranchId; });
+  await page.locator(`.branch-option[data-id="${forkedBranchId}"]`).getByTitle('重命名分支').click();
   const branchRenameDialog = page.getByRole('dialog', { name: '重命名分支' });
   await branchRenameDialog.waitFor({ state: 'visible' });
   await branchRenameDialog.getByLabel('分支名称').fill('Electron 方案');

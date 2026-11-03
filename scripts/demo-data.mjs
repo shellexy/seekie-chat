@@ -34,7 +34,7 @@ export async function seedDemoData() {
     ],
     status: 'complete', created: now - 4 * 60_000,
     modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config,
-    usage: { input: 1820, output: 460, cachedInput: 900, elapsedMs: 8200, generationMs: 6100, firstTokenMs: 900, firstOutputMs: 700 }
+    usage: { input: 1820, output: 460, cachedInput: 900, requests: 3, elapsedMs: 8200, generationMs: 6100, firstTokenMs: 900, firstOutputMs: 700 }
   };
   const followUp = { id: uuid(), parentId: answer.id, role: 'user', text: '那内存占用具体差多少？', reasoning: '', attachments: [], tools: [], sources: [], status: 'complete', created: now - 2 * 60_000 };
   const finalAnswer = {
@@ -44,7 +44,7 @@ export async function seedDemoData() {
     segments: [{ type: 'text', text: '空载时 Electron 大约 120–180 MB，Tauri 在 Linux 上通常 40–80 MB，但两者都会随页面复杂度上升而收敛。\n\n差距主要来自 Chromium 的常驻进程模型，而不是业务代码本身。' }],
     attachments: [], tools: [], sources: [], status: 'complete', created: now - 60_000,
     modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config,
-    usage: { input: 2400, output: 180, cachedInput: 1900, elapsedMs: 4300, generationMs: 3900, firstTokenMs: 620, firstOutputMs: 620 }
+    usage: { input: 2400, output: 180, cachedInput: 1900, requests: 1, elapsedMs: 4300, generationMs: 3900, firstTokenMs: 620, firstOutputMs: 620 }
   };
 
   const mainBranch = { id: uuid(), name: '主线', leafId: finalAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: now };
@@ -74,7 +74,7 @@ export async function seedDemoData() {
     ],
     attachments: [], tools: [confirmSize, confirmPage], sources: [], status: 'complete', created: now - 2 * 60_000,
     modelId: flash.id, modelName: flash.name, connectionName: deepseek.name, config,
-    usage: { input: 2600, output: 320, cachedInput: 2100, elapsedMs: 5400, generationMs: 4700, firstTokenMs: 700, firstOutputMs: 650 }
+    usage: { input: 2600, output: 320, cachedInput: 2100, requests: 2, elapsedMs: 5400, generationMs: 4700, firstTokenMs: 700, firstOutputMs: 650 }
   };
   const weeklyBranch = { id: uuid(), name: '主线', leafId: weeklyAnswer.id, originId: null, parentBranchId: null, config, draft: '', draftAttachments: [], scrollTop: 0, updated: scheduledNoon(1) };
   const weekly = { id: uuid(), title: '把调研整理成周报', manualTitle: true, titleState: 'done', created: scheduledNoon(1), updated: scheduledNoon(1), activeBranchId: weeklyBranch.id, branches: [weeklyBranch], messages: [weeklyQuestion, weeklyAnswer] };
