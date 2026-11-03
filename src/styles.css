@@ -3346,3 +3346,14 @@ input[type="range"] {
   color: var(--muted);
   font-size: 11px;
 }
+
+/* 大纲栏底部的分支用量：跟在分支名后面，一行放不下就省略，别把面板撑宽。 */
+.outline-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}

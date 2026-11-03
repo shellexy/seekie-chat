@@ -1,5 +1,5 @@
 import { BookOpen, GitBranch, List } from 'lucide-react';
-import { firstLine } from './domain';
+import { firstLine, formatTokens, usageTotals } from './domain';
 import type { Message } from './types';
 
 // The right hand outline: one entry per message in the current branch, with the real turn number
@@ -8,6 +8,7 @@ export default function OutlinePanel({ width, messages, turnNumbers, activeMessa
   width: number; messages: Message[]; turnNumbers: Map<string, number>; activeMessage: string; branchName?: string;
   onResizeStart: (event: React.MouseEvent) => void; onJump: (id: string) => void;
 }) {
+  const totals = usageTotals(messages);
   return <>
     <div className="resize-handle outline-resize" onMouseDown={onResizeStart}/>
     <aside className="outline" style={{ width }}>
@@ -19,6 +20,13 @@ export default function OutlinePanel({ width, messages, turnNumbers, activeMessa
         </button>) : <div className="outline-empty"><BookOpen size={25}/><p>思路，清晰可见</p><small>对话开始后，问答大纲会显示在这里。</small></div>}
       </div>
       <div className="outline-footer"><GitBranch size={14}/>{branchName || '每个分支都有自己的大纲'}</div>
+      {/* 用量放在最底部、分支名之后：它是「这一支花了多少」，和整块面板一样按分支计。
+          没有任何 usage（新对话、全部失败）时整行不出现，别在空对话里挂一串 0。 */}
+      {totals.answers > 0 && <div className="outline-usage" title={`本分支 ${totals.answers} 次回答累计。输入按每次请求的上下文计，多轮工具调用会重复计费，所以它通常大于对话本身的长度。${totals.estimated ? `\n其中 ${totals.estimated} 条是客户端估算值（服务未上报用量）。` : ''}`}>
+        <span>输入 {formatTokens(totals.input)}</span>
+        <span>输出 {formatTokens(totals.output)}</span>
+        {totals.cachedInput > 0 && <span>缓存 {formatTokens(totals.cachedInput)}</span>}
+      </div>}
     </aside>
   </>;
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS, usageTotals, formatTokens } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -632,6 +632,31 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.deepEqual(settingsProblems(next), []);
   // 已经有默认模型时不覆盖用户的选择。
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
+});
+
+test('usageTotals adds up a branch and keeps cached input separate from input', () => {
+  const state = initialState(), c = createConversation(state.settings);
+  const first = addMessage(c, c.branches[0], 'assistant', '回答一'); first.status = 'complete';
+  first.usage = { input: 1200, output: 300, cachedInput: 800 };
+  const second = addMessage(c, c.branches[0], 'assistant', '回答二'); second.status = 'complete';
+  second.usage = { input: 2000, output: 500 };
+  // 没有 usage 的消息（失败、中断、用户消息）不该被算成一次回答。
+  const failed = addMessage(c, c.branches[0], 'assistant', ''); failed.status = 'error';
+  assert.deepEqual(usageTotals(c.messages), { answers: 2, input: 3200, output: 800, cachedInput: 800, estimated: 0 });
+  second.usage.estimated = true;
+  assert.equal(usageTotals(c.messages).estimated, 1);
+  // cachedInput 是输入的子集：只有一条上报时，合计仍是 800，不是 800+0 之外的东西。
+  assert.equal(usageTotals(c.messages).cachedInput, 800);
+});
+
+test('formatTokens keeps small counts exact and compresses the rest', () => {
+  assert.equal(formatTokens(0), '0');
+  assert.equal(formatTokens(999), '999');
+  assert.equal(formatTokens(1000), '1K');
+  assert.equal(formatTokens(2480), '2.5K');
+  assert.equal(formatTokens(12_345), '12K');
+  assert.equal(formatTokens(999_999), '1000K');
+  assert.equal(formatTokens(1_200_000), '1.2M');
 });
 
 test('outputBudget narrows max output to whatever the input left over', () => {

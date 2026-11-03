@@ -648,6 +648,32 @@ export function estimateToolTokens(message: Message): number {
 /**
  * 只用文本估一次 token，切块时要用。和 estimateTokens 同一套字符模型。
  */
+/**
+ * 当前分支累计的 token 用量。只累加有 usage 的回答；多轮工具调用时 message.usage 已经是
+ * 这条回答所有请求的总和，所以这里求和就是「这条对话实际发出去多少」，不重复也不遗漏。
+ * cachedInput 是输入的子集，单独求和、不与 input 相加。
+ */
+export function usageTotals(messages: Message[]) {
+  const totals = { answers: 0, input: 0, output: 0, cachedInput: 0, estimated: 0 };
+  for (const message of messages) {
+    const usage = message.usage;
+    if (!usage) continue;
+    totals.answers++;
+    totals.input += usage.input;
+    totals.output += usage.output;
+    totals.cachedInput += usage.cachedInput ?? 0;
+    if (usage.estimated) totals.estimated++;
+  }
+  return totals;
+}
+/** 统计里用的紧凑数字：一万以下原样，往上取整到 K/M。 */
+export function formatTokens(value: number) {
+  if (value < 1000) return String(value);
+  // 一万以下留一位小数：输出往往就一两千 token，直接取整会把 2480 显示成「2K」。
+  if (value < 10_000) return `${(value / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+  if (value < 1_000_000) return `${Math.round(value / 1000)}K`;
+  return `${(value / 1_000_000).toFixed(1)}M`;
+}
 export function estimateTextTokens(text: string) {
   const counter = tokenCounter();
   counter.addText(text);
