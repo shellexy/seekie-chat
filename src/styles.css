@@ -2759,6 +2759,9 @@ input[type="range"] {
 .settings-content.connections
   .field:has(> input:not([type="checkbox"]):not([type="range"])),
 .settings-content.connections .field:has(> select),
+/* 输入框与行内按钮一起放进 .field-inline 时，:has(> input) 匹配不到，要单独列一条，
+   否则它会退回「标签在上、控件在下」的默认布局。 */
+.settings-content.connections .field:has(> .field-inline),
 .settings-content.prompts
   .field:has(> input:not([type="checkbox"]):not([type="range"])),
 .settings-content.prompts .field:has(> select) {
@@ -2771,6 +2774,7 @@ input[type="range"] {
   .field
   > input:not([type="checkbox"]):not([type="range"]),
 .settings-content.connections .field > select,
+.settings-content.connections .field > .field-inline,
 .settings-content.prompts
   .field
   > input:not([type="checkbox"]):not([type="range"]),
