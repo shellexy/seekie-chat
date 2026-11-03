@@ -3501,7 +3501,24 @@ input[type="range"] {
 .usage-scope {
   margin-top: 2px;
 }
-/* 三个选项的下拉框不需要占满整个卡片宽度。 */
-.settings-content .usage-range {
-  max-width: 220px;
+/* 时间范围用标签按钮而不是下拉：切换是这一页最频繁的操作。 */
+.usage-range {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 14px;
+}
+.usage-range button {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.usage-range button.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
 }

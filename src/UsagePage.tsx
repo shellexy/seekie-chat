@@ -19,7 +19,10 @@ export default function UsagePage({ conversations, models }: { conversations: Co
   return <>
     <h2>用量</h2>
     <div className="settings-card"><h3>总览</h3>
-      <label className="field usage-range">时间范围<select value={range} onChange={event => setRange(event.target.value as typeof range)}>{RANGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      {/* 四个范围用标签按钮：切换是这一页最频繁的操作，下拉要点两次。 */}
+      <div className="usage-range" role="group" aria-label="时间范围">
+        {RANGES.map(([value, label]) => <button key={value} className={range === value ? 'active' : ''} aria-pressed={range === value} onClick={() => setRange(value)}>{label}</button>)}
+      </div>
       {report.answers ? <>
         <div className="usage-summary">
           <div><strong>{report.answers}</strong><span>回答</span></div>

@@ -886,15 +886,18 @@ try {
   const uploadButton = page.getByRole('button', { name: '添加图片或附件', exact: true });
   assert.equal((await uploadButton.innerText()).trim(), '');
   assert.equal(await page.locator('.composer-bottom input[type=file]').count(), 1);
-  const chatMenu = page.locator('.conversation-item').first();
+  // 按 data-id 定位：会话按最后消息时间排序，后台的自动标题一落地就可能重排，靠「第一个」
+  // 会偶发拿到另一条会话（表现为重命名断言莫名其妙失败）。
+  const renameId = await page.evaluate(async () => (await window.seekie.load()).selectedId);
+  const chatMenu = page.locator(`.conversation-item[data-id="${renameId}"]`);
   await chatMenu.getByTitle('会话操作').click();
   await page.getByRole('menuitem', { name: '重命名', exact: true }).click();
   const renameDialog = page.getByRole('dialog', { name: '重命名对话' });
   await renameDialog.getByLabel('对话标题').fill('重命名交互检查');
   await renameDialog.getByRole('button', { name: '保存', exact: true }).click();
   await renameDialog.waitFor({ state: 'hidden' });
-  assert.equal(await page.locator('.conversation-item').first().locator('.conversation-select').innerText(), '重命名交互检查');
-  await page.locator('.conversation-item').first().getByTitle('会话操作').click();
+  assert.equal(await page.locator(`.conversation-item[data-id="${renameId}"] .conversation-select`).innerText(), '重命名交互检查');
+  await page.locator(`.conversation-item[data-id="${renameId}"]`).getByTitle('会话操作').click();
   await page.locator('.conversation-popover').waitFor();
   await page.locator('.sidebar-label').click();
   await page.locator('.conversation-popover').waitFor({ state: 'hidden' });
@@ -1248,7 +1251,7 @@ try {
   await page.evaluate(async payload => { const s = await window.seekie.load(); s.conversations = s.conversations.filter(c => !payload.drop.includes(c.id)); s.selectedId = payload.keep; s.settings.useRecentModel = true; await window.seekie.save(s); window.dispatchEvent(new Event('seekie-reload')); }, { keep: resume, drop: throwaway });
   await waitFor(page, async id => { const s = await window.seekie.load(); return s.selectedId === id && s.conversations.length === 4; }, resume);
   // Right click menus, and the timestamp shown on user messages.
-  await page.locator('.conversation-item').first().click({ button: 'right' });
+  await page.locator(`.conversation-item[data-id="${resume}"]`).click({ button: 'right' });
   const listMenu = page.locator('.conversation-popover');
   await listMenu.waitFor();
   const listMenuText = await listMenu.innerText();
