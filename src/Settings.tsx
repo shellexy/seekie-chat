@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ExternalLink, ListPlus, Plus, Power, PowerOff, RefreshCw, RotateCcw, Trash2, Wifi, X } from 'lucide-react';
 import { api } from './api';
 import { settingsProblems } from './validation';
 import { DEEPSEEK_PREFERRED_EFFORT, defaultModelEfforts, EXTERNAL_SEARCH_LABELS, EXTERNAL_SEARCH_MODES, externalSearchAvailable, freeModelSettings, resetBuiltInPresets, resolveDefaultWebFetch, SEARCH_MODE_LABELS, SEARCH_MODES, shouldDefaultVisionAndTools, uid, WEB_FETCH_LABELS, WEB_FETCH_MODES } from './domain';
@@ -237,17 +237,26 @@ export default function Settings({ settings, onSave, onClose, toast, windowMaxim
     {tab === 'connections' && <><h2>模型服务</h2><p className="muted">选择接口协议，添加模型 ID。兼容服务的能力需要按实际情况配置。</p><div className="preset-row">{templates.map((t, i) => <button key={t.name} onClick={() => addConnection(i)}><Plus size={14}/>{t.name}</button>)}</div>
       {!!draft.connections.length && <div className="connection-tabs">{draft.connections.map(c => <button key={c.id} className={`${selected === c.id ? 'active' : ''}${c.disabled ? ' stopped' : ''}`} title={c.disabled ? `${c.name}（已禁用）` : c.name} onClick={() => { setSelected(c.id); setFound([]); setHeadersEditing(false); }}>{c.name}{c.disabled && <span className="stopped-dot"/>}</button>)}</div>}
       {connection ? <><div className="settings-card"><div className="card-heading"><h3>连接配置</h3><div className="card-actions"><button className="icon-button danger" title="删除连接及其模型" onClick={() => { if (!confirm('删除该连接及其模型？已有消息仍保留。')) return; change({ connections: draft.connections.filter(c => c.id !== selected), models: draft.models.filter(m => m.connectionId !== selected) }); setSelected(draft.connections.find(c => c.id !== selected)?.id || ''); }}><Trash2 size={16}/></button><button className={`icon-button connection-toggle${connection?.disabled ? ' on' : ''}`} aria-label={connection?.disabled ? '启用连接' : '禁用连接'} title={connection?.disabled ? '启用该连接，其模型重新出现在模型选择器中' : '禁用该连接：配置与模型保留，但不再参与模型选择'} onClick={() => updateConnection({ disabled: !connection?.disabled })}>{connection?.disabled ? <PowerOff size={16}/> : <Power size={16}/>}</button></div></div>
-      <div className="balance-row">
-        {balance?.text ? <strong title={balance.detail}>{balance.text}</strong> : <strong className="muted">{balance?.error ? '未获取到余额' : '余额未知'}</strong>}
-        <button className="text-button" disabled={balanceBusy} onClick={() => void refreshBalance()}>{balanceBusy ? '查询中…' : '刷新余额'}</button>
-        {balance && <small className="muted" title={balance.detail}>上次查询 {new Date(balance.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</small>}
-        {balance?.error && <small className="balance-error" title={balance.error}>{balance.text ? '本次刷新失败' : balance.error.slice(0, 60)}</small>}
-      </div>
       <div className="form-grid"><label className="field">连接名称<input value={connection.name} onChange={e => updateConnection({ name: e.target.value })}/></label><label className="field">接口协议<select value={connection.protocol} onChange={e => updateConnection({ protocol: e.target.value as Connection['protocol'] })}><option value="responses">OpenAI Responses</option><option value="chat">OpenAI Chat Completions</option><option value="anthropic">Anthropic Messages</option><option value="gemini">Gemini GenerateContent</option></select></label></div>
       {connection.protocol === 'chat' && <label className="toggle-row">GPT 模型自动使用 Responses 协议<input type="checkbox" checked={connection.responsesForGpt === true} onChange={e => updateConnection({ responsesForGpt: e.target.checked })}/></label>}
       {connection.protocol === 'chat' && <p className="muted" style={{ marginTop: -12, marginBottom: 16 }}>模型 ID 形如 <code>gpt-6-astra</code>、<code>gpt-6-luna</code>、<code>gpt-6.1-sol</code> 的模型改用 Responses 协议，以支持推理摘要等新特性；<code>gpt-oss</code> 等不匹配的模型仍走 Chat Completions。</p>}
       <label className="field">Base URL<input value={connection.baseUrl} onChange={e => updateConnection({ baseUrl: e.target.value })} placeholder="https://api.openai.com/v1"/><small>使用服务根地址或包含 /v1、/v1beta 的地址，不包含具体端点。Gemini 官方地址为 https://generativelanguage.googleapis.com/v1beta。</small></label>
-      <label className="field">API Key<input type="password" autoComplete="off" value={connection.apiKey === saved ? '' : connection.apiKey} placeholder={connection.apiKey === saved ? '已设置，留空保持；输入新值替换' : '可选：本地服务可以不需要密钥'} onChange={e => updateConnection({ apiKey: e.target.value })}/>{connection.apiKey === saved && <button className="text-button" onClick={() => updateConnection({ apiKey: '' })}>清除已保存的密钥</button>}<small>请求将发送到 {connection.baseUrl || '上述地址'}。</small></label>
+      {/* 清除按钮原来在输入框下方、紧贴输入区域，点输入框时容易误触；挪到输入框右侧。
+          用 htmlFor 而不是把输入框包进 label：button 属于 label 不该包含的交互元素。 */}
+      <div className="field"><label htmlFor={`apikey-${connection.id}`}>API Key</label>
+        <span className="field-inline">
+          <input id={`apikey-${connection.id}`} type="password" autoComplete="off" value={connection.apiKey === saved ? '' : connection.apiKey} placeholder={connection.apiKey === saved ? '已设置，留空保持；输入新值替换' : '可选：本地服务可以不需要密钥'} onChange={e => updateConnection({ apiKey: e.target.value })}/>
+          {connection.apiKey === saved && <button className="icon-button" title="清除已保存的密钥" aria-label="清除已保存的密钥" onClick={() => { if (!confirm('清除已保存的 API Key？清空后需要重新填写才能继续使用这个连接。')) return; updateConnection({ apiKey: '' }); }}><X size={15}/></button>}
+        </span>
+        <small>请求将发送到 {connection.baseUrl || '上述地址'}。</small>
+      </div>
+      <div className="balance-row">
+        <span>{balance?.text ? <span title={balance.detail}>余额 {balance.text}</span> : <span className="muted">{balance?.error ? '未获取到余额' : '余额未知'}</span>}
+          {balance && <span className="muted"> · 上次查询 {new Date(balance.at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</span>}
+          {balance?.error && <span className="balance-error" title={balance.error}>{balance.text ? ' · 本次刷新失败' : ` · ${balance.error.slice(0, 60)}`}</span>}
+        </span>
+        <button className="icon-button" title={balanceBusy ? '正在查询余额' : '刷新余额'} aria-label="刷新余额" disabled={balanceBusy} onClick={() => void refreshBalance()}><RefreshCw size={14} className={balanceBusy ? 'spin' : undefined}/></button>
+      </div>
       <div className="form-grid"><label className="field">超时（秒）<input type="number" min="10" max="600" value={connection.timeout} onChange={e => updateConnection({ timeout: Number(e.target.value) })}/></label><label className="field">HTTP / HTTPS 代理<input placeholder="http://127.0.0.1:7890" value={connection.proxy} onChange={e => updateConnection({ proxy: e.target.value })}/></label></div>
       <details><summary>自定义请求头</summary><p className="muted">请求头中的值与 API Key 一起保存在数据目录。</p><textarea value={headersEditing ? headersText : JSON.stringify(connection.headers, null, 2)} onChange={e => { setHeadersText(e.target.value); setHeadersEditing(true); }}/></details>
       <button disabled={testing} onClick={async () => { setTesting(true); try { const models = await api.test(connection); setFound(models); setPicked(new Set()); setFoundQuery(''); setPicker(true); toast(`连接成功，获取 ${models.length} 个模型`); } catch (e) { toast('无法获取模型列表：' + String(e)); } finally { setTesting(false); } }}><Wifi size={15}/>{testing ? '测试中…' : '测试连接 / 获取模型'}</button>

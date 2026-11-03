@@ -3358,19 +3358,40 @@ input[type="range"] {
   font-variant-numeric: tabular-nums;
 }
 
-/* 连接卡片里的余额行：只有按「刷新余额」才去查，所以把上次查询时间一起摆出来。 */
+/* 连接卡片里的余额行：跟在 API Key 下面一行，字级与卡片里其他说明文字一致（不额外强调），
+   刷新按钮用图标，省出一行宽度。只有按刷新才去查，所以把上次查询时间一起摆出来。 */
 .balance-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin: 2px 0 10px;
-  font-size: 12px;
+  gap: 4px;
+  margin: -9px 0 17px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.7;
 }
-.balance-row strong {
-  font-size: 15px;
+.balance-row > span {
   font-variant-numeric: tabular-nums;
+}
+.balance-row .icon-button {
+  padding: 4px;
+}
+.balance-row .muted {
+  color: var(--muted);
 }
 .balance-error {
   color: #b35247;
+}
+/* 输入框 + 行内按钮：按钮贴着输入框右边，不再占一整行。 */
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-inline input {
+  flex: 1;
+  min-width: 0;
+}
+@keyframes balance-spin { to { transform: rotate(360deg); } }
+.balance-row .spin {
+  animation: balance-spin 1s linear infinite;
 }
