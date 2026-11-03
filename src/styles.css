@@ -3399,3 +3399,90 @@ input[type="range"] {
 .balance-row .spin {
   animation: balance-spin 1s linear infinite;
 }
+
+/* 用量页：四个大数字 + 两张紧凑表。数字用等宽数字（tabular-nums），列表右对齐才好扫。 */
+.usage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.usage-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-summary strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-summary span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.usage-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 0.7fr));
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.usage-row:last-child {
+  border-bottom: 0;
+}
+.usage-row > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-row > span:not(:first-child) {
+  text-align: right;
+  color: var(--muted);
+}
+.usage-row.usage-head {
+  color: var(--muted);
+  font-size: 11px;
+  border-bottom: 1px solid var(--line);
+}
+.usage-row.usage-head > span:not(:first-child) {
+  color: var(--muted);
+}
+.usage-days {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usage-day {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.usage-day i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.55;
+}
+.usage-day b {
+  font-weight: 400;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.usage-scope {
+  margin-top: 2px;
+}
+/* 三个选项的下拉框不需要占满整个卡片宽度。 */
+.settings-content .usage-range {
+  max-width: 220px;
+}

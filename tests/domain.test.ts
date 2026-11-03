@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS, usageTotals, formatTokens } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS, usageTotals, formatTokens, buildUsageReport } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -632,6 +632,36 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.deepEqual(settingsProblems(next), []);
   // 已经有默认模型时不覆盖用户的选择。
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
+});
+
+test('buildUsageReport groups by model and by day, and keeps background usage apart', () => {
+  const state = initialState(), c = createConversation(state.settings);
+  const now = Date.UTC(2026, 10, 3, 12);
+  const push = (modelId: string, modelName: string, created: number, input: number, output: number, extra: { cachedInput?: number; estimated?: boolean } = {}) => {
+    const m = addMessage(c, c.branches[0], 'assistant', '回答'); m.status = 'complete';
+    m.modelId = modelId; m.modelName = modelName; m.created = created;
+    m.usage = { input, output, ...(extra.cachedInput ? { cachedInput: extra.cachedInput } : {}), ...(extra.estimated ? { estimated: true } : {}) };
+  };
+  push('a', '模型 A', now, 1000, 100, { cachedInput: 400 });
+  push('a', '模型 A', now - 86_400_000, 2000, 200);
+  push('b', '模型 B', now - 2 * 86_400_000, 500, 50, { estimated: true });
+  c.backgroundUsage = [{ kind: 'title', modelId: 'a', usage: { input: 30, output: 5 }, created: now }];
+  const report = buildUsageReport([c], { now });
+  assert.equal(report.answers, 3);
+  assert.deepEqual({ input: report.input, output: report.output, cachedInput: report.cachedInput }, { input: 3500, output: 350, cachedInput: 400 });
+  assert.equal(report.estimated, 1);
+  // 后台请求单独一档：混进总输入会让「逐条相加」对不上。
+  assert.deepEqual(report.background, { count: 1, input: 30, output: 5 });
+  assert.equal(report.byModel.length, 2);
+  assert.equal(report.byModel[0].modelName, '模型 A');
+  assert.equal(report.byModel[0].input, 3000);
+  // 按天分组，日期用本地时区（跨时区时同一个 UTC 时刻可能落在不同的「天」上）。
+  assert.equal(report.byDay.length, 3);
+  assert.deepEqual(report.byDay.map(day => day.input), [1000, 2000, 500]);
+  // 时间范围把更早的记录挡掉。
+  const recent = buildUsageReport([c], { now, days: 1 });
+  assert.equal(recent.answers, 2);
+  assert.equal(recent.byDay.length, 2);
 });
 
 test('usageTotals adds up a branch and keeps cached input separate from input', () => {

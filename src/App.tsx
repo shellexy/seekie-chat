@@ -749,7 +749,7 @@ await commit(s => { const { c, b } = find(s); const next: Branch = { ...structur
       archiveCount={archiveCount} showSettings={showSettings} runningIds={runningIds} openMenuId={conversationMenu}
       selecting={selecting} selectedIds={selectedIds} allSelected={selectedIds.length > 0 && grouped.length > 0 && grouped.every(c => selectedIds.includes(c.id))}
       onQueryChange={setQuery} {...sidebarHandlers}/>}
-    {showSettings ? <Settings settings={state.settings} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
+    {showSettings ? <Settings settings={state.settings} conversations={state.conversations} onClose={() => setShowSettings(false)} onSave={settings => saveSettings(settings)} toast={toast} windowMaximized={windowMaximized} onWindowMaximized={setWindowMaximized}/> : <main className="workspace"><header className="chat-header">
         <div className="header-start">
               {!left && <button className="icon-button" title="展开侧栏" onClick={() => setLeft(true)}>
                 <PanelLeftOpen size={20}/>

@@ -649,6 +649,50 @@ export function estimateToolTokens(message: Message): number {
  * 只用文本估一次 token，切块时要用。和 estimateTokens 同一套字符模型。
  */
 /**
+ * 设置页「用量」用的汇总。只从当前保留的会话里算（方案 A）：删掉会话或分支，那部分就不再
+ * 计入——它回答的是「库里还留着多少」，不是「一共花过多少」。
+ *
+ * 后台请求（标题、压缩）单独累计：它们不挂在某条消息上，混进「输入/输出」会让总数与逐条相加
+ * 对不上，用户只会以为统计算出错。
+ */
+export type UsageReport = {
+  answers: number; input: number; output: number; cachedInput: number; estimated: number;
+  background: { count: number; input: number; output: number };
+  byModel: { modelId: string; modelName: string; connectionName: string; answers: number; input: number; output: number; cachedInput: number; estimated: number }[];
+  byDay: { day: string; answers: number; input: number; output: number }[];
+};
+export function buildUsageReport(conversations: Conversation[], options: { days?: number; now?: number } = {}): UsageReport {
+  const now = options.now ?? Date.now();
+  const since = options.days ? now - options.days * 86_400_000 : -Infinity;
+  const report: UsageReport = { answers: 0, input: 0, output: 0, cachedInput: 0, estimated: 0, background: { count: 0, input: 0, output: 0 }, byModel: [], byDay: [] };
+  const models = new Map<string, UsageReport['byModel'][number]>(), days = new Map<string, UsageReport['byDay'][number]>();
+  const dayKey = (timestamp: number) => { const date = new Date(timestamp); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
+  for (const conversation of conversations) {
+    for (const message of conversation.messages) {
+      const usage = message.usage;
+      if (!usage || message.created < since) continue;
+      report.answers++; report.input += usage.input; report.output += usage.output; report.cachedInput += usage.cachedInput ?? 0;
+      if (usage.estimated) report.estimated++;
+      const modelId = message.modelId || '';
+      const model = models.get(modelId) ?? { modelId, modelName: message.modelName || '', connectionName: message.connectionName || '', answers: 0, input: 0, output: 0, cachedInput: 0, estimated: 0 };
+      model.answers++; model.input += usage.input; model.output += usage.output; model.cachedInput += usage.cachedInput ?? 0;
+      if (usage.estimated) model.estimated++;
+      models.set(modelId, model);
+      const day = dayKey(message.created);
+      const bucket = days.get(day) ?? { day, answers: 0, input: 0, output: 0 };
+      bucket.answers++; bucket.input += usage.input; bucket.output += usage.output;
+      days.set(day, bucket);
+    }
+    for (const entry of conversation.backgroundUsage ?? []) {
+      if (entry.created < since) continue;
+      report.background.count++; report.background.input += entry.usage.input; report.background.output += entry.usage.output;
+    }
+  }
+  report.byModel = [...models.values()].sort((a, b) => (b.input + b.output) - (a.input + a.output) || a.modelName.localeCompare(b.modelName));
+  report.byDay = [...days.values()].sort((a, b) => b.day.localeCompare(a.day));
+  return report;
+}
+/**
  * 当前分支累计的 token 用量。只累加有 usage 的回答；多轮工具调用时 message.usage 已经是
  * 这条回答所有请求的总和，所以这里求和就是「这条对话实际发出去多少」，不重复也不遗漏。
  * cachedInput 是输入的子集，单独求和、不与 input 相加。
