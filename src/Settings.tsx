@@ -27,7 +27,7 @@ const templates = [
   { name: '自定义兼容服务', protocol: 'chat', baseUrl: 'http://localhost:8000/v1' }
 ] as const;
 // 设置项与顶栏里显示的名字放在一处：顶栏显示当前在哪一项，两边不会写出两套名字。
-const tabs = [['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私'], ['token-usage', '用量'], ['about', '关于']] as const;
+const tabs = [['connections', '模型服务'], ['roles', '模型与上下文'], ['prompts', '系统提示词库'], ['search', '联网搜索'], ['appearance', '外观'], ['data', '数据与隐私'], ['token-usage', 'Token 用量'], ['about', '关于']] as const;
 export default function Settings({ settings, conversations, onSave, onClose, toast, windowMaximized, onWindowMaximized }: { settings: SettingsType; conversations: Conversation[]; onSave: (s: SettingsType) => Promise<void>; onClose: () => void; toast: (s: string) => void; windowMaximized: boolean; onWindowMaximized: (maximized: boolean) => void }) {
   const [draft, setDraft] = useState(() => structuredClone(settings));
   const [tab, setTab] = useState('connections'), [selected, setSelected] = useState(settings.connections[0]?.id || '');

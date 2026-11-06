@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Download, FileJson, GitBranch, Globe2, ImagePlus, List, ListChecks, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, Sparkles, Paperclip, Square, Trash2, X } from 'lucide-react';
 import { api, isDesktop } from './api';
 import { applyMessagePatch, keepNewerStreaming, type MessagePatch } from './merge';
-import { addMessage, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, contextMessages, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, estimateTokens, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, nextRecentModels, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
+import { addMessage, adoptLocallyRenamed, answerMetaExtras, applyBodies, applyStateChanges, assistantBody, branchTree, contextMessages, createConversation, deepseekWebSearchKey, editMessage, editableBodies, effectiveProtocol, estimateTokens, fallbackModelId, firstLine, fork, freeModelSettings, initialState, messageDateTime, messageModelLabel, modelLabel, nextRecentModels, normalizeSettings, ollamaWebSearchKey, pathTo, rememberRecentModel, removeBranch, resolveSearch, rolePresetName, selectionChanges, summaryHasToolResults, uid, uniqueBranchName } from './domain';
 import type { AppState, AssistantSegment, Attachment, Branch, Conversation, Message, Model, RequestRecord, Settings as SettingsType } from './types';
 import Markdown from './Markdown';
 import Settings from './Settings';
@@ -119,7 +119,8 @@ export default function App() {
     if (next) { stateRef.current = next; setState(next); }
   }
   function receive(server: AppState) {
-    if (!pendingWrites.current) { apply(server); return; }
+    // 整份状态可能是在这次改名落地之前生成的，见 adoptLocallyRenamed。
+    if (!pendingWrites.current) { apply(adoptLocallyRenamed(stateRef.current, server)); return; }
     // Preserve optimistic navigation/config while receiving authoritative generation updates.
     const local = structuredClone(stateRef.current);
     // Settings carry authoritative values (secureStorage, credential policy) that the renderer

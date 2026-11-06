@@ -31,8 +31,9 @@ jobs:
             args: --win
           - os: macos-latest
             platform: mac
-            # runner 本身是 arm64，x64 一起出 Intel Mac 才能用：没有原生运行时依赖，交叉打包是安全的。
-            args: --mac --x64 --arm64
+            # 只出 arm64：runner 本身就是 arm64，交叉出 x64 会多跑一遍完整打包，而 arm64 runner
+            # 的排队本来就紧张。Intel Mac 需要时再单独加一个 x64 job。
+            args: --mac --arm64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

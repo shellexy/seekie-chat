@@ -4,20 +4,25 @@ import type { Conversation, Model } from './types';
 
 // 只从当前保留的会话里算（方案 A）。页面必须把这件事说在明处：它不是账本，删掉的会话不该
 // 悄悄消失在「历史花费」里而不解释。
-const RANGES = [['1', '今天'], ['7', '近 7 天'], ['30', '近 30 天'], ['all', '全部']] as const;
+const RANGES = [['today', '今天'], ['yesterday', '昨天'], ['7', '近 7 天'], ['30', '近 30 天'], ['all', '全部']] as const;
 
 export default function UsagePage({ conversations, models }: { conversations: Conversation[]; models: Model[] }) {
-  const [range, setRange] = useState<'1' | '7' | '30' | 'all'>('30');
+  const [range, setRange] = useState<(typeof RANGES)[number][0]>('30');
   const report = useMemo(() => {
     if (range === 'all') return buildUsageReport(conversations);
-    if (range === '1') { const start = new Date(); start.setHours(0, 0, 0, 0); return buildUsageReport(conversations, { since: start.getTime() }); }
+    if (range === 'today' || range === 'yesterday') {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      if (range === 'today') return buildUsageReport(conversations, { since: start.getTime() });
+      const yesterday = new Date(start); yesterday.setDate(yesterday.getDate() - 1);
+      return buildUsageReport(conversations, { since: yesterday.getTime(), until: start.getTime() });
+    }
     return buildUsageReport(conversations, { days: Number(range) });
   }, [conversations, range]);
   const nameOf = (modelId: string, fallback: string) => models.find(model => model.id === modelId)?.name || fallback || '未知模型';
   const days = report.byDay.slice(0, 14);
   const busiest = Math.max(1, ...days.map(day => day.input + day.output));
   return <>
-    <h2>用量</h2>
+    <h2>Token 用量</h2>
     <div className="settings-card"><h3>总览</h3>
       {/* 四个范围用标签按钮：切换是这一页最频繁的操作，下拉要点两次。 */}
       <div className="usage-range" role="group" aria-label="时间范围">

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Connection, Model } from '../src/types';
 import { nextRecentModels, uid } from '../src/domain';
 import type { Conversation, Message, Settings } from '../src/types';
-import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS, usageTotals, formatTokens, buildUsageReport } from '../src/domain';
+import { addMessage, appendAssistantSegment, appendReasoningDuration, applyBodies, applyStateChanges, assistantBody, branchTree, defaultModelEffort, editableBodies, compressionCut, contextMessages, connectionEnabled, conversationGroups, createConversation, deepseekWebSearchKey, defaultModelEfforts, defaultPromptPresets, editMessage, effectiveProtocol, enabledModels, externalSearchAvailable, estimateTokens, estimateToolTokens, fallbackModelId, formatToolOutput, fork, freeModelSettings, initialState, MAX_RECENT_MODELS, messageDateTime, messageModelLabel, newChatModelId, normalizeSettings, rememberRecentModel, resetBuiltInPresets, resolveSearch, resolveDefaultWebFetch, sameMessage, pathTo, removeBranch, selectionChanges, shouldDefaultVisionAndTools, summaryHasToolResults, toolQuery, uniqueBranchName, rawHasToolCalls, outputBudget, MIN_REPLY_TOKENS, usageTotals, formatTokens, buildUsageReport, adoptLocallyRenamed } from '../src/domain';
 import { settingsProblems } from '../src/validation';
 function fixture() {
   const c = createConversation(initialState().settings), b = c.branches[0];
@@ -634,6 +634,19 @@ test('the one-click free model adds the agreed connection and model and passes v
   assert.equal(freeModelSettings({ ...settings, defaultModel: 'existing' }).defaultModel, 'existing');
 });
 
+test('a stale broadcast cannot revert a rename the user just made', () => {
+  const state = initialState();
+  // 函数就地改「服务器那份」，所以每个用例都重新造一份。
+  const conversation = (title: string, manualTitle: boolean) => { const c = createConversation(state.settings); c.id = 'same-id'; c.title = title; c.manualTitle = manualTitle; c.titleState = manualTitle ? 'done' : 'idle'; return c; };
+  // 进来的那份是「标题生成完成时」的快照，比改名早：不能拿它盖掉手动标题。
+  const merged = adoptLocallyRenamed({ ...state, conversations: [conversation('重命名交互检查', true)] }, { ...state, conversations: [conversation('桌面聊天客户端设计', false)] });
+  assert.equal(merged.conversations[0].title, '重命名交互检查');
+  assert.equal(merged.conversations[0].manualTitle, true);
+  // 反过来要生效：本地不是手动标题时，主进程说了算。
+  const auto = adoptLocallyRenamed({ ...state, conversations: [conversation('旧标题', false)] }, { ...state, conversations: [conversation('桌面聊天客户端设计', false)] });
+  assert.equal(auto.conversations[0].title, '桌面聊天客户端设计');
+});
+
 test('buildUsageReport groups by model and by day, and keeps background usage apart', () => {
   const state = initialState(), c = createConversation(state.settings);
   const now = Date.UTC(2026, 10, 3, 12);
@@ -662,6 +675,11 @@ test('buildUsageReport groups by model and by day, and keeps background usage ap
   const recent = buildUsageReport([c], { now, days: 1 });
   assert.equal(recent.answers, 2);
   assert.equal(recent.byDay.length, 2);
+  // 「昨天」这种闭区间要能同时卡上下界：until 不含，今天那条与今天发生的后台请求都不能算进来。
+  const yesterday = buildUsageReport([c], { now, since: now - 86_400_000, until: now });
+  assert.equal(yesterday.answers, 1);
+  assert.equal(yesterday.input, 2000);
+  assert.deepEqual(yesterday.background, { count: 0, input: 0, output: 0 });
 });
 
 test('usageTotals adds up a branch and keeps cached input separate from input', () => {

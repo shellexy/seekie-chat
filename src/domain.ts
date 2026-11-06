@@ -431,6 +431,25 @@ export function addMessage(conversation: Conversation, branch: Branch, role: Mes
 // State broadcasts deep-clone the whole tree, so every message object gets a new identity on every
 // update. A message row can therefore only skip re-rendering when its rendered content is compared
 // by value; this is that comparison, kept pure so it can be tested for staleness directly.
+/**
+ * 整份状态广播可能是「这次改名落地之前」生成的：主进程里唯一会在后台改会话字段的是标题生成，
+ * 它若在改名的 IPC 到达之前完成，广播里带着旧标题，整份替换就会把界面上的新标题抹掉——库里
+ * 其实已经改好了，只是界面停在了旧值，而且后续没有任何广播来纠正它。
+ *
+ * 所以整份替换前只保护这一种情况：本地已经是手动标题、而进来那份还不是。别的字段（归档、
+ * 分支摘要…）都有对应的权威来源，不该在这里猜。
+ */
+export function adoptLocallyRenamed(local: AppState, incoming: AppState): AppState {
+  const byId = new Map(local.conversations.map(c => [c.id, c]));
+  for (const conversation of incoming.conversations) {
+    const current = byId.get(conversation.id);
+    if (!current?.manualTitle || conversation.manualTitle) continue;
+    conversation.title = current.title;
+    conversation.manualTitle = true;
+    conversation.titleState = current.titleState;
+  }
+  return incoming;
+}
 export function sameMessage(a: Message, b: Message): boolean {
   if (a === b) return true;
   return a.id === b.id && a.parentId === b.parentId && a.role === b.role && a.text === b.text && a.reasoning === b.reasoning
@@ -661,17 +680,18 @@ export type UsageReport = {
   byModel: { modelId: string; modelName: string; connectionName: string; answers: number; requests: number; input: number; output: number; cachedInput: number; estimated: number }[];
   byDay: { day: string; answers: number; input: number; output: number }[];
 };
-export function buildUsageReport(conversations: Conversation[], options: { days?: number; since?: number; now?: number } = {}): UsageReport {
+export function buildUsageReport(conversations: Conversation[], options: { days?: number; since?: number; until?: number; now?: number } = {}): UsageReport {
   const now = options.now ?? Date.now();
-  // since 优先于 days：「今天」是本地日历日的起点，不是「最近 24 小时」。
+  // since/until 优先于 days：「今天」「昨天」是本地日历日的边界，不是「最近 24 小时」。
   const since = options.since ?? (options.days ? now - options.days * 86_400_000 : -Infinity);
+  const until = options.until ?? Infinity;
   const report: UsageReport = { answers: 0, requests: 0, input: 0, output: 0, cachedInput: 0, estimated: 0, background: { count: 0, input: 0, output: 0 }, byModel: [], byDay: [] };
   const models = new Map<string, UsageReport['byModel'][number]>(), days = new Map<string, UsageReport['byDay'][number]>();
   const dayKey = (timestamp: number) => { const date = new Date(timestamp); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
   for (const conversation of conversations) {
     for (const message of conversation.messages) {
       const usage = message.usage;
-      if (!usage || message.created < since) continue;
+      if (!usage || message.created < since || message.created >= until) continue;
       // 老数据没有 requests：单轮回答本来就是 1 次，按 1 计；多轮的旧记录会少算，只能这样。
       const requests = usage.requests ?? 1;
       report.answers++; report.requests += requests; report.input += usage.input; report.output += usage.output; report.cachedInput += usage.cachedInput ?? 0;
@@ -687,7 +707,7 @@ export function buildUsageReport(conversations: Conversation[], options: { days?
       days.set(day, bucket);
     }
     for (const entry of conversation.backgroundUsage ?? []) {
-      if (entry.created < since) continue;
+      if (entry.created < since || entry.created >= until) continue;
       report.background.count++; report.background.input += entry.usage.input; report.background.output += entry.usage.output;
     }
   }
