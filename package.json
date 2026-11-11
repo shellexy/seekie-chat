@@ -35,7 +35,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.4.0",
     "defuddle": "^0.19.5",
-    "electron": "^45.0.0",
+    "electron": "^45.3.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "linkedom": "^0.18.13",

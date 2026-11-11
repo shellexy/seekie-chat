@@ -77,7 +77,7 @@
 - `package.json` 的 `dependencies` 只放**运行时真加载**的包（目前只有 `undici` 与 `@firecrawl/anydoc`）。electron-builder 会把 `dependencies` 整包复制进 asar，而渲染层用的库已经被 Vite 打进 `dist/`、`defuddle`/`linkedom` 已被 esbuild 内联进 `main.cjs`——把它们留在 `dependencies` 就是白带几十 MB。往 `scripts/build-electron.mjs` 的 `external` 里加包之前，先确认它同时在 `dependencies` 里。
 - `MessageRow` 用自定义 `propsEqual`（消息本身靠 `sameMessage` 逐字段比较），`Markdown` 用默认浅比较、只认 `text`。**新增 `Message` 字段或给消息行加 prop 时，必须同时加进 `sameMessage` / `propsEqual`**，否则那一行不会更新——表现是界面停在旧内容而不是报错，很难联想到 memo。
 - 若冒烟偶发失败在**悬停 / 浮层**类断言上，先重跑一次：本机 GPU 进程会反复崩，渲染节流会让这类断言抖动。
-- 发版时三处要一起改：`package.json` 的 `version`、README 顶部的版本徽章（静态徽章不会自动更新）、README 里出现版本号的路径示例。
+- 发版只要改 `package.json` 的 `version`：README 顶部的版本徽章已经换成 shields 的动态徽章（跟着最新 Release 走），不再需要手动同步。README 里的路径示例用的是 `<版本>` 占位，也不用改。
 - 推 `v*` 标签会触发 `.github/workflows/release.yml` 在 Linux/Windows/macOS 三个 runner 上打包并发布到 Releases；标签号必须与 `package.json` 的 `version` 一致，否则构建先失败。不想发版时用 workflow_dispatch 手动跑，只产 Actions Artifacts。
 
 ## 别做
